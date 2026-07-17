@@ -30,8 +30,17 @@ function JournalForm({ initial, onSave, onClose }) {
 
   const accountOptions = useMemo(() =>
     activeCoa
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map(a => ({ value: a.accountCode, label: `${a.accountCode} — ${a.accountName}` })),
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+      .map(a => ({
+        value: a.accountCode,
+        label: a.accountName,
+        sub:   `${a.accountGroup}${a.accountSubgroup ? ' › ' + a.accountSubgroup : ''}`,
+        group: a.accountType === 'ASSET'     ? '🏦 ASET'           :
+               a.accountType === 'LIABILITY' ? '💳 LIABILITAS'     :
+               a.accountType === 'EQUITY'    ? '💰 EKUITAS'        :
+               a.accountType === 'REVENUE'   ? '📈 PENDAPATAN'     :
+               a.accountType === 'EXPENSE'   ? '📉 BEBAN'          : a.accountType,
+      })),
     [activeCoa]
   )
 
@@ -105,10 +114,10 @@ function JournalForm({ initial, onSave, onClose }) {
           <table className="table-base">
             <thead>
               <tr>
-                <th style={{ width: 180 }}>Akun</th>
+                <th style={{ minWidth: 320 }}>Akun</th>
                 <th>Keterangan Baris</th>
-                <th style={{ width: 150 }} className="text-right">Debit (Rp)</th>
-                <th style={{ width: 150 }} className="text-right">Kredit (Rp)</th>
+                <th style={{ width: 160 }} className="text-right">Debit (Rp)</th>
+                <th style={{ width: 160 }} className="text-right">Kredit (Rp)</th>
                 <th style={{ width: 40 }}></th>
               </tr>
             </thead>

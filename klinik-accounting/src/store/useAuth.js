@@ -1,66 +1,60 @@
+/**
+ * useAuth.js — Authentication & user management store
+ * Users are stored in localStorage (internal app auth).
+ * Audit logs & app settings are synced to Supabase.
+ */
 import { useState, useEffect } from 'react'
-import { insertAuditLog, fetchAuditLogs, fetchUsers, upsertUser, fetchAppSettings, saveAppSettingRow } from '../lib/db'
+import { insertAuditLog, fetchAuditLogs, fetchAppSettings, saveAllAppSettings } from '../lib/db'
 
-// ── Persistence helpers ───────────────────────────────────────
-function persist(key, val) { try { localStorage.setItem(key, JSON.stringify(val)) } catch (_) { } }
+// ── localStorage helpers ──────────────────────────────────────
+function persist(key, val) { try { localStorage.setItem(key, JSON.stringify(val)) } catch (_) {} }
 function load(key, fallback) { try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fallback } catch (_) { return fallback } }
 
-// ── Default app settings ──────────────────────────────────────
+// ── Defaults ──────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
-  appName: 'Klinik Medis Antigravity',
-  companyName: 'PT Klinik Medis Antigravity',
-  address: 'Jl. Sudirman No. 1, Jakarta Pusat',
-  phone: '(021) 1234-5678',
-  email: 'info@antigravity-klinik.id',
-  website: 'www.antigravity-klinik.id',
-  npwp: '01.234.567.8-901.000',
-  footerText: 'Terima kasih telah mempercayakan kesehatan Anda kepada kami.',
-  logoUrl: '',
-  currency: 'IDR',
-  timezone: 'Asia/Jakarta',
+  appName:         'Klinik Medis Antigravity',
+  companyName:     'PT Klinik Medis Antigravity',
+  address:         'Jl. Sudirman No. 1, Jakarta Pusat',
+  phone:           '(021) 1234-5678',
+  email:           'info@antigravity-klinik.id',
+  website:         'www.antigravity-klinik.id',
+  npwp:            '01.234.567.8-901.000',
+  footerText:      'Terima kasih telah mempercayakan kesehatan Anda kepada kami.',
+  logoUrl:         '',
+  currency:        'IDR',
+  timezone:        'Asia/Jakarta',
   fiscalYearStart: '01-01',
-  invoicePrefix: 'INV',
-  receiptPrefix: 'RCP',
-  taxRate: 11,
+  invoicePrefix:   'INV',
+  receiptPrefix:   'RCP',
+  taxRate:         11,
 }
 
-// ── Default users ─────────────────────────────────────────────
 const DEFAULT_USERS = [
-  { id: 'u1', name: 'Administrator', username: 'admin', password: 'admin123', role: 'admin', email: 'admin@klinik.id', isActive: true, createdAt: '2024-01-01T00:00:00Z' },
-  { id: 'u2', name: 'Staf Keuangan', username: 'keuangan', password: 'keuangan123', role: 'keuangan', email: 'finance@klinik.id', isActive: true, createdAt: '2024-01-01T00:00:00Z' },
-  { id: 'u3', name: 'Staf Gudang', username: 'gudang', password: 'gudang123', role: 'gudang', email: 'gudang@klinik.id', isActive: true, createdAt: '2024-01-01T00:00:00Z' },
+  { id:'u1', name:'Administrator',  username:'admin',    password:'admin123',    role:'admin',    email:'admin@klinik.id',   isActive:true, createdAt:'2024-01-01T00:00:00Z' },
+  { id:'u2', name:'Staf Keuangan',  username:'keuangan', password:'keuangan123', role:'keuangan', email:'finance@klinik.id', isActive:true, createdAt:'2024-01-01T00:00:00Z' },
+  { id:'u3', name:'Staf Gudang',    username:'gudang',   password:'gudang123',   role:'gudang',   email:'gudang@klinik.id',  isActive:true, createdAt:'2024-01-01T00:00:00Z' },
 ]
 
-// ── Role labels ────────────────────────────────────────────────
-export const ROLE_LABELS = {
-  admin: 'Administrator',
-  keuangan: 'Staf Keuangan',
-  gudang: 'Staf Gudang',
-}
-export const ROLE_COLORS = {
-  admin: 'badge-blue',
-  keuangan: 'badge-green',
-  gudang: 'badge-yellow',
-}
-
-// ── Role access matrix ─────────────────────────────────────────
+// ── Role definitions ──────────────────────────────────────────
+export const ROLE_LABELS = { admin:'Administrator', keuangan:'Staf Keuangan', gudang:'Staf Gudang' }
+export const ROLE_COLORS = { admin:'badge-blue',    keuangan:'badge-green',   gudang:'badge-yellow' }
 export const ROLE_ACCESS = {
-  admin: ['dashboard', 'akuntansi', 'laporan', 'inventaris', 'billing', 'pengeluaran', 'pajak', 'cabang', 'pengaturan'],
-  keuangan: ['dashboard', 'akuntansi', 'laporan', 'inventaris', 'pengeluaran', 'pajak', 'cabang'],
-  gudang: ['dashboard', 'inventaris'],
+  admin:    ['dashboard','akuntansi','laporan','inventaris','billing','pengeluaran','pajak','cabang','pengaturan'],
+  keuangan: ['dashboard','akuntansi','laporan','inventaris','pengeluaran','pajak','cabang'],
+  gudang:   ['dashboard','inventaris'],
 }
 
-// ── Singleton auth state ──────────────────────────────────────
+// ── Singleton ─────────────────────────────────────────────────
 let _auth = null
 const _authListeners = new Set()
 
 function getAuth() {
   if (!_auth) {
     _auth = {
-      currentUser: load('currentUser', null),
-      users: load('authUsers', DEFAULT_USERS),
-      appSettings: load('appSettings', DEFAULT_SETTINGS),
-      auditLogs: load('auditLogs', []),
+      currentUser:  load('currentUser',  null),
+      users:        load('authUsers',    DEFAULT_USERS),
+      appSettings:  load('appSettings',  DEFAULT_SETTINGS),
+      auditLogs:    [],
       isInitialized: false,
     }
   }
@@ -71,87 +65,62 @@ function setAuth(updater) {
   const prev = getAuth()
   const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
   _auth = next
-  const storageKeys = { currentUser: 'currentUser', users: 'authUsers', appSettings: 'appSettings', auditLogs: 'auditLogs' }
-  Object.entries(storageKeys).forEach(([field, key]) => {
-    if (next[field] !== prev[field]) persist(key, next[field])
-  })
+  // Persist to localStorage
+  if (next.currentUser !== prev.currentUser) persist('currentUser', next.currentUser)
+  if (next.users       !== prev.users)       persist('authUsers',   next.users)
+  if (next.appSettings !== prev.appSettings) persist('appSettings', next.appSettings)
   _authListeners.forEach(fn => fn())
 }
 
-// ── Bootstrap Auth from Supabase ──────────────────────────────
-let _bootstrapAuthPromise = null
-export async function bootstrapAuth() {
-  if (_bootstrapAuthPromise) return _bootstrapAuthPromise
-  _bootstrapAuthPromise = (async () => {
-    try {
-      const [dbUsers, dbSettings, dbLogs] = await Promise.all([
-        fetchUsers().catch(() => []),
-        fetchAppSettings().catch(() => ({})),
-        fetchAuditLogs(1000).catch(() => [])
-      ])
+// ── Bootstrap — sync app settings & audit logs from Supabase ─
+let _authBootstrapDone = false
+async function bootstrapAuth() {
+  if (_authBootstrapDone) return
+  _authBootstrapDone = true
+  try {
+    const [dbSettings, dbLogs] = await Promise.all([
+      fetchAppSettings().catch(() => ({})),
+      fetchAuditLogs(500).catch(() => []),
+    ])
 
-      // 1. Sync users
-      let finalUsers = dbUsers
-      if (dbUsers.length === 0) {
-        await Promise.all(DEFAULT_USERS.map(u => upsertUser(u)))
-        finalUsers = DEFAULT_USERS
-      }
+    // Merge DB settings into defaults (DB wins)
+    const merged = { ...DEFAULT_SETTINGS, ...dbSettings }
 
-      // 2. Sync app settings
-      let finalSettings = { ...DEFAULT_SETTINGS }
-      const dbSettingsKeys = Object.keys(dbSettings)
-      if (dbSettingsKeys.length === 0) {
-        await Promise.all(Object.entries(DEFAULT_SETTINGS).map(([k, v]) => saveAppSettingRow(k, v)))
-      } else {
-        Object.assign(finalSettings, dbSettings)
-      }
-
-      // 3. Sync audit logs
-      const finalLogs = dbLogs.length > 0 ? dbLogs : getAuth().auditLogs
-
-      setAuth({
-        users: finalUsers,
-        appSettings: finalSettings,
-        auditLogs: finalLogs,
-        isInitialized: true,
-      })
-    } catch (err) {
-      console.error('[BootstrapAuth] Failed to load from Supabase, using local fallback:', err.message)
-      setAuth({ isInitialized: true })
+    // Push defaults to Supabase if nothing there yet
+    if (Object.keys(dbSettings).length === 0) {
+      saveAllAppSettings(DEFAULT_SETTINGS).catch(() => {})
     }
-  })()
-  return _bootstrapAuthPromise
+
+    setAuth(s => ({
+      ...s,
+      appSettings:   merged,
+      auditLogs:     dbLogs.length ? dbLogs : s.auditLogs,
+      isInitialized: true,
+    }))
+  } catch (err) {
+    console.warn('[bootstrapAuth]', err.message)
+    setAuth(s => ({ ...s, isInitialized: true }))
+  }
 }
 
 // ── Audit log writer ──────────────────────────────────────────
 function writeAuditLog(user, action, module, detail = '') {
+  const id = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
   const log = {
-    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-    userId: user?.id || 'anonymous',
-    userName: user?.name || 'Tidak diketahui',
-    userRole: user?.role || '—',
-    action,
-    module,
-    detail,
+    id,
+    userId:    user?.id    || 'anonymous',
+    userName:  user?.name  || 'Tidak diketahui',
+    userRole:  user?.role  || '—',
+    action, module, detail,
     ipAddress: '127.0.0.1',
-    ip: '127.0.0.1',
+    ip:        '127.0.0.1',
     timestamp: new Date().toISOString(),
     createdAt: new Date().toISOString(),
   }
-  setAuth(s => ({ ...s, auditLogs: [log, ...s.auditLogs].slice(0, 2000) }))
-  insertAuditLog(log).catch(() => { })
+  setAuth(s => ({ ...s, auditLogs: [log, ...(s.auditLogs || [])].slice(0, 2000) }))
+  insertAuditLog(log).catch(() => {})
   return log
-}
-
-// Load audit logs from Supabase on demand
-export async function loadAuditLogsFromDB() {
-  try {
-    const rows = await fetchAuditLogs(1000)
-    setAuth(s => ({ ...s, auditLogs: rows }))
-    return rows
-  } catch (_) {
-    return getAuth().auditLogs
-  }
 }
 
 // ── React hook ────────────────────────────────────────────────
@@ -161,117 +130,107 @@ export function useAuth() {
   useEffect(() => {
     const listener = () => forceRender(n => n + 1)
     _authListeners.add(listener)
-    bootstrapAuth() // idempotent
+    bootstrapAuth()
     return () => _authListeners.delete(listener)
   }, [])
 
   const state = getAuth()
 
-  // ── Login ─────────────────────────────────────────────────
+  // Login
   const login = (username, password) => {
-    const user = state.users.find(u => u.username === username && u.password === password && u.isActive)
+    const user = state.users.find(u =>
+      u.username === username && u.password === password && u.isActive
+    )
     if (!user) return { ok: false, error: 'Username atau password salah.' }
-    setAuth(s => ({ ...s, currentUser: { id: user.id, name: user.name, username: user.username, role: user.role, email: user.email } }))
-    writeAuditLog(user, 'LOGIN', 'Autentikasi', `Login berhasil dari perangkat web`)
+    const currentUser = { id:user.id, name:user.name, username:user.username, role:user.role, email:user.email }
+    setAuth(s => ({ ...s, currentUser }))
+    writeAuditLog(user, 'LOGIN', 'Autentikasi', 'Login berhasil dari perangkat web')
     return { ok: true, user }
   }
 
-  // ── Logout ────────────────────────────────────────────────
+  // Logout
   const logout = () => {
-    const user = state.currentUser
-    if (user) writeAuditLog(user, 'LOGOUT', 'Autentikasi', 'Keluar dari sistem')
+    if (state.currentUser) writeAuditLog(state.currentUser, 'LOGOUT', 'Autentikasi', 'Keluar dari sistem')
     setAuth(s => ({ ...s, currentUser: null }))
   }
 
-  // ── User management ───────────────────────────────────────
+  // Add user
   const addUser = (data) => {
-    const user = state.currentUser
     if (state.users.find(u => u.username === data.username)) {
       return { ok: false, error: 'Username sudah digunakan.' }
     }
     const newUser = {
       ...data,
-      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+      id: `u${Date.now()}`,
       isActive: true,
       createdAt: new Date().toISOString(),
     }
     setAuth(s => ({ ...s, users: [...s.users, newUser] }))
-    writeAuditLog(user, 'TAMBAH_PENGGUNA', 'Manajemen Pengguna', `Menambahkan pengguna: ${data.username} (${data.role})`)
-
-    // Save to Supabase
-    upsertUser(newUser).catch(err => console.error('[addUser]', err.message))
-
+    writeAuditLog(state.currentUser, 'TAMBAH_PENGGUNA', 'Manajemen Pengguna',
+      `Menambahkan pengguna: ${data.username} (${data.role})`)
     return { ok: true, user: newUser }
   }
 
+  // Update user
   const updateUser = (id, data) => {
-    const user = state.currentUser
-    const updated = { ...state.users.find(u => u.id === id), ...data }
-    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updated : u) }))
-    writeAuditLog(user, 'UBAH_PENGGUNA', 'Manajemen Pengguna', `Mengubah pengguna ID: ${id}`)
-
-    // Save to Supabase
-    upsertUser(updated).catch(err => console.error('[updateUser]', err.message))
-
+    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? { ...u, ...data } : u) }))
+    writeAuditLog(state.currentUser, 'UBAH_PENGGUNA', 'Manajemen Pengguna', `Mengubah pengguna ID: ${id}`)
     return { ok: true }
   }
 
+  // Deactivate user
   const deactivateUser = (id) => {
-    const user = state.currentUser
     const target = state.users.find(u => u.id === id)
-    const updated = { ...target, isActive: false }
-    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updated : u) }))
-    writeAuditLog(user, 'NONAKTIFKAN_PENGGUNA', 'Manajemen Pengguna', `Menonaktifkan pengguna: ${target?.username}`)
-
-    // Save to Supabase
-    upsertUser(updated).catch(err => console.error('[deactivateUser]', err.message))
+    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? { ...u, isActive: false } : u) }))
+    writeAuditLog(state.currentUser, 'NONAKTIFKAN_PENGGUNA', 'Manajemen Pengguna',
+      `Menonaktifkan pengguna: ${target?.username}`)
   }
 
+  // Reset password
   const resetPassword = (id, newPassword) => {
-    const user = state.currentUser
     const target = state.users.find(u => u.id === id)
-    const updated = { ...target, password: newPassword }
-    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updated : u) }))
-    writeAuditLog(user, 'RESET_PASSWORD', 'Manajemen Pengguna', `Reset password untuk: ${target?.username}`)
-
-    // Save to Supabase
-    upsertUser(updated).catch(err => console.error('[resetPassword]', err.message))
-
+    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? { ...u, password: newPassword } : u) }))
+    writeAuditLog(state.currentUser, 'RESET_PASSWORD', 'Manajemen Pengguna',
+      `Reset password untuk: ${target?.username}`)
     return { ok: true }
   }
 
-  // ── App settings ──────────────────────────────────────────
+  // Save app settings — local + Supabase
   const saveAppSettings = (data) => {
-    const user = state.currentUser
-    setAuth(s => ({ ...s, appSettings: { ...s.appSettings, ...data } }))
-    writeAuditLog(user, 'UBAH_PENGATURAN', 'Pengaturan Aplikasi', 'Menyimpan pengaturan aplikasi')
-
-    // Save to Supabase
-    Object.entries(data).forEach(([key, val]) => {
-      saveAppSettingRow(key, val).catch(err => console.error('[saveAppSettings]', err.message))
-    })
+    const merged = { ...state.appSettings, ...data }
+    setAuth(s => ({ ...s, appSettings: merged }))
+    writeAuditLog(state.currentUser, 'UBAH_PENGATURAN', 'Pengaturan Aplikasi', 'Menyimpan pengaturan aplikasi')
+    saveAllAppSettings(merged).catch(err => console.warn('[saveAppSettings]', err.message))
   }
 
-  // ── Manual audit log ──────────────────────────────────────
+  // Reload audit logs from Supabase
+  const reloadAuditLogs = async () => {
+    try {
+      const rows = await fetchAuditLogs(1000)
+      setAuth(s => ({ ...s, auditLogs: rows }))
+      return rows
+    } catch (e) {
+      console.warn('[reloadAuditLogs]', e.message)
+      return state.auditLogs
+    }
+  }
+
+  // Manual log
   const logActivity = (action, module, detail = '') => {
-    return writeAuditLog(state.currentUser, action, module, detail)
+    writeAuditLog(state.currentUser, action, module, detail)
   }
 
-  // ── Access check ──────────────────────────────────────────
-  const hasAccess = (module) => {
-    const role = state.currentUser?.role || 'gudang'
-    return (ROLE_ACCESS[role] || []).includes(module)
-  }
-
-  const isAdmin = () => state.currentUser?.role === 'admin'
+  // Access check
+  const hasAccess  = (module) => (ROLE_ACCESS[state.currentUser?.role || 'gudang'] || []).includes(module)
+  const isAdmin    = ()        => state.currentUser?.role === 'admin'
 
   return {
     ...state,
     login, logout,
     addUser, updateUser, deactivateUser, resetPassword,
     saveAppSettings,
+    reloadAuditLogs,
     logActivity,
     hasAccess, isAdmin,
   }
 }
-

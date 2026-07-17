@@ -1,47 +1,59 @@
 /**
  * db.js — Supabase data access layer
- * All functions return plain JS objects (snake_case → camelCase normalized).
+ * Handles camelCase ↔ snake_case conversion and all CRUD operations.
  */
 import { supabase, sbErr } from './supabase'
 
-// ── Helpers ───────────────────────────────────────────────────
-const norm = (row) => {
-  if (!row) return null
+// ── camelCase → snake_case (preserves UUIDs / ISO dates) ─────
+function toSnake(str) {
+  return str.replace(/([A-Z])/g, '_$1').toLowerCase()
+}
+function snake(obj) {
+  if (!obj || typeof obj !== 'object') return obj
   const out = {}
-  Object.entries(row).forEach(([k, v]) => {
-    const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
-    out[camel] = v
-  })
+  for (const [k, v] of Object.entries(obj)) {
+    out[toSnake(k)] = v
+  }
   return out
 }
-const normArr = (rows) => (rows || []).map(norm)
 
-const snake = (obj) => {
+// ── snake_case → camelCase ────────────────────────────────────
+function toCamel(str) {
+  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+}
+function norm(row) {
+  if (!row || typeof row !== 'object') return row
   const out = {}
-  Object.entries(obj || {}).forEach(([k, v]) => {
-    const s = k.replace(/([A-Z])/g, '_$1').toLowerCase()
-    out[s] = v
-  })
+  for (const [k, v] of Object.entries(row)) {
+    out[toCamel(k)] = v
+  }
   return out
+}
+function normArr(rows) { return (rows || []).map(norm) }
+
+// ── Safe error handler ────────────────────────────────────────
+export function handleError(error, context = '') {
+  if (error) {
+    console.error(`[DB:${context}]`, error.message, error.details || '')
+    throw new Error(error.message)
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
-// CLINIC ENTITIES (branches)
+// CLINIC ENTITIES
 // ══════════════════════════════════════════════════════════════
 export async function fetchBranches() {
-  const { data, error } = await supabase.from('clinic_entities').select('*').order('branch_code')
-  sbErr(error, 'fetchBranches')
+  const { data, error } = await supabase
+    .from('clinic_entities').select('*').order('branch_code')
+  handleError(error, 'fetchBranches')
   return normArr(data)
 }
-
 export async function upsertBranch(branch) {
-  const row = snake(branch)
   const { data, error } = await supabase
     .from('clinic_entities')
-    .upsert(row, { onConflict: 'id' })
-    .select()
-    .single()
-  sbErr(error, 'upsertBranch')
+    .upsert(snake(branch), { onConflict: 'id' })
+    .select().single()
+  handleError(error, 'upsertBranch')
   return norm(data)
 }
 
@@ -50,88 +62,91 @@ export async function upsertBranch(branch) {
 // ══════════════════════════════════════════════════════════════
 export async function fetchCOA() {
   const { data, error } = await supabase
-    .from('chart_of_accounts')
-    .select('*')
-    .order('sort_order')
-  sbErr(error, 'fetchCOA')
+    .from('chart_of_accounts').select('*').order('sort_order')
+  handleError(error, 'fetchCOA')
   return normArr(data)
 }
-
 export async function upsertAccount(account) {
-  const row = snake(account)
   const { data, error } = await supabase
     .from('chart_of_accounts')
-    .upsert(row, { onConflict: 'account_code' })
-    .select()
-    .single()
-  sbErr(error, 'upsertAccount')
+    .upsert(snake(account), { onConflict: 'account_code' })
+    .select().single()
+  handleError(error, 'upsertAccount')
   return norm(data)
 }
-
 export async function updateAccount(code, updates) {
   const { error } = await supabase
     .from('chart_of_accounts')
     .update(snake(updates))
     .eq('account_code', code)
-  sbErr(error, 'updateAccount')
+  handleError(error, 'updateAccount')
 }
 
 // ══════════════════════════════════════════════════════════════
-// JOURNAL ENTRIES
+// JOURNAL ENTRIES + ITEMS
 // ══════════════════════════════════════════════════════════════
-export async function fetchJournalEntries(branchId = null, dateFrom = null, dateTo = null) {
-  let q = supabase.from('journal_entries').select('*').order('transaction_date', { ascending: false }).order('created_at', { ascending: false })
-  if (branchId) q = q.eq('branch_id', branchId)
-  if (dateFrom) q = q.gte('transaction_date', dateFrom)
-  if (dateTo) q = q.lte('transaction_date', dateTo)
+export async function fetchJournalEntries(filters = {}) {
+  let q = supabase.from('journal_entries').select('*')
+    .order('transaction_date', { ascending: false })
+    .order('created_at',       { ascending: false })
+  if (filters.branchId)  q = q.eq('branch_id',        filters.branchId)
+  if (filters.dateFrom)  q = q.gte('transaction_date', filters.dateFrom)
+  if (filters.dateTo)    q = q.lte('transaction_date', filters.dateTo)
+  if (filters.status)    q = q.eq('status',            filters.status)
+  if (filters.limit)     q = q.limit(filters.limit)
   const { data, error } = await q
-  sbErr(error, 'fetchJournalEntries')
+  handleError(error, 'fetchJournalEntries')
   return normArr(data)
 }
 
 export async function fetchJournalItems(entryIds = []) {
   if (!entryIds.length) return []
   const { data, error } = await supabase
-    .from('journal_items')
-    .select('*')
+    .from('journal_items').select('*')
     .in('journal_entry_id', entryIds)
-  sbErr(error, 'fetchJournalItems')
+  handleError(error, 'fetchJournalItems')
   return normArr(data)
 }
 
 export async function upsertJournalEntry(entry) {
   const row = snake(entry)
+  // Ensure numeric fields
+  row.total_debit  = Number(row.total_debit  || 0)
+  row.total_credit = Number(row.total_credit || 0)
   const { data, error } = await supabase
     .from('journal_entries')
     .upsert(row, { onConflict: 'id' })
-    .select()
-    .single()
-  sbErr(error, 'upsertJournalEntry')
+    .select().single()
+  handleError(error, 'upsertJournalEntry')
   return norm(data)
 }
 
 export async function insertJournalItems(items) {
   if (!items.length) return []
-  const rows = items.map(snake)
-  const { data, error } = await supabase.from('journal_items').insert(rows).select()
-  sbErr(error, 'insertJournalItems')
+  const rows = items.map(it => {
+    const r = snake(it)
+    r.debit  = Number(r.debit  || 0)
+    r.credit = Number(r.credit || 0)
+    return r
+  })
+  const { data, error } = await supabase
+    .from('journal_items').insert(rows).select()
+  handleError(error, 'insertJournalItems')
   return normArr(data)
 }
 
 export async function updateJournalStatus(id, status, extra = {}) {
   const { error } = await supabase
     .from('journal_entries')
-    .update({ status, ...snake(extra) })
+    .update({ status, ...snake(extra), updated_at: new Date().toISOString() })
     .eq('id', id)
-  sbErr(error, 'updateJournalStatus')
+  handleError(error, 'updateJournalStatus')
 }
 
 export async function deleteJournalItemsByEntry(entryId) {
   const { error } = await supabase
-    .from('journal_items')
-    .delete()
-    .eq('journal_entry_id', entryId)
-  sbErr(error, 'deleteJournalItems')
+    .from('journal_items').delete().eq('journal_entry_id', entryId)
+  handleError(error, 'deleteJournalItems')
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -139,21 +154,20 @@ export async function deleteJournalItemsByEntry(entryId) {
 // ══════════════════════════════════════════════════════════════
 export async function fetchPharmacyItems() {
   const { data, error } = await supabase
-    .from('pharmacy_items')
-    .select('*')
-    .order('item_name')
-  sbErr(error, 'fetchPharmacyItems')
+    .from('pharmacy_items').select('*').order('item_name')
+  handleError(error, 'fetchPharmacyItems')
   return normArr(data)
 }
-
 export async function upsertPharmacyItem(item) {
   const row = snake(item)
+  row.selling_price   = Number(row.selling_price   || 0)
+  row.min_safety_stock= parseInt(row.min_safety_stock|| 50)
+  row.reorder_point   = parseInt(row.reorder_point  || 100)
   const { data, error } = await supabase
     .from('pharmacy_items')
     .upsert(row, { onConflict: 'id' })
-    .select()
-    .single()
-  sbErr(error, 'upsertPharmacyItem')
+    .select().single()
+  handleError(error, 'upsertPharmacyItem')
   return norm(data)
 }
 
@@ -162,93 +176,101 @@ export async function upsertPharmacyItem(item) {
 // ══════════════════════════════════════════════════════════════
 export async function fetchBatches() {
   const { data, error } = await supabase
-    .from('inventory_batches')
-    .select('*')
-    .order('expiry_date')
-  sbErr(error, 'fetchBatches')
+    .from('inventory_batches').select('*').order('expiry_date')
+  handleError(error, 'fetchBatches')
   return normArr(data)
 }
-
 export async function insertBatches(batches) {
   if (!batches.length) return []
+  const rows = batches.map(b => {
+    const r = snake(b)
+    r.unit_cost_price  = Number(r.unit_cost_price  || 0)
+    r.quantity_received= parseInt(r.quantity_received|| 0)
+    r.quantity_current = parseInt(r.quantity_current || 0)
+    return r
+  })
   const { data, error } = await supabase
-    .from('inventory_batches')
-    .insert(batches.map(snake))
-    .select()
-  sbErr(error, 'insertBatches')
+    .from('inventory_batches').insert(rows).select()
+  handleError(error, 'insertBatches')
   return normArr(data)
 }
-
 export async function updateBatchQty(id, qty) {
   const { error } = await supabase
     .from('inventory_batches')
-    .update({ quantity_current: qty })
+    .update({ quantity_current: parseInt(qty) })
     .eq('id', id)
-  sbErr(error, 'updateBatchQty')
+  handleError(error, 'updateBatchQty')
 }
 
 // ══════════════════════════════════════════════════════════════
 // STOCK LEDGER
 // ══════════════════════════════════════════════════════════════
 export async function fetchStockLedger(itemId = null) {
-  let q = supabase.from('stock_ledger_cards').select('*').order('logged_at', { ascending: false })
+  let q = supabase.from('stock_ledger_cards').select('*')
+    .order('logged_at', { ascending: false })
   if (itemId) q = q.eq('item_id', itemId)
   const { data, error } = await q
-  sbErr(error, 'fetchStockLedger')
+  handleError(error, 'fetchStockLedger')
   return normArr(data)
 }
-
 export async function insertStockLedger(entries) {
   if (!entries.length) return []
+  const rows = entries.map(e => {
+    const r = snake(e)
+    r.quantity_in  = parseInt(r.quantity_in  || 0)
+    r.quantity_out = parseInt(r.quantity_out || 0)
+    r.balance_after= parseInt(r.balance_after|| 0)
+    r.unit_cost    = Number(r.unit_cost    || 0)
+    r.total_value  = Number(r.total_value  || 0)
+    return r
+  })
   const { data, error } = await supabase
-    .from('stock_ledger_cards')
-    .insert(entries.map(snake))
-    .select()
-  sbErr(error, 'insertStockLedger')
+    .from('stock_ledger_cards').insert(rows).select()
+  handleError(error, 'insertStockLedger')
   return normArr(data)
 }
 
 // ══════════════════════════════════════════════════════════════
-// BILLINGS
+// PATIENT BILLINGS
 // ══════════════════════════════════════════════════════════════
 export async function fetchBillings(branchId = null) {
-  let q = supabase
-    .from('patient_billings')
-    .select('*')
+  let q = supabase.from('patient_billings').select('*')
     .order('created_at', { ascending: false })
   if (branchId) q = q.eq('branch_id', branchId)
   const { data, error } = await q
-  sbErr(error, 'fetchBillings')
+  handleError(error, 'fetchBillings')
   return normArr(data)
 }
-
 export async function insertBilling(billing) {
+  const row = snake(billing)
+  // Ensure numeric
+  ;['subtotal_services','subtotal_pharmacy','discount_amount','ppn_amount','grand_total','patient_portion','insurance_portion'].forEach(k => { row[k] = Number(row[k] || 0) })
   const { data, error } = await supabase
-    .from('patient_billings')
-    .insert(snake(billing))
-    .select()
-    .single()
-  sbErr(error, 'insertBilling')
+    .from('patient_billings').insert(row).select().single()
+  handleError(error, 'insertBilling')
   return norm(data)
 }
-
-export async function insertBillingItems(items) {
-  if (!items.length) return []
-  const { data, error } = await supabase
-    .from('billing_items')
-    .insert(items.map(snake))
-    .select()
-  sbErr(error, 'insertBillingItems')
-  return normArr(data)
-}
-
 export async function fetchBillingItems(billingIds = []) {
   if (!billingIds.length) return []
   const { data, error } = await supabase
-    .from('billing_items')
-    .select('*')
+    .from('billing_items').select('*')
     .in('billing_id', billingIds)
-  sbErr(error, 'fetchBillingItems')
+  handleError(error, 'fetchBillingItems')
+  return normArr(data)
+}
+export async function insertBillingItems(items) {
+  if (!items.length) return []
+  const rows = items.map(it => {
+    const r = snake(it)
+    r.quantity    = Number(r.quantity    || 1)
+    r.unit_price  = Number(r.unit_price  || 0)
+    r.total_price = Number(r.total_price || 0)
+    r.discount_pct= Number(r.discount_pct|| 0)
+    return r
+  })
+  const { data, error } = await supabase
+    .from('billing_items').insert(rows).select()
+  handleError(error, 'insertBillingItems')
   return normArr(data)
 }
 
@@ -256,24 +278,21 @@ export async function fetchBillingItems(billingIds = []) {
 // EXPENSES
 // ══════════════════════════════════════════════════════════════
 export async function fetchExpenses(branchId = null) {
-  let q = supabase
-    .from('expense_entries')
-    .select('*')
+  let q = supabase.from('expense_entries').select('*')
     .order('expense_date', { ascending: false })
   if (branchId) q = q.eq('branch_id', branchId)
   const { data, error } = await q
-  sbErr(error, 'fetchExpenses')
+  handleError(error, 'fetchExpenses')
   return normArr(data)
 }
-
 export async function upsertExpense(expense) {
   const row = snake(expense)
+  ;['gross_amount','ppn_amount','pph_amount','net_amount'].forEach(k => { row[k] = Number(row[k] || 0) })
   const { data, error } = await supabase
     .from('expense_entries')
     .upsert(row, { onConflict: 'id' })
-    .select()
-    .single()
-  sbErr(error, 'upsertExpense')
+    .select().single()
+  handleError(error, 'upsertExpense')
   return norm(data)
 }
 
@@ -282,57 +301,42 @@ export async function upsertExpense(expense) {
 // ══════════════════════════════════════════════════════════════
 export async function fetchDoctors() {
   const { data, error } = await supabase
-    .from('doctors')
-    .select('*')
-    .order('full_name')
-  sbErr(error, 'fetchDoctors')
+    .from('doctors').select('*').order('full_name')
+  handleError(error, 'fetchDoctors')
   return normArr(data)
 }
-
 export async function upsertDoctor(doctor) {
   const row = snake(doctor)
+  row.fee_percentage = Number(row.fee_percentage || 30)
   const { data, error } = await supabase
     .from('doctors')
     .upsert(row, { onConflict: 'id' })
-    .select()
-    .single()
-  sbErr(error, 'upsertDoctor')
+    .select().single()
+  handleError(error, 'upsertDoctor')
   return norm(data)
 }
-
 export async function deleteDoctor(id) {
-  const { error } = await supabase.from('doctors').update({ is_active: false }).eq('id', id)
-  sbErr(error, 'deleteDoctor')
+  const { error } = await supabase
+    .from('doctors').update({ is_active: false }).eq('id', id)
+  handleError(error, 'deleteDoctor')
 }
 
 // ══════════════════════════════════════════════════════════════
 // AUDIT LOGS
 // ══════════════════════════════════════════════════════════════
 export async function insertAuditLog(log) {
-  const row = {
-    id: log.id,
-    user_id: log.userId,
-    user_name: log.userName,
-    user_role: log.userRole,
-    action: log.action,
-    module: log.module,
-    detail: log.detail,
-    ip_address: log.ipAddress || log.ip || '127.0.0.1',
-    created_at: log.createdAt || log.timestamp || new Date().toISOString()
-  }
-  const { error } = await supabase.from('audit_logs').insert(row)
-  if (error) console.warn('[AuditLog]', error.message)
+  try {
+    const row = snake(log)
+    await supabase.from('audit_logs').insert(row)
+  } catch (e) { console.warn('[AuditLog]', e.message) }
 }
-
-
-export async function fetchAuditLogs(limit = 500) {
+export async function fetchAuditLogs(limit = 1000) {
   const { data, error } = await supabase
-    .from('audit_logs')
-    .select('*')
+    .from('audit_logs').select('*')
     .order('created_at', { ascending: false })
     .limit(limit)
-  sbErr(error, 'fetchAuditLogs')
-  return normArr(data)
+  handleError(error, 'fetchAuditLogs')
+  return normArr(data).map(r => ({ ...r, timestamp: r.createdAt }))
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -340,79 +344,90 @@ export async function fetchAuditLogs(limit = 500) {
 // ══════════════════════════════════════════════════════════════
 export async function fetchAppSettings() {
   const { data, error } = await supabase.from('app_settings').select('*')
-  sbErr(error, 'fetchAppSettings')
+  handleError(error, 'fetchAppSettings')
   const result = {}
-    ; (data || []).forEach(row => { result[row.key] = row.value })
+  ;(data || []).forEach(row => {
+    // Try parse JSON for non-string values
+    try { result[row.key] = JSON.parse(row.value) }
+    catch { result[row.key] = row.value }
+  })
   return result
 }
-
 export async function saveAppSettingRow(key, value) {
+  const strVal = typeof value === 'string' ? value : JSON.stringify(value)
   const { error } = await supabase
     .from('app_settings')
-    .upsert({ key, value: String(value), updated_at: new Date().toISOString() }, { onConflict: 'key' })
-  sbErr(error, 'saveAppSetting')
+    .upsert({ key, value: strVal, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+  handleError(error, 'saveAppSetting')
+}
+export async function saveAllAppSettings(settings) {
+  const rows = Object.entries(settings).map(([key, value]) => ({
+    key,
+    value: typeof value === 'string' ? value : JSON.stringify(value),
+    updated_at: new Date().toISOString(),
+  }))
+  if (!rows.length) return
+  const { error } = await supabase
+    .from('app_settings').upsert(rows, { onConflict: 'key' })
+  handleError(error, 'saveAllAppSettings')
 }
 
 // ══════════════════════════════════════════════════════════════
-// SERVICE TARIFFS (TARIF LAYANAN)
+// DOCTOR FEE RECORDS
 // ══════════════════════════════════════════════════════════════
-export async function fetchServiceTariffs() {
+export async function insertDoctorFeeRecord(rec) {
+  const row = snake(rec)
+  ;['gross_jasa_medis','dpp_amount','tax_rate','pph21_amount','net_to_doctor','cumulative_gross_ytd'].forEach(k => { row[k] = Number(row[k] || 0) })
   const { data, error } = await supabase
-    .from('service_tariffs')
-    .select('*')
-    .order('code')
-  sbErr(error, 'fetchServiceTariffs')
+    .from('doctor_fee_records').insert(row).select().single()
+  handleError(error, 'insertDoctorFeeRecord')
+  return norm(data)
+}
+export async function fetchDoctorFeeRecords(doctorId = null, year = null) {
+  let q = supabase.from('doctor_fee_records').select('*')
+    .order('created_at', { ascending: false })
+  if (doctorId) q = q.eq('doctor_id', doctorId)
+  if (year) q = q.gte('created_at', `${year}-01-01`).lte('created_at', `${year}-12-31`)
+  const { data, error } = await q
+  handleError(error, 'fetchDoctorFeeRecords')
   return normArr(data)
 }
 
-export async function upsertServiceTariff(tariff) {
-  const { data, error } = await supabase
-    .from('service_tariffs')
-    .upsert(snake(tariff))
-    .select()
-  sbErr(error, 'upsertServiceTariff')
-  return data ? norm(data[0]) : null
-}
-
 // ══════════════════════════════════════════════════════════════
-// VENDORS
+// VENDORS (PBF / Suppliers)
 // ══════════════════════════════════════════════════════════════
 export async function fetchVendors() {
   const { data, error } = await supabase
-    .from('vendors')
-    .select('*')
-    .order('code')
-  sbErr(error, 'fetchVendors')
+    .from('vendors').select('*').order('vendor_name')
+  handleError(error, 'fetchVendors')
   return normArr(data)
 }
-
 export async function upsertVendor(vendor) {
+  const row = snake(vendor)
   const { data, error } = await supabase
     .from('vendors')
-    .upsert(snake(vendor))
-    .select()
-  sbErr(error, 'upsertVendor')
-  return data ? norm(data[0]) : null
-}
-
-// ══════════════════════════════════════════════════════════════
-// USERS
-// ══════════════════════════════════════════════════════════════
-export async function fetchUsers() {
-  const { data, error } = await supabase.from('users').select('*').order('name')
-  sbErr(error, 'fetchUsers')
-  return normArr(data)
-}
-
-export async function upsertUser(user) {
-  const row = snake(user)
-  const { data, error } = await supabase
-    .from('users')
     .upsert(row, { onConflict: 'id' })
-    .select()
-    .single()
-  sbErr(error, 'upsertUser')
+    .select().single()
+  handleError(error, 'upsertVendor')
   return norm(data)
 }
 
-
+// ══════════════════════════════════════════════════════════════
+// SERVICE TARIFFS
+// ══════════════════════════════════════════════════════════════
+export async function fetchServiceTariffs() {
+  const { data, error } = await supabase
+    .from('service_tariffs').select('*').order('service_name')
+  handleError(error, 'fetchServiceTariffs')
+  return normArr(data)
+}
+export async function upsertServiceTariff(tariff) {
+  const row = snake(tariff)
+  row.tariff_amount = Number(row.tariff_amount || 0)
+  const { data, error } = await supabase
+    .from('service_tariffs')
+    .upsert(row, { onConflict: 'id' })
+    .select().single()
+  handleError(error, 'upsertServiceTariff')
+  return norm(data)
+}

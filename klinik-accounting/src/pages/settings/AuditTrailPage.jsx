@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Download, Filter, ShieldAlert } from 'lucide-react'
-import { useAuth, ROLE_LABELS, ROLE_COLORS, loadAuditLogsFromDB } from '../../store/useAuth'
+import { useAuth, ROLE_LABELS, ROLE_COLORS } from '../../store/useAuth'
 import SearchInput from '../../components/ui/SearchInput'
 import { fmtDateTime, todayISO, monthStart, monthEnd } from '../../utils/format'
 import * as XLSX from 'xlsx'
@@ -28,10 +28,10 @@ const MODULE_ICONS = {
 }
 
 export default function AuditTrailPage() {
-  const { auditLogs, users } = useAuth()
+  const { auditLogs, users, reloadAuditLogs } = useAuth()
 
   useEffect(() => {
-    loadAuditLogsFromDB().catch(err => console.error('[AuditTrailPage] Failed loading logs:', err.message))
+    reloadAuditLogs().catch(err => console.error('[AuditTrailPage] Failed loading logs:', err.message))
   }, [])
 
   const [search, setSearch] = useState('')

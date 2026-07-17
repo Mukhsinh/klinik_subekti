@@ -20,6 +20,7 @@ export default function BillingPage() {
     pharmacyItems, invBatches, billings, billingItems, doctors, serviceTariffs,
     generateBillingNumber, saveBilling,
     activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber,
+    getItemStock, depleteInventoryFIFO,
   } = useStore()
 
   const [modal, setModal] = useState(null)
@@ -89,9 +90,24 @@ export default function BillingPage() {
     setServiceLines([]); setPharmacyLines([]); setDiscount(0)
   }
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (!patientName.trim()) { toast.error('Nama pasien wajib diisi.'); return }
     if (!serviceLines.length && !pharmacyLines.length) { toast.error('Minimal 1 item layanan atau farmasi.'); return }
+
+    // Validation: check stock limit for each pharmacy item
+    for (const line of pharmacyLines.filter(l => l.itemId)) {
+      const requestedQty = parseInt(line.qty) || 0
+      if (requestedQty <= 0) {
+        toast.error('Jumlah pembelian obat harus lebih besar dari 0.')
+        return
+      }
+      const available = getItemStock(line.itemId)
+      if (requestedQty > available) {
+        toast.error(`Stok obat "${line.name}" tidak mencukupi. (Tersedia: ${available}, Diminta: ${requestedQty})`)
+        return
+      }
+    }
+
     const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName}`.trim() : ''
     const bId = uuidv4()
     const items = [
@@ -106,6 +122,28 @@ export default function BillingPage() {
       discountAmount: discountAmt, ppnAmount, grandTotal, patientPortion, insurancePortion,
       status: 'PAID', createdBy: 'Kasir',
     }
+
+    // Consolidate HPP / COGS journal entries and deplete stock
+    const hppDebits = {}
+    const hppCredits = {}
+
+    try {
+      for (const line of pharmacyLines.filter(l => l.itemId)) {
+        const qtyToDeplete = parseInt(line.qty) || 0
+        const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, billingNumber, bId)
+        cogsDetails.forEach(d => {
+          const val = d.qty * d.unitCostPrice
+          if (val > 0) {
+            hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
+            hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
+          }
+        })
+      }
+    } catch (err) {
+      toast.error(err.message)
+      return
+    }
+
     const eId = uuidv4(), eNum = generateEntryNumber('BILLING')
     const ji = []
     if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
@@ -126,6 +164,15 @@ export default function BillingPage() {
       ji.push({ accountCode: '2-13-001', description: `PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
       ji.push({ accountCode: '2-12-001', description: `Net Fee ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
     }
+
+    // Append consolidated HPP / COGS journal entries
+    Object.entries(hppDebits).forEach(([coaCode, val]) => {
+      ji.push({ accountCode: coaCode, description: `HPP Penjualan Obat — ${billingNumber}`, debit: val, credit: 0 })
+    })
+    Object.entries(hppCredits).forEach(([coaCode, val]) => {
+      ji.push({ accountCode: coaCode, description: `Persediaan Obat Terjual — ${billingNumber}`, debit: 0, credit: val })
+    })
+
     const td = ji.reduce((s, i) => s + (i.debit || 0), 0)
     const tc = ji.reduce((s, i) => s + (i.credit || 0), 0)
     saveBilling(billing, items)

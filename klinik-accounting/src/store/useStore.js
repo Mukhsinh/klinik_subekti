@@ -1,8 +1,8 @@
 /**
  * useStore.js — Global state backed by Supabase
- * Uses a simple pub/sub singleton so all components share one state.
- * Data is fetched from Supabase on init and kept in memory.
- * Writes go to Supabase and update local state for instant UI feedback.
+ * Single pub/sub singleton — all components share one live state.
+ * Writes: optimistic UI update first, then async persist to Supabase.
+ * Reads:  bootstrap loads everything from Supabase once on first mount.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
@@ -17,31 +17,30 @@ import {
   fetchStockLedger, insertStockLedger,
   fetchBillings, insertBilling, insertBillingItems, fetchBillingItems,
   fetchExpenses, upsertExpense,
-  fetchDoctors, insertAuditLog,
-  fetchServiceTariffs, upsertServiceTariff,
-  fetchVendors, upsertVendor,
+  fetchDoctors,
+  insertAuditLog,
+  insertDoctorFeeRecord,
 } from '../lib/db'
-import { initialCOA } from '../data/initialCOA'
+import { initialCOA }      from '../data/initialCOA'
 import { initialBranches } from '../data/initialData'
 
-// ── Singleton ─────────────────────────────────────────────────
+// ── Singleton state ───────────────────────────────────────────
 let _state = {
-  branches: [],
-  coa: [],
+  branches:       [],
+  coa:            [],
   journalEntries: [],
-  journalItems: [],
-  pharmacyItems: [],
-  invBatches: [],
-  stockLedger: [],
-  billings: [],
-  billingItems: [],
-  expenses: [],
-  doctors: [],
-  serviceTariffs: [],
-  vendors: [],
+  journalItems:   [],
+  pharmacyItems:  [],
+  invBatches:     [],
+  stockLedger:    [],
+  billings:       [],
+  billingItems:   [],
+  expenses:       [],
+  doctors:        [],
   activeBranchId: null,
-  loading: true,
-  initialized: false,
+  loading:        true,
+  initialized:    false,
+  error:          null,
 }
 const _listeners = new Set()
 
@@ -51,72 +50,81 @@ function setState(upd) {
   _listeners.forEach(fn => fn())
 }
 
-// ── Bootstrap — load all data from Supabase once ──────────────
-let _bootstrapPromise = null
+// ── Bootstrap — load all from Supabase ────────────────────────
+let _bootstrapDone = false
+let _bootstrapProm = null
+
 async function bootstrap() {
-  if (_bootstrapPromise) return _bootstrapPromise
-  _bootstrapPromise = (async () => {
+  if (_bootstrapDone) return
+  if (_bootstrapProm) return _bootstrapProm
+
+  _bootstrapProm = (async () => {
     try {
-      const [branches, coa, journals, pharmacyItems, batches, billings, expenses, doctors, serviceTariffs, vendors] =
-        await Promise.all([
-          fetchBranches(),
-          fetchCOA(),
-          fetchJournalEntries(),
-          fetchPharmacyItems(),
-          fetchBatches(),
-          fetchBillings(),
-          fetchExpenses(),
-          fetchDoctors(),
-          fetchServiceTariffs().catch(() => []),
-          fetchVendors().catch(() => []),
-        ])
+      // Parallel fetch all data
+      const [
+        branches, coa, journals, pharmacyItems,
+        batches, billings, expenses, doctors,
+      ] = await Promise.all([
+        fetchBranches(),
+        fetchCOA(),
+        fetchJournalEntries(),
+        fetchPharmacyItems(),
+        fetchBatches(),
+        fetchBillings(),
+        fetchExpenses(),
+        fetchDoctors(),
+      ])
 
-      // Use seeded COA if DB is empty (first run fallback)
-      const finalCOA = coa.length > 0 ? coa : initialCOA
+      // Use local seed as fallback if DB empty
+      const finalBranches = branches.length ? branches : initialBranches
+      const finalCOA      = coa.length      ? coa      : initialCOA
 
-      // Use seeded branches if DB is empty
-      const finalBranches = branches.length > 0 ? branches : initialBranches
+      // Fetch relational data
+      const entryIds   = journals.map(j => j.id)
+      const billingIds = billings.map(b => b.id)
 
-      // Fetch journal items for all entries
-      const entryIds = journals.map(j => j.id)
-      const [jItems, batchBillings, stockLedgerRows] = await Promise.all([
-        entryIds.length ? fetchJournalItems(entryIds) : Promise.resolve([]),
-        billings.length ? fetchBillingItems(billings.map(b => b.id)) : Promise.resolve([]),
+      const [jItems, bItems, stockRows] = await Promise.all([
+        entryIds.length   ? fetchJournalItems(entryIds)   : Promise.resolve([]),
+        billingIds.length ? fetchBillingItems(billingIds) : Promise.resolve([]),
         fetchStockLedger(),
       ])
 
-      const savedBranchId = localStorage.getItem('activeBranchId')
-      const activeBranchId = savedBranchId || (finalBranches[0]?.id ?? null)
+      // Active branch persistence
+      const savedBranch = localStorage.getItem('activeBranchId')
+      const validBranch = finalBranches.find(b => b.id === savedBranch)
+      const activeBranchId = validBranch ? savedBranch : (finalBranches[0]?.id || null)
 
       setState({
-        branches: finalBranches,
-        coa: finalCOA,
+        branches:       finalBranches,
+        coa:            finalCOA,
         journalEntries: journals,
-        journalItems: jItems,
+        journalItems:   jItems,
         pharmacyItems,
-        invBatches: batches,
-        stockLedger: stockLedgerRows,
+        invBatches:     batches,
+        stockLedger:    stockRows,
         billings,
-        billingItems: batchBillings,
+        billingItems:   bItems,
         expenses,
         doctors,
-        serviceTariffs,
-        vendors,
         activeBranchId,
-        loading: false,
-        initialized: true,
+        loading:        false,
+        initialized:    true,
+        error:          null,
       })
+      _bootstrapDone = true
     } catch (err) {
-      console.error('[Bootstrap] Failed to load from Supabase, using local fallback:', err.message)
+      console.error('[Bootstrap] Supabase load failed, using local fallback:', err.message)
       setState({
-        branches: initialBranches,
-        coa: initialCOA,
-        loading: false,
-        initialized: true,
+        branches:       initialBranches,
+        coa:            initialCOA,
+        loading:        false,
+        initialized:    true,
+        error:          err.message,
       })
+      _bootstrapDone = true
     }
   })()
-  return _bootstrapPromise
+  return _bootstrapProm
 }
 
 // ── React hook ────────────────────────────────────────────────
@@ -128,115 +136,120 @@ export function useStore() {
     mounted.current = true
     const listener = () => { if (mounted.current) forceRender(n => n + 1) }
     _listeners.add(listener)
-    bootstrap() // idempotent
+    bootstrap()
     return () => { mounted.current = false; _listeners.delete(listener) }
   }, [])
 
-  const state = getState()
+  const s = getState()
+
+  // ── Refresh (re-fetch from Supabase) ──────────────────────
+  const refreshAll = useCallback(async () => {
+    _bootstrapDone = false; _bootstrapProm = null
+    setState(prev => ({ ...prev, loading: true }))
+    await bootstrap()
+  }, [])
 
   // ── Branch ────────────────────────────────────────────────
   const setActiveBranch = useCallback((id) => {
     localStorage.setItem('activeBranchId', id)
-    setState(s => ({ ...s, activeBranchId: id }))
+    setState(prev => ({ ...prev, activeBranchId: id }))
   }, [])
 
   const getActiveBranch = useCallback(() =>
-    state.branches.find(b => b.id === state.activeBranchId) || state.branches[0],
-    [state])
+    s.branches.find(b => b.id === s.activeBranchId) || s.branches[0],
+  [s])
 
   const addBranch = useCallback(async (data) => {
-    const branch = { ...data, id: uuidv4(), isActive: true }
-    try {
-      const saved = await upsertBranch(branch)
-      setState(s => ({ ...s, branches: [...s.branches, saved] }))
-      return saved
-    } catch {
-      setState(s => ({ ...s, branches: [...s.branches, branch] }))
-      return branch
-    }
+    const branch = { ...data, id: uuidv4(), isActive: true, createdAt: new Date().toISOString() }
+    setState(prev => ({ ...prev, branches: [...prev.branches, branch] }))
+    try { return await upsertBranch(branch) } catch (e) { console.error('[addBranch]', e.message); return branch }
   }, [])
 
   const updateBranch = useCallback(async (id, data) => {
-    const updated = { ...state.branches.find(b => b.id === id), ...data }
-    try { await upsertBranch(updated) } catch (_) { }
-    setState(s => ({ ...s, branches: s.branches.map(b => b.id === id ? { ...b, ...data } : b) }))
-  }, [state.branches])
+    setState(prev => ({ ...prev, branches: prev.branches.map(b => b.id === id ? { ...b, ...data } : b) }))
+    try {
+      const cur = s.branches.find(b => b.id === id)
+      if (cur) await upsertBranch({ ...cur, ...data })
+    } catch (e) { console.error('[updateBranch]', e.message) }
+  }, [s.branches])
 
   // ── COA ───────────────────────────────────────────────────
   const addAccount = useCallback(async (data) => {
-    const acc = { ...data, isActive: true }
-    try { await upsertAccount(acc) } catch (_) { }
-    setState(s => ({ ...s, coa: [...s.coa, acc] }))
+    const acc = { ...data, isActive: true, createdAt: new Date().toISOString() }
+    setState(prev => ({ ...prev, coa: [...prev.coa, acc] }))
+    try { await upsertAccount(acc) } catch (e) { console.error('[addAccount]', e.message) }
     return acc
   }, [])
 
   const updateAccountFn = useCallback(async (code, data) => {
-    try { await dbUpdateAccount(code, data) } catch (_) { }
-    setState(s => ({ ...s, coa: s.coa.map(a => a.accountCode === code ? { ...a, ...data } : a) }))
+    setState(prev => ({ ...prev, coa: prev.coa.map(a => a.accountCode === code ? { ...a, ...data } : a) }))
+    try { await dbUpdateAccount(code, data) } catch (e) { console.error('[updateAccount]', e.message) }
   }, [])
 
   const deactivateAccount = useCallback(async (code) => {
-    try { await dbUpdateAccount(code, { isActive: false }) } catch (_) { }
-    setState(s => ({ ...s, coa: s.coa.map(a => a.accountCode === code ? { ...a, isActive: false } : a) }))
+    setState(prev => ({ ...prev, coa: prev.coa.map(a => a.accountCode === code ? { ...a, isActive: false } : a) }))
+    try { await dbUpdateAccount(code, { isActive: false }) } catch (e) { console.error('[deactivateAccount]', e.message) }
   }, [])
 
   // ── Journal ───────────────────────────────────────────────
   const generateEntryNumber = useCallback((type = 'JU') => {
-    const date = new Date()
-    const ym = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}`
-    const count = state.journalEntries.filter(j => j.entryNumber?.startsWith(type)).length + 1
-    return `${type}/${ym}/${String(count).padStart(5, '0')}`
-  }, [state.journalEntries])
+    const d = new Date()
+    const ym = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}`
+    const existing = s.journalEntries.filter(j => j.entryNumber?.startsWith(`${type}/`)).length + 1
+    return `${type}/${ym}/${String(existing).padStart(5,'0')}`
+  }, [s.journalEntries])
 
   const saveJournalDraft = useCallback(async (header, items) => {
-    const entryId = header.id || uuidv4()
-    const entry = { ...header, id: entryId, status: 'DRAFT', createdAt: header.createdAt || new Date().toISOString() }
+    const entryId  = header.id || uuidv4()
+    const entry    = { ...header, id: entryId, status: 'DRAFT', createdAt: header.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() }
     const newItems = items.map(it => ({ ...it, id: it.id || uuidv4(), journalEntryId: entryId }))
 
-    // Optimistic UI update
-    setState(s => {
-      const entries = s.journalEntries.filter(j => j.id !== entryId)
-      const oldItems = s.journalItems.filter(i => i.journalEntryId !== entryId)
-      return { ...s, journalEntries: [...entries, entry], journalItems: [...oldItems, ...newItems] }
-    })
+    // Optimistic update
+    setState(prev => ({
+      ...prev,
+      journalEntries: [...prev.journalEntries.filter(j => j.id !== entryId), entry],
+      journalItems:   [...prev.journalItems.filter(i => i.journalEntryId !== entryId), ...newItems],
+    }))
 
-    // Persist to Supabase
+    // Persist
     try {
       await deleteJournalItemsByEntry(entryId)
       await upsertJournalEntry(entry)
       await insertJournalItems(newItems)
-    } catch (err) {
-      console.error('[saveJournalDraft]', err.message)
-    }
+    } catch (e) { console.error('[saveJournalDraft]', e.message) }
     return entryId
   }, [])
 
   const postJournalEntry = useCallback(async (entryId, postedBy = 'System') => {
-    const entry = state.journalEntries.find(j => j.id === entryId)
+    const entry = s.journalEntries.find(j => j.id === entryId)
     if (!entry) return { ok: false, error: 'Jurnal tidak ditemukan.' }
-    const items = state.journalItems.filter(i => i.journalEntryId === entryId)
-    const totalDebit = items.reduce((s, i) => s + parseFloat(i.debit || 0), 0)
-    const totalCredit = items.reduce((s, i) => s + parseFloat(i.credit || 0), 0)
+
+    const items      = s.journalItems.filter(i => i.journalEntryId === entryId)
+    const totalDebit = items.reduce((sum, i) => sum + parseFloat(i.debit  || 0), 0)
+    const totalCredit= items.reduce((sum, i) => sum + parseFloat(i.credit || 0), 0)
+
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
-      return { ok: false, error: `Jurnal tidak balance. Debit: ${fmtN(totalDebit)}, Kredit: ${fmtN(totalCredit)}` }
+      return { ok: false, error: `Jurnal tidak balance. Debit: ${totalDebit.toFixed(2)}, Kredit: ${totalCredit.toFixed(2)}` }
     }
+
     const extra = { postedBy, postedAt: new Date().toISOString(), totalDebit, totalCredit }
-    setState(s => ({
-      ...s,
-      journalEntries: s.journalEntries.map(j =>
+    setState(prev => ({
+      ...prev,
+      journalEntries: prev.journalEntries.map(j =>
         j.id === entryId ? { ...j, status: 'POSTED', ...extra } : j
-      )
+      ),
     }))
-    try { await updateJournalStatus(entryId, 'POSTED', extra) } catch (_) { }
+    try { await updateJournalStatus(entryId, 'POSTED', extra) } catch (e) { console.error('[postJournal]', e.message) }
     return { ok: true }
-  }, [state.journalEntries, state.journalItems])
+  }, [s.journalEntries, s.journalItems])
 
   const reverseJournal = useCallback(async (entryId, reversedBy = 'System', reason = '') => {
-    const entry = state.journalEntries.find(j => j.id === entryId)
+    const entry = s.journalEntries.find(j => j.id === entryId)
     if (!entry || entry.status !== 'POSTED') return { ok: false, error: 'Hanya jurnal POSTED yang dapat dibalik.' }
-    const origItems = state.journalItems.filter(i => i.journalEntryId === entryId)
-    const revId = uuidv4()
-    const revEntry = {
+
+    const origItems = s.journalItems.filter(i => i.journalEntryId === entryId)
+    const revId     = uuidv4()
+    const revEntry  = {
       id: revId, branchId: entry.branchId,
       entryNumber: generateEntryNumber('PEMBALIK'),
       transactionDate: new Date().toISOString().split('T')[0],
@@ -245,199 +258,173 @@ export function useStore() {
       reversalOf: entryId,
       totalDebit: entry.totalDebit, totalCredit: entry.totalCredit,
       createdBy: reversedBy, postedBy: reversedBy,
-      postedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
+      postedAt:  new Date().toISOString(), createdAt: new Date().toISOString(),
     }
     const revItems = origItems.map(it => ({
       id: uuidv4(), journalEntryId: revId,
-      accountCode: it.accountCode, description: it.description,
+      accountCode: it.accountCode, description: it.description || '',
       debit: it.credit, credit: it.debit,
     }))
-    setState(s => ({
-      ...s,
-      journalEntries: [...s.journalEntries.map(j => j.id === entryId ? { ...j, status: 'REVERSED' } : j), revEntry],
-      journalItems: [...s.journalItems, ...revItems],
+
+    setState(prev => ({
+      ...prev,
+      journalEntries: [...prev.journalEntries.map(j => j.id === entryId ? { ...j, status: 'REVERSED' } : j), revEntry],
+      journalItems:   [...prev.journalItems, ...revItems],
     }))
     try {
       await updateJournalStatus(entryId, 'REVERSED')
       await upsertJournalEntry(revEntry)
       await insertJournalItems(revItems)
-    } catch (_) { }
+    } catch (e) { console.error('[reverseJournal]', e.message) }
     return { ok: true, reversalId: revId }
-  }, [state.journalEntries, state.journalItems, generateEntryNumber])
+  }, [s.journalEntries, s.journalItems, generateEntryNumber])
 
   // ── Inventory ─────────────────────────────────────────────
   const generateSku = useCallback(() =>
-    `SKU-${String(state.pharmacyItems.length + 1).padStart(5, '0')}`,
-    [state.pharmacyItems])
+    `SKU-${String(s.pharmacyItems.length + 1).padStart(5,'0')}`,
+  [s.pharmacyItems])
 
   const generateItemCode = useCallback((category = 'OTC') => {
-    const prefix = { ETHICAL: 'ETH', OTC: 'OTC', BHP: 'BHP', ALAT_MEDIS: 'ALM', VAKSIN: 'VAK' }[category] || 'ITM'
-    const count = state.pharmacyItems.filter(p => p.category === category).length + 1
-    return `${prefix}-${String(count).padStart(4, '0')}`
-  }, [state.pharmacyItems])
+    const prefix = { ETHICAL:'ETH', OTC:'OTC', BHP:'BHP', ALAT_MEDIS:'ALM', VAKSIN:'VAK' }[category] || 'ITM'
+    const count  = s.pharmacyItems.filter(p => p.category === category).length + 1
+    return `${prefix}-${String(count).padStart(4,'0')}`
+  }, [s.pharmacyItems])
 
   const addPharmacyItem = useCallback(async (data) => {
-    const item = { ...data, id: uuidv4(), createdAt: new Date().toISOString() }
-    setState(s => ({ ...s, pharmacyItems: [...s.pharmacyItems, item] }))
-    try { await upsertPharmacyItem(item) } catch (_) { }
+    const item = { ...data, id: data.id || uuidv4(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+    setState(prev => ({ ...prev, pharmacyItems: [...prev.pharmacyItems.filter(p => p.id !== item.id), item] }))
+    try { const saved = await upsertPharmacyItem(item); setState(prev => ({ ...prev, pharmacyItems: prev.pharmacyItems.map(p => p.id === saved.id ? saved : p) })) } catch (e) { console.error('[addPharmacyItem]', e.message) }
     return item
   }, [])
 
   const updatePharmacyItem = useCallback(async (id, data) => {
-    setState(s => ({ ...s, pharmacyItems: s.pharmacyItems.map(p => p.id === id ? { ...p, ...data } : p) }))
+    setState(prev => ({ ...prev, pharmacyItems: prev.pharmacyItems.map(p => p.id === id ? { ...p, ...data, updatedAt: new Date().toISOString() } : p) }))
     try {
-      const updated = state.pharmacyItems.find(p => p.id === id)
-      if (updated) await upsertPharmacyItem({ ...updated, ...data })
-    } catch (_) { }
-  }, [state.pharmacyItems])
+      const cur = s.pharmacyItems.find(p => p.id === id)
+      if (cur) await upsertPharmacyItem({ ...cur, ...data })
+    } catch (e) { console.error('[updatePharmacyItem]', e.message) }
+  }, [s.pharmacyItems])
 
   const receiveGRN = useCallback(async (grnData, batchesData) => {
-    const now = new Date().toISOString()
-    const batches = batchesData.map(b => ({ ...b, id: uuidv4(), receivedAt: now, createdAt: now }))
-    const ledgerEntries = batches.map(b => ({
+    const now     = new Date().toISOString()
+    const batches = batchesData.map(b => ({ ...b, id: b.id || uuidv4(), receivedAt: now, createdAt: now }))
+    const ledger  = batches.map(b => ({
       id: uuidv4(), batchId: b.id, itemId: b.itemId,
       transactionType: 'GRN', referenceId: b.id,
       referenceNumber: grnData.grnNumber,
-      quantityIn: b.quantityReceived, quantityOut: 0,
-      balanceAfter: b.quantityReceived,
-      unitCost: b.unitCostPrice,
-      totalValue: b.quantityReceived * b.unitCostPrice,
+      quantityIn: b.quantityReceived, quantityOut: 0, balanceAfter: b.quantityReceived,
+      unitCost: b.unitCostPrice, totalValue: b.quantityReceived * b.unitCostPrice,
       loggedAt: now,
     }))
-    setState(s => ({
-      ...s,
-      invBatches: [...s.invBatches, ...batches],
-      stockLedger: [...s.stockLedger, ...ledgerEntries],
+
+    setState(prev => ({
+      ...prev,
+      invBatches:  [...prev.invBatches, ...batches],
+      stockLedger: [...prev.stockLedger, ...ledger],
     }))
     try {
       await insertBatches(batches)
-      await insertStockLedger(ledgerEntries)
-    } catch (err) { console.error('[receiveGRN]', err.message) }
+      await insertStockLedger(ledger)
+    } catch (e) { console.error('[receiveGRN]', e.message) }
     return batches
   }, [])
 
   const adjustStock = useCallback(async (batchId, itemId, qty, reason, type) => {
-    const batch = state.invBatches.find(b => b.id === batchId)
+    const batch = s.invBatches.find(b => b.id === batchId)
     if (!batch) return
     const newQty = type === 'REMOVE' ? 0 : Math.max(0, batch.quantityCurrent + qty)
-    const ledger = {
+    const entry  = {
       id: uuidv4(), batchId, itemId,
       transactionType: type === 'REMOVE' ? 'EXPIRED' : 'ADJUSTMENT',
       referenceId: batchId, referenceNumber: `ADJ-${Date.now()}`,
-      quantityIn: type === 'ADD' ? Math.abs(qty) : 0,
+      quantityIn:  type === 'ADD'    ? Math.abs(qty) : 0,
       quantityOut: type === 'REMOVE' ? batch.quantityCurrent : (qty < 0 ? Math.abs(qty) : 0),
       balanceAfter: newQty,
-      unitCost: batch.unitCostPrice,
+      unitCost:   batch.unitCostPrice,
       totalValue: (type === 'REMOVE' ? batch.quantityCurrent : Math.abs(qty)) * batch.unitCostPrice,
       notes: reason, loggedAt: new Date().toISOString(),
     }
-    setState(s => ({
-      ...s,
-      invBatches: s.invBatches.map(b => b.id === batchId ? { ...b, quantityCurrent: newQty } : b),
-      stockLedger: [...s.stockLedger, ledger],
+    setState(prev => ({
+      ...prev,
+      invBatches:  prev.invBatches.map(b => b.id === batchId ? { ...b, quantityCurrent: newQty } : b),
+      stockLedger: [...prev.stockLedger, entry],
     }))
-    try {
-      await updateBatchQty(batchId, newQty)
-      await insertStockLedger([ledger])
-    } catch (_) { }
-  }, [state.invBatches])
+    try { await updateBatchQty(batchId, newQty); await insertStockLedger([entry]) } catch (e) { console.error('[adjustStock]', e.message) }
+  }, [s.invBatches])
 
   const getItemStock = useCallback((itemId) =>
-    state.invBatches.filter(b => b.itemId === itemId && b.quantityCurrent > 0)
-      .reduce((s, b) => s + b.quantityCurrent, 0),
-    [state.invBatches])
+    s.invBatches.filter(b => b.itemId === itemId && b.quantityCurrent > 0)
+      .reduce((sum, b) => sum + b.quantityCurrent, 0),
+  [s.invBatches])
 
   // ── Billing ───────────────────────────────────────────────
   const generateBillingNumber = useCallback(() => {
-    const d = new Date()
-    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
-    return `INV/${ym}/${String(state.billings.length + 1).padStart(5, '0')}`
-  }, [state.billings])
+    const d  = new Date()
+    const ym = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`
+    return `INV/${ym}/${String(s.billings.length + 1).padStart(5,'0')}`
+  }, [s.billings])
 
   const saveBilling = useCallback(async (billing, items) => {
-    const id = billing.id || uuidv4()
+    const id    = billing.id || uuidv4()
     const entry = { ...billing, id, createdAt: billing.createdAt || new Date().toISOString() }
-    const bItems = items.map(it => ({ ...it, id: it.id || uuidv4(), billingId: id }))
-    setState(s => ({
-      ...s,
-      billings: [...s.billings.filter(b => b.id !== id), entry],
-      billingItems: [...s.billingItems.filter(i => i.billingId !== id), ...bItems],
+    const bItems= items.map(it => ({ ...it, id: it.id || uuidv4(), billingId: id }))
+
+    setState(prev => ({
+      ...prev,
+      billings:     [...prev.billings.filter(b => b.id !== id), entry],
+      billingItems: [...prev.billingItems.filter(i => i.billingId !== id), ...bItems],
     }))
     try {
       await insertBilling(entry)
       await insertBillingItems(bItems)
-    } catch (err) { console.error('[saveBilling]', err.message) }
+    } catch (e) { console.error('[saveBilling]', e.message) }
     return id
   }, [])
 
   // ── Expense ───────────────────────────────────────────────
   const generateExpenseNumber = useCallback(() => {
-    const d = new Date()
-    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
-    return `EXP/${ym}/${String(state.expenses.length + 1).padStart(5, '0')}`
-  }, [state.expenses])
+    const d  = new Date()
+    const ym = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}`
+    return `EXP/${ym}/${String(s.expenses.length + 1).padStart(5,'0')}`
+  }, [s.expenses])
 
   const saveExpense = useCallback(async (data) => {
-    const id = data.id || uuidv4()
+    const id    = data.id || uuidv4()
     const entry = { ...data, id, createdAt: data.createdAt || new Date().toISOString() }
-    setState(s => ({ ...s, expenses: [...s.expenses.filter(e => e.id !== id), entry] }))
-    try { await upsertExpense(entry) } catch (_) { }
+    setState(prev => ({ ...prev, expenses: [...prev.expenses.filter(e => e.id !== id), entry] }))
+    try { await upsertExpense(entry) } catch (e) { console.error('[saveExpense]', e.message) }
     return id
   }, [])
 
   const postExpense = useCallback(async (expenseId, postedBy = 'System') => {
     const extra = { status: 'POSTED', authorizedBy: postedBy, postedAt: new Date().toISOString() }
-    setState(s => ({ ...s, expenses: s.expenses.map(e => e.id === expenseId ? { ...e, ...extra } : e) }))
+    setState(prev => ({ ...prev, expenses: prev.expenses.map(e => e.id === expenseId ? { ...e, ...extra } : e) }))
     try {
-      const exp = state.expenses.find(e => e.id === expenseId)
-      if (exp) await upsertExpense({ ...exp, ...extra })
-    } catch (_) { }
-  }, [state.expenses])
+      const cur = s.expenses.find(e => e.id === expenseId)
+      if (cur) await upsertExpense({ ...cur, ...extra })
+    } catch (e) { console.error('[postExpense]', e.message) }
+  }, [s.expenses])
+
+  // ── Doctor fee + PPh21 recording ─────────────────────────
+  const saveDoctorFeeRecord = useCallback(async (rec) => {
+    try { return await insertDoctorFeeRecord(rec) } catch (e) { console.error('[saveDoctorFeeRecord]', e.message) }
+  }, [])
 
   // ── Audit log ─────────────────────────────────────────────
   const logActivity = useCallback((action, module, detail = '') => {
-    const auth = (() => {
-      try { return JSON.parse(localStorage.getItem('currentUser') || '{}') } catch { return {} }
-    })()
-    const log = {
+    const auth = (() => { try { return JSON.parse(localStorage.getItem('currentUser') || '{}') } catch { return {} } })()
+    const log  = {
       id: uuidv4(), userId: auth.id || 'system',
       userName: auth.name || 'System', userRole: auth.role || 'system',
-      action, module, detail,
-      ipAddress: '127.0.0.1', createdAt: new Date().toISOString(),
+      action, module, detail, ipAddress: '127.0.0.1',
+      createdAt: new Date().toISOString(),
     }
-    insertAuditLog(log).catch(() => { })
+    insertAuditLog(log).catch(() => {})
   }, [])
-
-  // ── Service Tariffs ───────────────────────────────────────
-  const addServiceTariff = useCallback(async (data) => {
-    const tariff = { ...data, id: data.id || uuidv4(), isActive: true }
-    setState(s => ({ ...s, serviceTariffs: [...s.serviceTariffs, tariff] }))
-    try { const saved = await upsertServiceTariff(tariff); if (saved) setState(s => ({ ...s, serviceTariffs: s.serviceTariffs.map(t => t.id === tariff.id ? saved : t) })) } catch (_) { }
-    return tariff
-  }, [])
-
-  const updateServiceTariff = useCallback(async (id, data) => {
-    const updated = { ...state.serviceTariffs.find(t => t.id === id), ...data }
-    setState(s => ({ ...s, serviceTariffs: s.serviceTariffs.map(t => t.id === id ? { ...t, ...data } : t) }))
-    try { await upsertServiceTariff(updated) } catch (_) { }
-  }, [state.serviceTariffs])
-
-  // ── Vendors ───────────────────────────────────────────────
-  const addVendor = useCallback(async (data) => {
-    const vendor = { ...data, id: data.id || uuidv4(), isActive: true }
-    setState(s => ({ ...s, vendors: [...s.vendors, vendor] }))
-    try { const saved = await upsertVendor(vendor); if (saved) setState(s => ({ ...s, vendors: s.vendors.map(v => v.id === vendor.id ? saved : v) })) } catch (_) { }
-    return vendor
-  }, [])
-
-  const updateVendor = useCallback(async (id, data) => {
-    const updated = { ...state.vendors.find(v => v.id === id), ...data }
-    setState(s => ({ ...s, vendors: s.vendors.map(v => v.id === id ? { ...v, ...data } : v) }))
-    try { await upsertVendor(updated) } catch (_) { }
-  }, [state.vendors])
 
   return {
-    ...state,
+    ...s,
+    refreshAll,
     setActiveBranch, getActiveBranch,
     addBranch, updateBranch,
     addAccount, updateAccount: updateAccountFn, deactivateAccount,
@@ -446,10 +433,7 @@ export function useStore() {
     addPharmacyItem, updatePharmacyItem, receiveGRN, adjustStock, getItemStock,
     generateBillingNumber, saveBilling,
     generateExpenseNumber, saveExpense, postExpense,
-    addServiceTariff, updateServiceTariff,
-    addVendor, updateVendor,
+    saveDoctorFeeRecord,
     logActivity,
   }
 }
-
-function fmtN(n) { return new Intl.NumberFormat('id-ID').format(n) }
