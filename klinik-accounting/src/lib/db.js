@@ -309,9 +309,21 @@ export async function deleteDoctor(id) {
 // AUDIT LOGS
 // ══════════════════════════════════════════════════════════════
 export async function insertAuditLog(log) {
-  const { error } = await supabase.from('audit_logs').insert(snake(log))
+  const row = {
+    id: log.id,
+    user_id: log.userId,
+    user_name: log.userName,
+    user_role: log.userRole,
+    action: log.action,
+    module: log.module,
+    detail: log.detail,
+    ip_address: log.ipAddress || log.ip || '127.0.0.1',
+    created_at: log.createdAt || log.timestamp || new Date().toISOString()
+  }
+  const { error } = await supabase.from('audit_logs').insert(row)
   if (error) console.warn('[AuditLog]', error.message)
 }
+
 
 export async function fetchAuditLogs(limit = 500) {
   const { data, error } = await supabase
@@ -382,4 +394,25 @@ export async function upsertVendor(vendor) {
   sbErr(error, 'upsertVendor')
   return data ? norm(data[0]) : null
 }
+
+// ══════════════════════════════════════════════════════════════
+// USERS
+// ══════════════════════════════════════════════════════════════
+export async function fetchUsers() {
+  const { data, error } = await supabase.from('users').select('*').order('name')
+  sbErr(error, 'fetchUsers')
+  return normArr(data)
+}
+
+export async function upsertUser(user) {
+  const row = snake(user)
+  const { data, error } = await supabase
+    .from('users')
+    .upsert(row, { onConflict: 'id' })
+    .select()
+    .single()
+  sbErr(error, 'upsertUser')
+  return norm(data)
+}
+
 

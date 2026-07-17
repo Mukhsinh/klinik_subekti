@@ -7,10 +7,10 @@ import toast from 'react-hot-toast'
 export default function LoginPage() {
   const { login, appSettings } = useAuth()
   const navigate = useNavigate()
-  const [username, setUsername]   = useState('')
-  const [password, setPassword]   = useState('')
-  const [showPass, setShowPass]   = useState(false)
-  const [loading,  setLoading]    = useState(false)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPass, setShowPass] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -34,9 +34,15 @@ export default function LoginPage() {
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
           {/* Header banner */}
           <div className="bg-primary-600 px-8 py-7 text-center">
-            <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center mx-auto mb-3">
-              <Activity className="w-7 h-7 text-white" />
-            </div>
+            {appSettings?.logoUrl ? (
+              <div className="w-14 h-14 bg-white rounded-xl flex items-center justify-center mx-auto mb-3 overflow-hidden p-1">
+                <img src={appSettings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+              </div>
+            ) : (
+              <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center mx-auto mb-3">
+                <Activity className="w-7 h-7 text-white" />
+              </div>
+            )}
             <h1 className="text-xl font-bold text-white">{appSettings?.appName || 'Klinik Medis Antigravity'}</h1>
             <p className="text-primary-200 text-sm mt-1">Sistem Akuntansi & Inventaris</p>
           </div>

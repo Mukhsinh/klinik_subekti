@@ -1,53 +1,53 @@
 import { useState, useEffect } from 'react'
-import { insertAuditLog, fetchAuditLogs } from '../lib/db'
+import { insertAuditLog, fetchAuditLogs, fetchUsers, upsertUser, fetchAppSettings, saveAppSettingRow } from '../lib/db'
 
 // ── Persistence helpers ───────────────────────────────────────
-function persist(key, val) { try { localStorage.setItem(key, JSON.stringify(val)) } catch (_) {} }
+function persist(key, val) { try { localStorage.setItem(key, JSON.stringify(val)) } catch (_) { } }
 function load(key, fallback) { try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : fallback } catch (_) { return fallback } }
 
 // ── Default app settings ──────────────────────────────────────
 const DEFAULT_SETTINGS = {
-  appName:       'Klinik Medis Antigravity',
-  companyName:   'PT Klinik Medis Antigravity',
-  address:       'Jl. Sudirman No. 1, Jakarta Pusat',
-  phone:         '(021) 1234-5678',
-  email:         'info@antigravity-klinik.id',
-  website:       'www.antigravity-klinik.id',
-  npwp:          '01.234.567.8-901.000',
-  footerText:    'Terima kasih telah mempercayakan kesehatan Anda kepada kami.',
-  logoUrl:       '',
-  currency:      'IDR',
-  timezone:      'Asia/Jakarta',
+  appName: 'Klinik Medis Antigravity',
+  companyName: 'PT Klinik Medis Antigravity',
+  address: 'Jl. Sudirman No. 1, Jakarta Pusat',
+  phone: '(021) 1234-5678',
+  email: 'info@antigravity-klinik.id',
+  website: 'www.antigravity-klinik.id',
+  npwp: '01.234.567.8-901.000',
+  footerText: 'Terima kasih telah mempercayakan kesehatan Anda kepada kami.',
+  logoUrl: '',
+  currency: 'IDR',
+  timezone: 'Asia/Jakarta',
   fiscalYearStart: '01-01',
-  invoicePrefix:  'INV',
-  receiptPrefix:  'RCP',
-  taxRate:        11,
+  invoicePrefix: 'INV',
+  receiptPrefix: 'RCP',
+  taxRate: 11,
 }
 
 // ── Default users ─────────────────────────────────────────────
 const DEFAULT_USERS = [
-  { id: 'u1', name: 'Administrator', username: 'admin',   password: 'admin123',   role: 'admin',    email: 'admin@klinik.id',    isActive: true,  createdAt: '2024-01-01T00:00:00Z' },
-  { id: 'u2', name: 'Staf Keuangan', username: 'keuangan',password: 'keuangan123',role: 'keuangan', email: 'finance@klinik.id',   isActive: true,  createdAt: '2024-01-01T00:00:00Z' },
-  { id: 'u3', name: 'Staf Gudang',   username: 'gudang',  password: 'gudang123',  role: 'gudang',   email: 'gudang@klinik.id',    isActive: true,  createdAt: '2024-01-01T00:00:00Z' },
+  { id: 'u1', name: 'Administrator', username: 'admin', password: 'admin123', role: 'admin', email: 'admin@klinik.id', isActive: true, createdAt: '2024-01-01T00:00:00Z' },
+  { id: 'u2', name: 'Staf Keuangan', username: 'keuangan', password: 'keuangan123', role: 'keuangan', email: 'finance@klinik.id', isActive: true, createdAt: '2024-01-01T00:00:00Z' },
+  { id: 'u3', name: 'Staf Gudang', username: 'gudang', password: 'gudang123', role: 'gudang', email: 'gudang@klinik.id', isActive: true, createdAt: '2024-01-01T00:00:00Z' },
 ]
 
 // ── Role labels ────────────────────────────────────────────────
 export const ROLE_LABELS = {
-  admin:    'Administrator',
+  admin: 'Administrator',
   keuangan: 'Staf Keuangan',
-  gudang:   'Staf Gudang',
+  gudang: 'Staf Gudang',
 }
 export const ROLE_COLORS = {
-  admin:    'badge-blue',
+  admin: 'badge-blue',
   keuangan: 'badge-green',
-  gudang:   'badge-yellow',
+  gudang: 'badge-yellow',
 }
 
 // ── Role access matrix ─────────────────────────────────────────
 export const ROLE_ACCESS = {
-  admin:    ['dashboard','akuntansi','laporan','inventaris','billing','pengeluaran','pajak','cabang','pengaturan'],
-  keuangan: ['dashboard','akuntansi','laporan','inventaris','pengeluaran','pajak','cabang'],
-  gudang:   ['dashboard','inventaris'],
+  admin: ['dashboard', 'akuntansi', 'laporan', 'inventaris', 'billing', 'pengeluaran', 'pajak', 'cabang', 'pengaturan'],
+  keuangan: ['dashboard', 'akuntansi', 'laporan', 'inventaris', 'pengeluaran', 'pajak', 'cabang'],
+  gudang: ['dashboard', 'inventaris'],
 }
 
 // ── Singleton auth state ──────────────────────────────────────
@@ -57,11 +57,11 @@ const _authListeners = new Set()
 function getAuth() {
   if (!_auth) {
     _auth = {
-      currentUser:   load('currentUser',   null),
-      users:         load('authUsers',     DEFAULT_USERS),
-      appSettings:   load('appSettings',   DEFAULT_SETTINGS),
-      auditLogs:     load('auditLogs',     []),
-      isInitialized: true,
+      currentUser: load('currentUser', null),
+      users: load('authUsers', DEFAULT_USERS),
+      appSettings: load('appSettings', DEFAULT_SETTINGS),
+      auditLogs: load('auditLogs', []),
+      isInitialized: false,
     }
   }
   return _auth
@@ -71,32 +71,75 @@ function setAuth(updater) {
   const prev = getAuth()
   const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
   _auth = next
-  const keys = ['currentUser','authUsers','appSettings','auditLogs']
-  const storageKeys = { currentUser:'currentUser', users:'authUsers', appSettings:'appSettings', auditLogs:'auditLogs' }
+  const storageKeys = { currentUser: 'currentUser', users: 'authUsers', appSettings: 'appSettings', auditLogs: 'auditLogs' }
   Object.entries(storageKeys).forEach(([field, key]) => {
     if (next[field] !== prev[field]) persist(key, next[field])
   })
   _authListeners.forEach(fn => fn())
 }
 
+// ── Bootstrap Auth from Supabase ──────────────────────────────
+let _bootstrapAuthPromise = null
+export async function bootstrapAuth() {
+  if (_bootstrapAuthPromise) return _bootstrapAuthPromise
+  _bootstrapAuthPromise = (async () => {
+    try {
+      const [dbUsers, dbSettings, dbLogs] = await Promise.all([
+        fetchUsers().catch(() => []),
+        fetchAppSettings().catch(() => ({})),
+        fetchAuditLogs(1000).catch(() => [])
+      ])
+
+      // 1. Sync users
+      let finalUsers = dbUsers
+      if (dbUsers.length === 0) {
+        await Promise.all(DEFAULT_USERS.map(u => upsertUser(u)))
+        finalUsers = DEFAULT_USERS
+      }
+
+      // 2. Sync app settings
+      let finalSettings = { ...DEFAULT_SETTINGS }
+      const dbSettingsKeys = Object.keys(dbSettings)
+      if (dbSettingsKeys.length === 0) {
+        await Promise.all(Object.entries(DEFAULT_SETTINGS).map(([k, v]) => saveAppSettingRow(k, v)))
+      } else {
+        Object.assign(finalSettings, dbSettings)
+      }
+
+      // 3. Sync audit logs
+      const finalLogs = dbLogs.length > 0 ? dbLogs : getAuth().auditLogs
+
+      setAuth({
+        users: finalUsers,
+        appSettings: finalSettings,
+        auditLogs: finalLogs,
+        isInitialized: true,
+      })
+    } catch (err) {
+      console.error('[BootstrapAuth] Failed to load from Supabase, using local fallback:', err.message)
+      setAuth({ isInitialized: true })
+    }
+  })()
+  return _bootstrapAuthPromise
+}
+
 // ── Audit log writer ──────────────────────────────────────────
 function writeAuditLog(user, action, module, detail = '') {
   const log = {
-    id:         crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-    userId:     user?.id || 'anonymous',
-    userName:   user?.name || 'Tidak diketahui',
-    userRole:   user?.role || '—',
+    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    userId: user?.id || 'anonymous',
+    userName: user?.name || 'Tidak diketahui',
+    userRole: user?.role || '—',
     action,
     module,
     detail,
-    ipAddress:  '127.0.0.1',
-    ip:         '127.0.0.1',
-    timestamp:  new Date().toISOString(),
-    createdAt:  new Date().toISOString(),
+    ipAddress: '127.0.0.1',
+    ip: '127.0.0.1',
+    timestamp: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   }
   setAuth(s => ({ ...s, auditLogs: [log, ...s.auditLogs].slice(0, 2000) }))
-  // Also persist to Supabase
-  insertAuditLog(log).catch(() => {})
+  insertAuditLog(log).catch(() => { })
   return log
 }
 
@@ -118,6 +161,7 @@ export function useAuth() {
   useEffect(() => {
     const listener = () => forceRender(n => n + 1)
     _authListeners.add(listener)
+    bootstrapAuth() // idempotent
     return () => _authListeners.delete(listener)
   }, [])
 
@@ -153,28 +197,46 @@ export function useAuth() {
     }
     setAuth(s => ({ ...s, users: [...s.users, newUser] }))
     writeAuditLog(user, 'TAMBAH_PENGGUNA', 'Manajemen Pengguna', `Menambahkan pengguna: ${data.username} (${data.role})`)
+
+    // Save to Supabase
+    upsertUser(newUser).catch(err => console.error('[addUser]', err.message))
+
     return { ok: true, user: newUser }
   }
 
   const updateUser = (id, data) => {
     const user = state.currentUser
-    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? { ...u, ...data } : u) }))
+    const updated = { ...state.users.find(u => u.id === id), ...data }
+    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updated : u) }))
     writeAuditLog(user, 'UBAH_PENGGUNA', 'Manajemen Pengguna', `Mengubah pengguna ID: ${id}`)
+
+    // Save to Supabase
+    upsertUser(updated).catch(err => console.error('[updateUser]', err.message))
+
     return { ok: true }
   }
 
   const deactivateUser = (id) => {
     const user = state.currentUser
     const target = state.users.find(u => u.id === id)
-    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? { ...u, isActive: false } : u) }))
+    const updated = { ...target, isActive: false }
+    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updated : u) }))
     writeAuditLog(user, 'NONAKTIFKAN_PENGGUNA', 'Manajemen Pengguna', `Menonaktifkan pengguna: ${target?.username}`)
+
+    // Save to Supabase
+    upsertUser(updated).catch(err => console.error('[deactivateUser]', err.message))
   }
 
   const resetPassword = (id, newPassword) => {
     const user = state.currentUser
     const target = state.users.find(u => u.id === id)
-    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? { ...u, password: newPassword } : u) }))
+    const updated = { ...target, password: newPassword }
+    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updated : u) }))
     writeAuditLog(user, 'RESET_PASSWORD', 'Manajemen Pengguna', `Reset password untuk: ${target?.username}`)
+
+    // Save to Supabase
+    upsertUser(updated).catch(err => console.error('[resetPassword]', err.message))
+
     return { ok: true }
   }
 
@@ -183,6 +245,11 @@ export function useAuth() {
     const user = state.currentUser
     setAuth(s => ({ ...s, appSettings: { ...s.appSettings, ...data } }))
     writeAuditLog(user, 'UBAH_PENGATURAN', 'Pengaturan Aplikasi', 'Menyimpan pengaturan aplikasi')
+
+    // Save to Supabase
+    Object.entries(data).forEach(([key, val]) => {
+      saveAppSettingRow(key, val).catch(err => console.error('[saveAppSettings]', err.message))
+    })
   }
 
   // ── Manual audit log ──────────────────────────────────────
@@ -207,3 +274,4 @@ export function useAuth() {
     hasAccess, isAdmin,
   }
 }
+

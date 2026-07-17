@@ -1,40 +1,45 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Download, Filter, ShieldAlert } from 'lucide-react'
-import { useAuth, ROLE_LABELS, ROLE_COLORS } from '../../store/useAuth'
+import { useAuth, ROLE_LABELS, ROLE_COLORS, loadAuditLogsFromDB } from '../../store/useAuth'
 import SearchInput from '../../components/ui/SearchInput'
 import { fmtDateTime, todayISO, monthStart, monthEnd } from '../../utils/format'
 import * as XLSX from 'xlsx'
 import toast from 'react-hot-toast'
 
 const ACTION_COLORS = {
-  LOGIN:               'badge-green',
-  LOGOUT:              'badge-gray',
-  TAMBAH_PENGGUNA:     'badge-blue',
-  UBAH_PENGGUNA:       'badge-yellow',
-  NONAKTIFKAN_PENGGUNA:'badge-red',
-  RESET_PASSWORD:      'badge-orange',
-  UBAH_PENGATURAN:     'badge-purple',
-  default:             'badge-gray',
+  LOGIN: 'badge-green',
+  LOGOUT: 'badge-gray',
+  TAMBAH_PENGGUNA: 'badge-blue',
+  UBAH_PENGGUNA: 'badge-yellow',
+  NONAKTIFKAN_PENGGUNA: 'badge-red',
+  RESET_PASSWORD: 'badge-orange',
+  UBAH_PENGATURAN: 'badge-purple',
+  default: 'badge-gray',
 }
 
 const MODULE_ICONS = {
-  'Autentikasi':         '🔐',
-  'Manajemen Pengguna':  '👤',
+  'Autentikasi': '🔐',
+  'Manajemen Pengguna': '👤',
   'Pengaturan Aplikasi': '⚙️',
-  'Jurnal':              '📒',
-  'Inventaris':          '📦',
-  'Billing':             '🧾',
-  'Pengeluaran':         '💳',
+  'Jurnal': '📒',
+  'Inventaris': '📦',
+  'Billing': '🧾',
+  'Pengeluaran': '💳',
 }
 
 export default function AuditTrailPage() {
   const { auditLogs, users } = useAuth()
-  const [search,     setSearch]     = useState('')
+
+  useEffect(() => {
+    loadAuditLogsFromDB().catch(err => console.error('[AuditTrailPage] Failed loading logs:', err.message))
+  }, [])
+
+  const [search, setSearch] = useState('')
   const [userFilter, setUserFilter] = useState('ALL')
-  const [modFilter,  setModFilter]  = useState('ALL')
-  const [dateFrom,   setDateFrom]   = useState(monthStart())
-  const [dateTo,     setDateTo]     = useState(monthEnd())
-  const [page,       setPage]       = useState(1)
+  const [modFilter, setModFilter] = useState('ALL')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo, setDateTo] = useState(monthEnd())
+  const [page, setPage] = useState(1)
   const PAGE_SIZE = 25
 
   const modules = useMemo(() => ['ALL', ...new Set(auditLogs.map(l => l.module))], [auditLogs])
@@ -47,28 +52,28 @@ export default function AuditTrailPage() {
   const filtered = useMemo(() =>
     auditLogs
       .filter(l => userFilter === 'ALL' || l.userId === userFilter)
-      .filter(l => modFilter  === 'ALL' || l.module  === modFilter)
-      .filter(l => !dateFrom  || l.timestamp.slice(0, 10) >= dateFrom)
-      .filter(l => !dateTo    || l.timestamp.slice(0, 10) <= dateTo)
-      .filter(l => !search    ||
+      .filter(l => modFilter === 'ALL' || l.module === modFilter)
+      .filter(l => !dateFrom || l.timestamp.slice(0, 10) >= dateFrom)
+      .filter(l => !dateTo || l.timestamp.slice(0, 10) <= dateTo)
+      .filter(l => !search ||
         l.userName.toLowerCase().includes(search.toLowerCase()) ||
         l.action.toLowerCase().includes(search.toLowerCase()) ||
         l.detail.toLowerCase().includes(search.toLowerCase())
       ),
-  [auditLogs, userFilter, modFilter, dateFrom, dateTo, search])
+    [auditLogs, userFilter, modFilter, dateFrom, dateTo, search])
 
-  const totalPages   = Math.ceil(filtered.length / PAGE_SIZE)
-  const paginated    = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const exportXLSX = () => {
     const rows = filtered.map(l => ({
-      'Waktu':      fmtDateTime(l.timestamp),
-      'Pengguna':   l.userName,
-      'Role':       ROLE_LABELS[l.userRole] || l.userRole,
-      'Aksi':       l.action,
-      'Modul':      l.module,
-      'Detail':     l.detail,
-      'IP':         l.ip,
+      'Waktu': fmtDateTime(l.timestamp),
+      'Pengguna': l.userName,
+      'Role': ROLE_LABELS[l.userRole] || l.userRole,
+      'Aksi': l.action,
+      'Modul': l.module,
+      'Detail': l.detail,
+      'IP': l.ip,
     }))
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(rows)
@@ -77,8 +82,8 @@ export default function AuditTrailPage() {
     toast.success('File audit trail berhasil diunduh.')
   }
 
-  const loginCount   = filtered.filter(l => l.action === 'LOGIN').length
-  const uniqueUsers  = new Set(filtered.map(l => l.userId)).size
+  const loginCount = filtered.filter(l => l.action === 'LOGIN').length
+  const uniqueUsers = new Set(filtered.map(l => l.userId)).size
   const todayActions = filtered.filter(l => l.timestamp.startsWith(todayISO())).length
 
   return (
@@ -146,13 +151,13 @@ export default function AuditTrailPage() {
           <table className="table-base">
             <thead>
               <tr>
-                <th style={{width:170}}>Waktu</th>
-                <th style={{width:140}}>Pengguna</th>
-                <th style={{width:110}}>Role</th>
-                <th style={{width:160}}>Aksi</th>
-                <th style={{width:140}}>Modul</th>
+                <th style={{ width: 170 }}>Waktu</th>
+                <th style={{ width: 140 }}>Pengguna</th>
+                <th style={{ width: 110 }}>Role</th>
+                <th style={{ width: 160 }}>Aksi</th>
+                <th style={{ width: 140 }}>Modul</th>
                 <th>Detail</th>
-                <th style={{width:100}}>IP</th>
+                <th style={{ width: 100 }}>IP</th>
               </tr>
             </thead>
             <tbody>

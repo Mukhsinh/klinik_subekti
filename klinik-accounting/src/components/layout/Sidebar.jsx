@@ -115,9 +115,15 @@ export default function Sidebar({ collapsed }) {
     <aside className={`fixed top-0 left-0 h-full bg-white border-r border-slate-200 flex flex-col z-30 transition-all duration-300 ${collapsed ? 'w-0 overflow-hidden' : 'w-64'}`}>
       {/* Logo */}
       <div className="h-16 flex items-center gap-3 px-5 border-b border-slate-100 flex-shrink-0">
-        <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center flex-shrink-0">
-          <Activity className="w-4 h-4 text-white" />
-        </div>
+        {appSettings?.logoUrl ? (
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden bg-slate-50 border border-slate-100">
+            <img src={appSettings.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+          </div>
+        ) : (
+          <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center flex-shrink-0">
+            <Activity className="w-4 h-4 text-white" />
+          </div>
+        )}
         <div className="min-w-0">
           <p className="text-sm font-bold text-slate-800 truncate">{appSettings?.appName || 'Klinik Antigravity'}</p>
           <p className="text-xs text-slate-400">Sistem Akuntansi</p>

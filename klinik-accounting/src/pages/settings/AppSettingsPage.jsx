@@ -1,12 +1,99 @@
-import { useState } from 'react'
-import { Save, Settings, Building2, Globe, FileText } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Save, Settings, Building2, FileText, Upload, Trash2, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { useAuth } from '../../store/useAuth'
+import { supabase } from '../../lib/supabase'
 import toast from 'react-hot-toast'
 
 export default function AppSettingsPage() {
   const { appSettings, saveAppSettings } = useAuth()
   const [form, setForm] = useState({ ...appSettings })
+  const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef(null)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // ── Upload logo to Supabase Storage ─────────────────────────
+  const handleLogoUpload = async (file) => {
+    if (!file) return
+    // Validate file type
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp']
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Format file tidak didukung. Gunakan PNG, JPG, GIF, SVG, atau WebP.')
+      return
+    }
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Ukuran file maksimal 5 MB.')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const ext = file.name.split('.').pop()
+      const filePath = `logo/clinic-logo-${Date.now()}.${ext}`
+
+      // Delete old logo if exists
+      if (form.logoUrl) {
+        try {
+          const oldPath = form.logoUrl.split('/storage/v1/object/public/assets/')[1]
+          if (oldPath) {
+            await supabase.storage.from('assets').remove([oldPath])
+          }
+        } catch (_) { /* ignore old delete errors */ }
+      }
+
+      // Upload new logo
+      const { error: uploadError } = await supabase.storage
+        .from('assets')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: file.type,
+        })
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('assets')
+        .getPublicUrl(filePath)
+
+      const publicUrl = urlData.publicUrl
+      set('logoUrl', publicUrl)
+      toast.success('Logo berhasil diunggah!')
+    } catch (err) {
+      console.error('[LogoUpload]', err)
+      toast.error(`Gagal mengunggah logo: ${err.message}`)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (file) handleLogoUpload(file)
+    e.target.value = '' // reset input
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) handleLogoUpload(file)
+  }
+
+  const handleRemoveLogo = async () => {
+    if (!form.logoUrl) return
+    if (!window.confirm('Hapus logo klinik saat ini?')) return
+    try {
+      const oldPath = form.logoUrl.split('/storage/v1/object/public/assets/')[1]
+      if (oldPath) {
+        await supabase.storage.from('assets').remove([oldPath])
+      }
+    } catch (_) { /* ignore */ }
+    set('logoUrl', '')
+    toast.success('Logo berhasil dihapus.')
+  }
 
   const handleSave = (e) => {
     e.preventDefault()
@@ -111,7 +198,7 @@ export default function AppSettingsPage() {
           </div>
         </div>
 
-        {/* Laporan */}
+        {/* Laporan & Logo */}
         <div className="card">
           <div className="card-header">
             <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-primary-600" /><span className="section-title">Pengaturan Laporan & Cetak</span></div>
@@ -121,10 +208,73 @@ export default function AppSettingsPage() {
               <label className="form-label">Teks Footer Laporan / Invoice</label>
               <textarea className="form-textarea" rows={2} value={form.footerText || ''} onChange={e => set('footerText', e.target.value)} placeholder="Teks yang muncul di footer setiap laporan dan invoice…" />
             </div>
+
+            {/* Logo Upload Area */}
             <div>
-              <label className="form-label">URL Logo (opsional)</label>
-              <input className="form-input" value={form.logoUrl || ''} onChange={e => set('logoUrl', e.target.value)} placeholder="https://… atau path relatif" />
-              <p className="text-xs text-slate-400 mt-1">Logo akan ditampilkan di header laporan PDF dan invoice.</p>
+              <label className="form-label">Logo Klinik</label>
+              <div className="flex items-start gap-5">
+                {/* Preview */}
+                <div className="flex-shrink-0 w-28 h-28 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                  {form.logoUrl ? (
+                    <img src={form.logoUrl} alt="Logo Klinik" className="w-full h-full object-contain p-1.5" />
+                  ) : (
+                    <ImageIcon className="w-10 h-10 text-slate-300" />
+                  )}
+                </div>
+
+                {/* Upload + Actions */}
+                <div className="flex-1 space-y-2.5">
+                  {/* Drag & Drop Zone */}
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleDrop}
+                    onClick={() => !uploading && fileInputRef.current?.click()}
+                    className={`
+                      relative cursor-pointer rounded-xl border-2 border-dashed px-4 py-5 text-center transition-all duration-200
+                      ${dragOver
+                        ? 'border-primary-400 bg-primary-50 scale-[1.01]'
+                        : 'border-slate-200 bg-slate-50/50 hover:border-primary-300 hover:bg-primary-50/50'}
+                      ${uploading ? 'pointer-events-none opacity-60' : ''}
+                    `}
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp"
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+                    {uploading ? (
+                      <div className="flex items-center justify-center gap-2 text-primary-600">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span className="text-sm font-medium">Mengunggah logo…</span>
+                      </div>
+                    ) : (
+                      <div>
+                        <Upload className="w-6 h-6 mx-auto mb-1.5 text-slate-400" />
+                        <p className="text-sm font-medium text-slate-600">
+                          {dragOver ? 'Lepaskan file di sini' : 'Klik atau seret file ke sini'}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">PNG, JPG, SVG, WebP — Maks. 5 MB</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Remove Button */}
+                  {form.logoUrl && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveLogo}
+                      className="inline-flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />Hapus Logo
+                    </button>
+                  )}
+
+                  <p className="text-xs text-slate-400">Logo akan ditampilkan di header laporan PDF dan invoice.</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
