@@ -16,6 +16,10 @@ dist/
 klinik-accounting/dist/
 dist-ssr/
 *.local
+.env
+.env.local
+.env.*.local
+*.env
 
 # Editor directories and files
 .vscode/*
