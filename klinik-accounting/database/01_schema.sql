@@ -224,11 +224,34 @@ CREATE TABLE expense_entries (
 );
 
 -- ============================================================
--- 10. JASA MEDIS DOKTER & PPh 21
+-- 10. MASTER DOKTER & JASA MEDIS
 -- ============================================================
+CREATE TABLE doctors (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    doctor_code            VARCHAR(50) UNIQUE NOT NULL,
+    full_name              VARCHAR(150) NOT NULL,
+    title                  VARCHAR(50),
+    specialization         VARCHAR(100),
+    sip_number             VARCHAR(50),
+    nik                    VARCHAR(20),
+    npwp                   VARCHAR(20),
+    phone                  VARCHAR(20),
+    email                  VARCHAR(100),
+    address                TEXT,
+    bank_name              VARCHAR(100),
+    bank_account_number    VARCHAR(50),
+    bank_account_name      VARCHAR(150),
+    fee_percentage         NUMERIC(5,2) NOT NULL DEFAULT 30,
+    is_active              BOOLEAN NOT NULL DEFAULT TRUE,
+    notes                  TEXT,
+    created_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 CREATE TABLE doctor_fee_records (
     id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     billing_id               UUID NOT NULL REFERENCES patient_billings(id),
+    doctor_id                UUID REFERENCES doctors(id) ON DELETE SET NULL,
     doctor_name              VARCHAR(100) NOT NULL,
     doctor_npwp              VARCHAR(20),
     gross_jasa_medis         NUMERIC(15,4) NOT NULL,
@@ -240,6 +263,48 @@ CREATE TABLE doctor_fee_records (
     journal_entry_id         UUID REFERENCES journal_entries(id),
     created_at               TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Enable RLS
+ALTER TABLE doctors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE doctor_fee_records ENABLE ROW LEVEL SECURITY;
+
+-- Policies
+CREATE POLICY allow_all_doctors ON doctors FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY allow_all_doctor_fee_records ON doctor_fee_records FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- ============================================================
+-- 10B. TARIF LAYANAN & VENDOR
+-- ============================================================
+CREATE TABLE service_tariffs (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code                   VARCHAR(50) UNIQUE NOT NULL,
+    name                   VARCHAR(255) NOT NULL,
+    price                  NUMERIC(15,2) NOT NULL DEFAULT 0 CHECK (price >= 0),
+    is_active              BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE vendors (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code                   VARCHAR(50) UNIQUE NOT NULL,
+    name                   VARCHAR(255) NOT NULL,
+    address                TEXT,
+    phone                  VARCHAR(50),
+    npwp                   VARCHAR(50),
+    is_active              BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE service_tariffs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vendors ENABLE ROW LEVEL SECURITY;
+
+-- Policies
+CREATE POLICY allow_all_service_tariffs ON service_tariffs FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY allow_all_vendors ON vendors FOR ALL TO public USING (true) WITH CHECK (true);
+
 
 -- ============================================================
 -- 11. LAPORAN PENUTUPAN PERIODE
