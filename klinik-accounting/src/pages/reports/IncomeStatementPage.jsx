@@ -1,0 +1,224 @@
+import { useState, useMemo } from 'react'
+import { Download, Printer } from 'lucide-react'
+import { useStore } from '../../store/useStore'
+import { fmtIDR, fmtDate, monthStart, monthEnd, fmtPct } from '../../utils/format'
+import { exportIncomeStatementPDF } from '../../utils/exportPDF'
+import { exportIncomeStatementExcel } from '../../utils/exportExcel'
+
+function buildAccountBalances(coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter) {
+  const postedIds = new Set(
+    journalEntries
+      .filter(j =>
+        j.status === 'POSTED' &&
+        j.transactionDate >= dateFrom &&
+        j.transactionDate <= dateTo &&
+        (branchFilter === 'ALL' || j.branchId === branchFilter)
+      )
+      .map(j => j.id)
+  )
+  const balances = {}
+  journalItems.forEach(item => {
+    if (!postedIds.has(item.journalEntryId)) return
+    const acc = coa.find(a => a.accountCode === item.accountCode)
+    if (!acc) return
+    const d = parseFloat(item.debit || 0)
+    const c = parseFloat(item.credit || 0)
+    if (!balances[item.accountCode]) balances[item.accountCode] = 0
+    if (acc.naturalBalance === 'DEBIT')  balances[item.accountCode] += d - c
+    else                                  balances[item.accountCode] += c - d
+  })
+  return balances
+}
+
+function SectionRow({ label, value, indent = 0, isTotal = false, isGrandTotal = false }) {
+  return (
+    <tr className={isGrandTotal ? 'bg-primary-50 border-t-2 border-primary-200' : isTotal ? 'bg-slate-50 border-t border-slate-200' : ''}>
+      <td className={`py-2 ${indent === 1 ? 'pl-8' : indent === 2 ? 'pl-14' : 'pl-4'} ${isTotal || isGrandTotal ? 'font-semibold' : ''} text-sm`}>
+        {label}
+      </td>
+      <td className={`text-right py-2 font-mono text-sm pr-4 ${isGrandTotal ? 'text-primary-700 font-bold text-base' : isTotal ? 'font-semibold' : ''}`}>
+        {value !== null && value !== undefined ? fmtIDR(value) : ''}
+      </td>
+    </tr>
+  )
+}
+
+export default function IncomeStatementPage() {
+  const { coa, journalEntries, journalItems, branches, activeBranchId } = useStore()
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(monthEnd())
+  const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
+
+  const balances = useMemo(() =>
+    buildAccountBalances(coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter),
+  [coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter])
+
+  const getBalance = (code) => balances[code] || 0
+
+  // Revenue groups
+  const revGroups = useMemo(() => {
+    const groups = {}
+    coa.filter(a => a.accountType === 'REVENUE' && !a.isHeader).forEach(a => {
+      const g = a.accountSubgroup || a.accountGroup
+      if (!groups[g]) groups[g] = { label: g, items: [] }
+      groups[g].items.push({ ...a, amount: getBalance(a.accountCode) })
+    })
+    return Object.values(groups)
+  }, [coa, balances])
+
+  const totalRevenue = revGroups.reduce((s, g) => s + g.items.reduce((ss, i) => ss + i.amount, 0), 0)
+
+  // HPP
+  const hppItems = useMemo(() => coa.filter(a => a.accountType === 'EXPENSE' && a.accountGroup === 'HARGA POKOK' && !a.isHeader)
+    .map(a => ({ ...a, amount: getBalance(a.accountCode) })), [coa, balances])
+  const totalHPP = hppItems.reduce((s, i) => s + i.amount, 0)
+  const grossProfit = totalRevenue - totalHPP
+
+  // Operating expenses by subgroup
+  const expGroups = useMemo(() => {
+    const groups = {}
+    coa.filter(a => a.accountType === 'EXPENSE' && a.accountGroup !== 'HARGA POKOK' && !a.isHeader).forEach(a => {
+      const g = a.accountSubgroup || a.accountGroup
+      if (!groups[g]) groups[g] = { label: g, items: [] }
+      groups[g].items.push({ ...a, amount: getBalance(a.accountCode) })
+    })
+    return Object.values(groups)
+  }, [coa, balances])
+
+  const totalOpEx = expGroups.reduce((s, g) => s + g.items.reduce((ss, i) => ss + i.amount, 0), 0)
+  const netProfit = grossProfit - totalOpEx
+  const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0
+  const netMargin   = totalRevenue > 0 ? (netProfit   / totalRevenue) * 100 : 0
+
+  const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
+  const branchName  = branches.find(b => b.id === branchFilter)?.entityName || 'Semua Cabang'
+
+  // For export
+  const exportData = useMemo(() => {
+    const rows = []
+    rows.push({ accountCode: '', accountName: 'PENDAPATAN', isGroup: true, subtotal: totalRevenue })
+    revGroups.forEach(g => {
+      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: g.items.reduce((s,i) => s+i.amount, 0) })
+      g.items.forEach(i => rows.push({ accountCode: i.accountCode, accountName: i.accountName, isGroup: false, amount: i.amount }))
+    })
+    rows.push({ accountCode: '', accountName: 'HARGA POKOK PENJUALAN', isGroup: true, subtotal: totalHPP })
+    hppItems.forEach(i => rows.push({ accountCode: i.accountCode, accountName: i.accountName, isGroup: false, amount: i.amount }))
+    rows.push({ accountCode: '', accountName: 'LABA KOTOR', isGroup: true, subtotal: grossProfit })
+    expGroups.forEach(g => {
+      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: g.items.reduce((s,i) => s+i.amount, 0) })
+      g.items.forEach(i => rows.push({ accountCode: i.accountCode, accountName: i.accountName, isGroup: false, amount: i.amount }))
+    })
+    rows.push({ accountCode: '', accountName: 'LABA BERSIH', isGroup: true, subtotal: netProfit })
+    return rows
+  }, [revGroups, hppItems, expGroups, totalRevenue, totalHPP, grossProfit, netProfit])
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="page-title">Laporan Laba Rugi</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Income Statement — PSAK 1 / ISAK 35</p>
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-secondary" onClick={() => exportIncomeStatementExcel(exportData, periodLabel, branchName)}><Download className="w-4 h-4" />Excel</button>
+          <button className="btn-secondary" onClick={() => exportIncomeStatementPDF(exportData, periodLabel, branchName)}><Printer className="w-4 h-4" />PDF</button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="card card-body">
+        <div className="flex flex-wrap gap-4 items-end">
+          <div><label className="form-label">Dari Tanggal</label><input type="date" className="form-input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
+          <div><label className="form-label">Sampai Tanggal</label><input type="date" className="form-input" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
+          <div>
+            <label className="form-label">Cabang</label>
+            <select className="form-select" value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
+              <option value="ALL">Semua Cabang</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.entityName}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="card card-body bg-emerald-50 border-0">
+          <p className="text-xs text-slate-500 uppercase mb-1">Total Pendapatan</p>
+          <p className="font-mono font-bold text-emerald-700 text-lg">{fmtIDR(totalRevenue)}</p>
+        </div>
+        <div className="card card-body bg-amber-50 border-0">
+          <p className="text-xs text-slate-500 uppercase mb-1">Laba Kotor</p>
+          <p className="font-mono font-bold text-amber-700 text-lg">{fmtIDR(grossProfit)}</p>
+          <p className="text-xs text-slate-400 mt-0.5">Margin: {fmtPct(grossMargin)}</p>
+        </div>
+        <div className="card card-body bg-blue-50 border-0">
+          <p className="text-xs text-slate-500 uppercase mb-1">Total Beban Operasional</p>
+          <p className="font-mono font-bold text-blue-700 text-lg">{fmtIDR(totalOpEx)}</p>
+        </div>
+        <div className={`card card-body border-0 ${netProfit >= 0 ? 'bg-teal-50' : 'bg-red-50'}`}>
+          <p className="text-xs text-slate-500 uppercase mb-1">Laba Bersih</p>
+          <p className={`font-mono font-bold text-lg ${netProfit >= 0 ? 'text-teal-700' : 'text-red-700'}`}>{fmtIDR(netProfit)}</p>
+          <p className="text-xs text-slate-400 mt-0.5">Margin: {fmtPct(netMargin)}</p>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <span className="section-title">Laporan Laba Rugi</span>
+          <span className="text-xs text-slate-400">{periodLabel} · {branchName}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-primary-700 text-white">
+                <th className="px-4 py-3 text-left font-semibold">Keterangan</th>
+                <th className="px-4 py-3 text-right font-semibold pr-4">Jumlah (Rp)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* PENDAPATAN */}
+              <SectionRow label="PENDAPATAN" value={null} isTotal />
+              {revGroups.map(g => {
+                const sub = g.items.reduce((s,i) => s + i.amount, 0)
+                return (
+                  <>
+                    {g.items.map(i => <SectionRow key={i.accountCode} label={`${i.accountCode} — ${i.accountName}`} value={i.amount > 0 ? i.amount : null} indent={2} />)}
+                    <SectionRow label={`Total ${g.label}`} value={sub} indent={1} isTotal />
+                  </>
+                )
+              })}
+              <SectionRow label="TOTAL PENDAPATAN" value={totalRevenue} isTotal />
+
+              {/* HPP */}
+              <tr><td colSpan={2} className="py-1" /></tr>
+              <SectionRow label="HARGA POKOK PENJUALAN" value={null} isTotal />
+              {hppItems.map(i => <SectionRow key={i.accountCode} label={`${i.accountCode} — ${i.accountName}`} value={i.amount > 0 ? i.amount : null} indent={2} />)}
+              <SectionRow label="TOTAL HPP" value={totalHPP} isTotal />
+              <SectionRow label="LABA KOTOR" value={grossProfit} isTotal />
+
+              {/* BEBAN OPERASIONAL */}
+              <tr><td colSpan={2} className="py-1" /></tr>
+              <SectionRow label="BEBAN OPERASIONAL" value={null} isTotal />
+              {expGroups.map(g => {
+                const sub = g.items.reduce((s,i) => s + i.amount, 0)
+                return (
+                  <>
+                    {g.items.filter(i => i.amount > 0).map(i => <SectionRow key={i.accountCode} label={`${i.accountCode} — ${i.accountName}`} value={i.amount} indent={2} />)}
+                    {sub > 0 && <SectionRow label={`Total ${g.label}`} value={sub} indent={1} isTotal />}
+                  </>
+                )
+              })}
+              <SectionRow label="TOTAL BEBAN OPERASIONAL" value={totalOpEx} isTotal />
+            </tbody>
+            <tfoot>
+              <tr className="bg-primary-700 text-white">
+                <td className="px-4 py-3 font-bold">LABA BERSIH SEBELUM PAJAK</td>
+                <td className="px-4 py-3 text-right font-mono font-bold pr-4">{fmtIDR(netProfit)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
