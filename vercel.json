@@ -1,0 +1,11 @@
+{
+    "version": 2,
+    "buildCommand": "cd klinik-accounting && npm install && npm run build",
+    "outputDirectory": "klinik-accounting/dist",
+    "rewrites": [
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
+}
