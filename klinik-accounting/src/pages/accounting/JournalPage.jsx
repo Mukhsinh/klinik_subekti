@@ -110,8 +110,8 @@ function JournalForm({ initial, onSave, onClose }) {
           <label className="form-label mb-0">Baris Jurnal (Double Entry)</label>
           <button type="button" className="btn-ghost text-xs py-1" onClick={addRow}><Plus className="w-3.5 h-3.5" />Tambah Baris</button>
         </div>
-        <div className="border border-slate-200 rounded-xl overflow-hidden">
-          <table className="table-base">
+        <div className="border border-slate-200 rounded-xl overflow-x-auto">
+          <table className="table-base" style={{ minWidth: '900px' }}>
             <thead>
               <tr>
                 <th style={{ minWidth: 320 }}>Akun</th>
@@ -124,7 +124,7 @@ function JournalForm({ initial, onSave, onClose }) {
             <tbody>
               {items.map((it, idx) => (
                 <tr key={it.id}>
-                  <td>
+                  <td className="relative" style={{ overflow: 'visible' }}>
                     <SearchableSelect
                       value={it.accountCode}
                       onChange={val => setItem(it.id, 'accountCode', val)}

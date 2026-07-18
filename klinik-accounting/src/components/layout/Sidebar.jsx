@@ -4,7 +4,8 @@ import {
   Package, ShoppingCart, Receipt, TrendingUp,
   Building2, Users, ChevronDown, ChevronRight,
   Scale, FileBarChart, Layers, Wallet, ArrowRightLeft,
-  Settings, UserCog, ClipboardList, Activity, LogOut, Stethoscope
+  Settings, UserCog, ClipboardList, Activity, LogOut, Stethoscope,
+  Boxes, FolderInput, ClipboardCheck, Calculator
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../../store/useAuth'
@@ -28,30 +29,38 @@ const NAV = [
       { to: '/cash-flow', icon: ArrowRightLeft, label: 'Arus Kas' },
     ]
   },
+  { to: '/billing', icon: Receipt, label: 'Kasir & Billing', roles: ['admin'] },
+  { to: '/expenses', icon: Wallet, label: 'Pengeluaran', roles: ['admin', 'keuangan'] },
   {
-    label: 'Inventaris', icon: Package, roles: ['admin', 'keuangan', 'gudang'], children: [
+    label: 'Inventory', icon: Package, roles: ['admin', 'keuangan', 'gudang'], children: [
       { to: '/inventory', icon: Package, label: 'Master Item' },
       { to: '/grn', icon: ShoppingCart, label: 'Penerimaan (GRN)' },
       { to: '/stock-ledger', icon: BarChart3, label: 'Kartu Stok' },
     ]
   },
-  { to: '/billing', icon: Receipt, label: 'Kasir & Billing', roles: ['admin'] },
-  { to: '/expenses', icon: Wallet, label: 'Pengeluaran', roles: ['admin', 'keuangan'] },
+  {
+    label: 'Aset', icon: Boxes, roles: ['admin', 'keuangan'], children: [
+      { to: '/assets/inventory', icon: ClipboardCheck, label: 'Inventarisasi Aset' },
+      { to: '/assets/mutations', icon: FolderInput, label: 'Mutasi Aset' },
+      { to: '/assets/card', icon: FileBarChart, label: 'Kartu Inventaris Aset' },
+      { to: '/assets/depreciation', icon: Calculator, label: 'Kalkulasi Penyusutan' },
+    ]
+  },
   {
     label: 'Pajak', icon: FileText, roles: ['admin', 'keuangan'], children: [
       { to: '/tax-pph21', icon: Users, label: 'PPh 21 Dokter' },
       { to: '/tax-ppn', icon: Receipt, label: 'PPN Obat' },
     ]
   },
-  { to: '/branches', icon: Building2, label: 'Cabang', roles: ['admin', 'keuangan'] },
   {
-    label: 'Pengaturan', icon: Settings, roles: ['admin'], children: [
-      { to: '/settings/app', icon: Settings, label: 'Pengaturan Aplikasi' },
-      { to: '/settings/users', icon: UserCog, label: 'Manajemen Pengguna' },
-      { to: '/settings/doctors', icon: Stethoscope, label: 'Manajemen Dokter' },
-      { to: '/settings/service-tariffs', icon: Receipt, label: 'Manajemen Tarif Layanan' },
-      { to: '/settings/vendors', icon: Building2, label: 'Manajemen Vendor' },
-      { to: '/settings/audit', icon: ClipboardList, label: 'Audit Trail' },
+    label: 'Pengaturan', icon: Settings, roles: ['admin', 'keuangan'], children: [
+      { to: '/settings/app', icon: Settings, label: 'Pengaturan Aplikasi', roles: ['admin'] },
+      { to: '/settings/users', icon: UserCog, label: 'Manajemen Pengguna', roles: ['admin'] },
+      { to: '/branches', icon: Building2, label: 'Cabang', roles: ['admin', 'keuangan'] },
+      { to: '/settings/doctors', icon: Stethoscope, label: 'Manajemen Dokter', roles: ['admin'] },
+      { to: '/settings/service-tariffs', icon: Receipt, label: 'Manajemen Tarif Layanan', roles: ['admin'] },
+      { to: '/settings/vendors', icon: Building2, label: 'Manajemen Vendor', roles: ['admin'] },
+      { to: '/settings/audit', icon: ClipboardList, label: 'Audit Trail', roles: ['admin'] },
     ]
   },
 ]

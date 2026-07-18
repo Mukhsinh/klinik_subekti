@@ -12,8 +12,8 @@ const ROLES = ['admin','keuangan','gudang']
 // Role description
 const ROLE_DESC = {
   admin:    'Akses penuh ke semua modul termasuk Pengaturan.',
-  keuangan: 'Akses ke Akuntansi, Laporan, Inventaris, Pengeluaran, Pajak, Cabang. Tidak dapat mengakses Kasir & Billing.',
-  gudang:   'Hanya dapat mengakses modul Inventaris (Master Item, GRN, Kartu Stok).',
+  keuangan: 'Akses ke Akuntansi, Laporan, Inventory, Pengeluaran, Pajak, Cabang. Tidak dapat mengakses Kasir & Billing.',
+  gudang:   'Hanya dapat mengakses modul Inventory (Master Item, GRN, Kartu Stok).',
 }
 
 function UserForm({ initial = {}, onSave, onClose, isEdit = false }) {
@@ -246,7 +246,7 @@ export default function UserManagementPage() {
                 ['Dashboard',       true, true, true],
                 ['Akuntansi',       true, true, false],
                 ['Laporan Keuangan',true, true, false],
-                ['Inventaris',      true, true, true],
+                ['Inventory',       true, true, true],
                 ['Kasir & Billing', true, false,false],
                 ['Pengeluaran',     true, true, false],
                 ['Pajak',           true, true, false],

@@ -39,7 +39,7 @@ export default function BillingPage() {
 
   const billingNumber = useMemo(() => generateBillingNumber(), [billings])
   const activeDoctors = useMemo(() => (doctors || []).filter(d => d.isActive !== false), [doctors])
-  const doctorOptions = useMemo(() => activeDoctors.map(d => ({ value: d.id, label: `${d.title || ''} ${d.fullName} — ${d.specialization} (${d.feePercentage || 30}% fee)` })), [activeDoctors])
+  const doctorOptions = useMemo(() => activeDoctors.map(d => ({ value: d.id, label: `${d.title ? d.title + ' ' : ''}${d.fullName}`.trim() })), [activeDoctors])
 
   const activeServices = useMemo(() => (serviceTariffs || []).filter(s => s.isActive !== false), [serviceTariffs])
   const serviceOptions = useMemo(() => activeServices.map(s => ({ value: s.id, label: `${s.code} — ${s.name} (${fmtIDR(s.price)})` })), [activeServices])
@@ -289,6 +289,8 @@ export default function BillingPage() {
                 onChange={val => setSelectedDoctor(activeDoctors.find(d => d.id === val) || null)}
                 options={doctorOptions}
                 placeholder="— Pilih dokter (opsional) —"
+                hideValue={true}
+                searchPlaceholder="Ketik nama dokter…"
               />
               {selectedDoctor && (
                 <p className="text-xs text-primary-600 mt-1">
@@ -319,6 +321,8 @@ export default function BillingPage() {
                 onChange={addSvc}
                 options={serviceOptions}
                 placeholder="— Tambah Layanan Medis —"
+                hideValue={true}
+                searchPlaceholder="Ketik nama layanan..."
               />
             </div>
             {serviceLines.length > 0 && (
@@ -385,6 +389,8 @@ export default function BillingPage() {
                             onChange={val => setPharm(l.id, 'itemId', val)}
                             options={pharmacyOptions}
                             placeholder="— Pilih Obat —"
+                            hideValue={true}
+                            searchPlaceholder="Ketik nama obat..."
                           />
                         </td>
                         <td>

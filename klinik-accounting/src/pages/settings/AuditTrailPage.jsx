@@ -22,7 +22,7 @@ const MODULE_ICONS = {
   'Manajemen Pengguna': '👤',
   'Pengaturan Aplikasi': '⚙️',
   'Jurnal': '📒',
-  'Inventaris': '📦',
+  'Inventory': '📦',
   'Billing': '🧾',
   'Pengeluaran': '💳',
 }

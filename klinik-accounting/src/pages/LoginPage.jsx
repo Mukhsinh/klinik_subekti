@@ -44,7 +44,7 @@ export default function LoginPage() {
               </div>
             )}
             <h1 className="text-xl font-bold text-white">{appSettings?.appName || 'Klinik Medis Antigravity'}</h1>
-            <p className="text-primary-200 text-sm mt-1">Sistem Akuntansi & Inventaris</p>
+            <p className="text-primary-200 text-sm mt-1">Sistem Akuntansi & Inventory</p>
           </div>
 
           {/* Form */}

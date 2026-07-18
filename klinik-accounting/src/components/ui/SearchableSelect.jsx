@@ -18,12 +18,14 @@ export default function SearchableSelect({
   placeholder = '— Pilih —',
   className = '',
   disabled = false,
+  hideValue = false,
+  searchPlaceholder = 'Ketik kode atau kata kunci…',
 }) {
-  const [open,   setOpen]   = useState(false)
-  const [query,  setQuery]  = useState('')
-  const wrapRef  = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const wrapRef = useRef(null)
   const inputRef = useRef(null)
-  const listRef  = useRef(null)
+  const listRef = useRef(null)
 
   const selected = options.find(o => o.value === value) || null
 
@@ -52,8 +54,8 @@ export default function SearchableSelect({
     return options.filter(o =>
       o.label.toLowerCase().includes(q) ||
       o.value.toLowerCase().includes(q) ||
-      (o.sub  || '').toLowerCase().includes(q) ||
-      (o.group|| '').toLowerCase().includes(q)
+      (o.sub || '').toLowerCase().includes(q) ||
+      (o.group || '').toLowerCase().includes(q)
     )
   }, [options, query])
 
@@ -94,7 +96,9 @@ export default function SearchableSelect({
         <span className="flex-1 truncate">
           {selected ? (
             <span className="flex items-center gap-2">
-              <span className="font-mono text-xs text-primary-700 flex-shrink-0">{selected.value}</span>
+              {!hideValue && (
+                <span className="font-mono text-xs text-primary-700 flex-shrink-0">{selected.value}</span>
+              )}
               <span className="text-slate-700 truncate">{selected.label}</span>
             </span>
           ) : (
@@ -114,8 +118,8 @@ export default function SearchableSelect({
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute z-50 mt-1 w-full min-w-[360px] max-w-[560px] bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden"
-          style={{ maxHeight: '400px', display: 'flex', flexDirection: 'column' }}>
+        <div className="absolute z-[9999] mt-1 w-full min-w-[360px] max-w-[560px] bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
+          style={{ maxHeight: '420px', display: 'flex', flexDirection: 'column' }}>
           {/* Search box */}
           <div className="p-2.5 border-b border-slate-100 flex-shrink-0">
             <div className="relative">
@@ -125,7 +129,7 @@ export default function SearchableSelect({
                 type="text"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Ketik kode atau nama akun…"
+                placeholder={searchPlaceholder}
                 className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400"
               />
               {query && (
@@ -136,15 +140,15 @@ export default function SearchableSelect({
               )}
             </div>
             <p className="text-xs text-slate-400 mt-1.5 px-0.5">
-              {filtered.length} akun ditemukan {query ? `untuk "${query}"` : ''}
+              {filtered.length} ditemukan {query ? `untuk "${query}"` : ''}
             </p>
           </div>
 
           {/* Option list */}
-          <div ref={listRef} className="overflow-y-auto flex-1" style={{ maxHeight: '320px' }}>
+          <div ref={listRef} className="overflow-y-auto flex-1 bg-white" style={{ maxHeight: '340px' }}>
             {filtered.length === 0 ? (
               <div className="text-center py-8 text-sm text-slate-400">
-                Akun tidak ditemukan
+                Data tidak ditemukan
               </div>
             ) : Object.entries(grouped).map(([group, opts]) => (
               <div key={group}>
@@ -161,9 +165,11 @@ export default function SearchableSelect({
                     className={`w-full text-left px-3 py-2.5 flex items-center gap-3 hover:bg-primary-50 transition-colors group
                       ${opt.value === value ? 'bg-primary-50' : ''}`}
                   >
-                    <span className="font-mono text-xs text-primary-700 w-24 flex-shrink-0 font-medium">
-                      {opt.value}
-                    </span>
+                    {!hideValue && (
+                      <span className="font-mono text-xs text-primary-700 w-24 flex-shrink-0 font-medium">
+                        {opt.value}
+                      </span>
+                    )}
                     <span className="flex-1 min-w-0">
                       <span className="text-sm text-slate-800 group-hover:text-primary-800 truncate block">
                         {opt.label}

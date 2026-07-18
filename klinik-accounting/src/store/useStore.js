@@ -20,27 +20,38 @@ import {
   fetchDoctors,
   insertAuditLog,
   insertDoctorFeeRecord,
+  fetchFixedAssets, upsertFixedAsset, updateFixedAsset, deleteFixedAsset,
+  fetchAssetMutations, insertAssetMutation, deleteAssetMutationsByAsset,
+  fetchAssetDepreciations, upsertAssetDepreciation, updateDepreciationStatus, deleteAssetDepreciationsByAsset,
+  calculateMonthlyDepreciation, deleteJournalEntry,
+  fetchVendors, upsertVendor,
+  fetchServiceTariffs, upsertServiceTariff,
 } from '../lib/db'
-import { initialCOA }      from '../data/initialCOA'
+import { initialCOA } from '../data/initialCOA'
 import { initialBranches } from '../data/initialData'
 
 // ── Singleton state ───────────────────────────────────────────
 let _state = {
-  branches:       [],
-  coa:            [],
+  branches: [],
+  coa: [],
   journalEntries: [],
-  journalItems:   [],
-  pharmacyItems:  [],
-  invBatches:     [],
-  stockLedger:    [],
-  billings:       [],
-  billingItems:   [],
-  expenses:       [],
-  doctors:        [],
+  journalItems: [],
+  pharmacyItems: [],
+  invBatches: [],
+  stockLedger: [],
+  billings: [],
+  billingItems: [],
+  expenses: [],
+  doctors: [],
+  fixedAssets: [],
+  assetMutations: [],
+  assetDepreciations: [],
+  vendors: [],
+  serviceTariffs: [],
   activeBranchId: null,
-  loading:        true,
-  initialized:    false,
-  error:          null,
+  loading: true,
+  initialized: false,
+  error: null,
 }
 const _listeners = new Set()
 
@@ -64,6 +75,8 @@ async function bootstrap() {
       const [
         branches, coa, journals, pharmacyItems,
         batches, billings, expenses, doctors,
+        fixedAssets, assetMutations, assetDepreciations,
+        vendors, serviceTariffs,
       ] = await Promise.all([
         fetchBranches(),
         fetchCOA(),
@@ -73,18 +86,23 @@ async function bootstrap() {
         fetchBillings(),
         fetchExpenses(),
         fetchDoctors(),
+        fetchFixedAssets({ status: 'ACTIVE' }),
+        fetchAssetMutations(),
+        fetchAssetDepreciations({}),
+        fetchVendors(),
+        fetchServiceTariffs(),
       ])
 
       // Use local seed as fallback if DB empty
       const finalBranches = branches.length ? branches : initialBranches
-      const finalCOA      = coa.length      ? coa      : initialCOA
+      const finalCOA = coa.length ? coa : initialCOA
 
       // Fetch relational data
-      const entryIds   = journals.map(j => j.id)
+      const entryIds = journals.map(j => j.id)
       const billingIds = billings.map(b => b.id)
 
       const [jItems, bItems, stockRows] = await Promise.all([
-        entryIds.length   ? fetchJournalItems(entryIds)   : Promise.resolve([]),
+        entryIds.length ? fetchJournalItems(entryIds) : Promise.resolve([]),
         billingIds.length ? fetchBillingItems(billingIds) : Promise.resolve([]),
         fetchStockLedger(),
       ])
@@ -95,31 +113,41 @@ async function bootstrap() {
       const activeBranchId = validBranch ? savedBranch : (finalBranches[0]?.id || null)
 
       setState({
-        branches:       finalBranches,
-        coa:            finalCOA,
+        branches: finalBranches,
+        coa: finalCOA,
         journalEntries: journals,
-        journalItems:   jItems,
+        journalItems: jItems,
         pharmacyItems,
-        invBatches:     batches,
-        stockLedger:    stockRows,
+        invBatches: batches,
+        stockLedger: stockRows,
         billings,
-        billingItems:   bItems,
+        billingItems: bItems,
         expenses,
         doctors,
+        fixedAssets,
+        assetMutations,
+        assetDepreciations,
+        vendors,
+        serviceTariffs,
         activeBranchId,
-        loading:        false,
-        initialized:    true,
-        error:          null,
+        loading: false,
+        initialized: true,
+        error: null,
       })
       _bootstrapDone = true
     } catch (err) {
       console.error('[Bootstrap] Supabase load failed, using local fallback:', err.message)
       setState({
-        branches:       initialBranches,
-        coa:            initialCOA,
-        loading:        false,
-        initialized:    true,
-        error:          err.message,
+        branches: initialBranches,
+        coa: initialCOA,
+        fixedAssets: [],
+        assetMutations: [],
+        assetDepreciations: [],
+        vendors: [],
+        serviceTariffs: [],
+        loading: false,
+        initialized: true,
+        error: err.message,
       })
       _bootstrapDone = true
     }
@@ -157,7 +185,7 @@ export function useStore() {
 
   const getActiveBranch = useCallback(() =>
     s.branches.find(b => b.id === s.activeBranchId) || s.branches[0],
-  [s])
+    [s])
 
   const addBranch = useCallback(async (data) => {
     const branch = { ...data, id: uuidv4(), isActive: true, createdAt: new Date().toISOString() }
@@ -194,21 +222,21 @@ export function useStore() {
   // ── Journal ───────────────────────────────────────────────
   const generateEntryNumber = useCallback((type = 'JU') => {
     const d = new Date()
-    const ym = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}`
+    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
     const existing = s.journalEntries.filter(j => j.entryNumber?.startsWith(`${type}/`)).length + 1
-    return `${type}/${ym}/${String(existing).padStart(5,'0')}`
+    return `${type}/${ym}/${String(existing).padStart(5, '0')}`
   }, [s.journalEntries])
 
   const saveJournalDraft = useCallback(async (header, items) => {
-    const entryId  = header.id || uuidv4()
-    const entry    = { ...header, id: entryId, status: 'DRAFT', createdAt: header.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() }
+    const entryId = header.id || uuidv4()
+    const entry = { ...header, id: entryId, status: 'DRAFT', createdAt: header.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() }
     const newItems = items.map(it => ({ ...it, id: it.id || uuidv4(), journalEntryId: entryId }))
 
     // Optimistic update
     setState(prev => ({
       ...prev,
       journalEntries: [...prev.journalEntries.filter(j => j.id !== entryId), entry],
-      journalItems:   [...prev.journalItems.filter(i => i.journalEntryId !== entryId), ...newItems],
+      journalItems: [...prev.journalItems.filter(i => i.journalEntryId !== entryId), ...newItems],
     }))
 
     // Persist
@@ -224,9 +252,9 @@ export function useStore() {
     const entry = s.journalEntries.find(j => j.id === entryId)
     if (!entry) return { ok: false, error: 'Jurnal tidak ditemukan.' }
 
-    const items      = s.journalItems.filter(i => i.journalEntryId === entryId)
-    const totalDebit = items.reduce((sum, i) => sum + parseFloat(i.debit  || 0), 0)
-    const totalCredit= items.reduce((sum, i) => sum + parseFloat(i.credit || 0), 0)
+    const items = s.journalItems.filter(i => i.journalEntryId === entryId)
+    const totalDebit = items.reduce((sum, i) => sum + parseFloat(i.debit || 0), 0)
+    const totalCredit = items.reduce((sum, i) => sum + parseFloat(i.credit || 0), 0)
 
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
       return { ok: false, error: `Jurnal tidak balance. Debit: ${totalDebit.toFixed(2)}, Kredit: ${totalCredit.toFixed(2)}` }
@@ -248,8 +276,8 @@ export function useStore() {
     if (!entry || entry.status !== 'POSTED') return { ok: false, error: 'Hanya jurnal POSTED yang dapat dibalik.' }
 
     const origItems = s.journalItems.filter(i => i.journalEntryId === entryId)
-    const revId     = uuidv4()
-    const revEntry  = {
+    const revId = uuidv4()
+    const revEntry = {
       id: revId, branchId: entry.branchId,
       entryNumber: generateEntryNumber('PEMBALIK'),
       transactionDate: new Date().toISOString().split('T')[0],
@@ -258,7 +286,7 @@ export function useStore() {
       reversalOf: entryId,
       totalDebit: entry.totalDebit, totalCredit: entry.totalCredit,
       createdBy: reversedBy, postedBy: reversedBy,
-      postedAt:  new Date().toISOString(), createdAt: new Date().toISOString(),
+      postedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
     }
     const revItems = origItems.map(it => ({
       id: uuidv4(), journalEntryId: revId,
@@ -269,7 +297,7 @@ export function useStore() {
     setState(prev => ({
       ...prev,
       journalEntries: [...prev.journalEntries.map(j => j.id === entryId ? { ...j, status: 'REVERSED' } : j), revEntry],
-      journalItems:   [...prev.journalItems, ...revItems],
+      journalItems: [...prev.journalItems, ...revItems],
     }))
     try {
       await updateJournalStatus(entryId, 'REVERSED')
@@ -281,13 +309,13 @@ export function useStore() {
 
   // ── Inventory ─────────────────────────────────────────────
   const generateSku = useCallback(() =>
-    `SKU-${String(s.pharmacyItems.length + 1).padStart(5,'0')}`,
-  [s.pharmacyItems])
+    `SKU-${String(s.pharmacyItems.length + 1).padStart(5, '0')}`,
+    [s.pharmacyItems])
 
   const generateItemCode = useCallback((category = 'OTC') => {
-    const prefix = { ETHICAL:'ETH', OTC:'OTC', BHP:'BHP', ALAT_MEDIS:'ALM', VAKSIN:'VAK' }[category] || 'ITM'
-    const count  = s.pharmacyItems.filter(p => p.category === category).length + 1
-    return `${prefix}-${String(count).padStart(4,'0')}`
+    const prefix = { ETHICAL: 'ETH', OTC: 'OTC', BHP: 'BHP', ALAT_MEDIS: 'ALM', VAKSIN: 'VAK' }[category] || 'ITM'
+    const count = s.pharmacyItems.filter(p => p.category === category).length + 1
+    return `${prefix}-${String(count).padStart(4, '0')}`
   }, [s.pharmacyItems])
 
   const addPharmacyItem = useCallback(async (data) => {
@@ -306,9 +334,9 @@ export function useStore() {
   }, [s.pharmacyItems])
 
   const receiveGRN = useCallback(async (grnData, batchesData) => {
-    const now     = new Date().toISOString()
+    const now = new Date().toISOString()
     const batches = batchesData.map(b => ({ ...b, id: b.id || uuidv4(), receivedAt: now, createdAt: now }))
-    const ledger  = batches.map(b => ({
+    const ledger = batches.map(b => ({
       id: uuidv4(), batchId: b.id, itemId: b.itemId,
       transactionType: 'GRN', referenceId: b.id,
       referenceNumber: grnData.grnNumber,
@@ -319,7 +347,7 @@ export function useStore() {
 
     setState(prev => ({
       ...prev,
-      invBatches:  [...prev.invBatches, ...batches],
+      invBatches: [...prev.invBatches, ...batches],
       stockLedger: [...prev.stockLedger, ...ledger],
     }))
     try {
@@ -333,20 +361,20 @@ export function useStore() {
     const batch = s.invBatches.find(b => b.id === batchId)
     if (!batch) return
     const newQty = type === 'REMOVE' ? 0 : Math.max(0, batch.quantityCurrent + qty)
-    const entry  = {
+    const entry = {
       id: uuidv4(), batchId, itemId,
       transactionType: type === 'REMOVE' ? 'EXPIRED' : 'ADJUSTMENT',
       referenceId: batchId, referenceNumber: `ADJ-${Date.now()}`,
-      quantityIn:  type === 'ADD'    ? Math.abs(qty) : 0,
+      quantityIn: type === 'ADD' ? Math.abs(qty) : 0,
       quantityOut: type === 'REMOVE' ? batch.quantityCurrent : (qty < 0 ? Math.abs(qty) : 0),
       balanceAfter: newQty,
-      unitCost:   batch.unitCostPrice,
+      unitCost: batch.unitCostPrice,
       totalValue: (type === 'REMOVE' ? batch.quantityCurrent : Math.abs(qty)) * batch.unitCostPrice,
       notes: reason, loggedAt: new Date().toISOString(),
     }
     setState(prev => ({
       ...prev,
-      invBatches:  prev.invBatches.map(b => b.id === batchId ? { ...b, quantityCurrent: newQty } : b),
+      invBatches: prev.invBatches.map(b => b.id === batchId ? { ...b, quantityCurrent: newQty } : b),
       stockLedger: [...prev.stockLedger, entry],
     }))
     try { await updateBatchQty(batchId, newQty); await insertStockLedger([entry]) } catch (e) { console.error('[adjustStock]', e.message) }
@@ -355,23 +383,98 @@ export function useStore() {
   const getItemStock = useCallback((itemId) =>
     s.invBatches.filter(b => b.itemId === itemId && b.quantityCurrent > 0)
       .reduce((sum, b) => sum + b.quantityCurrent, 0),
-  [s.invBatches])
+    [s.invBatches])
 
-  // ── Billing ───────────────────────────────────────────────
-  const generateBillingNumber = useCallback(() => {
-    const d  = new Date()
-    const ym = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`
-    return `INV/${ym}/${String(s.billings.length + 1).padStart(5,'0')}`
-  }, [s.billings])
+  const depleteInventoryFIFO = useCallback(async (itemId, qtyNeeded, referenceNumber, branchId) => {
+    const item = s.pharmacyItems.find(p => p.id === itemId)
+    const coaCOGSCode = item?.coaCOGSCode || '5-11-001'
+    const coaInventoryCode = item?.coaInventoryCode || '1-13-001'
 
-  const saveBilling = useCallback(async (billing, items) => {
-    const id    = billing.id || uuidv4()
-    const entry = { ...billing, id, createdAt: billing.createdAt || new Date().toISOString() }
-    const bItems= items.map(it => ({ ...it, id: it.id || uuidv4(), billingId: id }))
+    const activeBatches = [...s.invBatches]
+      .filter(b => b.itemId === itemId && b.quantityCurrent > 0)
+      .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate))
+
+    let remaining = qtyNeeded
+    const depletedList = []
+    const updatedBatchesMap = {}
+
+    for (const batch of activeBatches) {
+      if (remaining <= 0) break
+
+      const take = Math.min(batch.quantityCurrent, remaining)
+      remaining -= take
+
+      const newQty = batch.quantityCurrent - take
+      depletedList.push({
+        batchId: batch.id,
+        batchNumber: batch.batchNumber,
+        qty: take,
+        unitCostPrice: batch.unitCostPrice,
+        expiryDate: batch.expiryDate,
+        coaCOGSCode,
+        coaInventoryCode,
+      })
+      updatedBatchesMap[batch.id] = newQty
+    }
+
+    if (remaining > 0) {
+      throw new Error(`Stok tidak mencukupi untuk item ${item?.itemName || itemId}. Kurang ${remaining} unit.`)
+    }
+
+    const now = new Date().toISOString()
+    const ledgerEntries = depletedList.map(dep => ({
+      id: uuidv4(),
+      batchId: dep.batchId,
+      itemId: itemId,
+      transactionType: 'BILLING',
+      referenceId: dep.batchId,
+      referenceNumber: referenceNumber,
+      quantityIn: 0,
+      quantityOut: dep.qty,
+      balanceAfter: updatedBatchesMap[dep.batchId],
+      unitCost: dep.unitCostPrice,
+      totalValue: dep.qty * dep.unitCostPrice,
+      loggedAt: now,
+    }))
 
     setState(prev => ({
       ...prev,
-      billings:     [...prev.billings.filter(b => b.id !== id), entry],
+      invBatches: prev.invBatches.map(b =>
+        updatedBatchesMap[b.id] !== undefined
+          ? { ...b, quantityCurrent: updatedBatchesMap[b.id] }
+          : b
+      ),
+      stockLedger: [...prev.stockLedger, ...ledgerEntries],
+    }))
+
+    try {
+      for (const dep of depletedList) {
+        await updateBatchQty(dep.batchId, updatedBatchesMap[dep.batchId])
+      }
+      await insertStockLedger(ledgerEntries)
+    } catch (e) {
+      console.error('[depleteInventoryFIFO]', e.message)
+    }
+
+    return depletedList
+  }, [s.invBatches, s.pharmacyItems])
+
+
+  // ── Billing ───────────────────────────────────────────────
+  const generateBillingNumber = useCallback(() => {
+    const d = new Date()
+    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+    return `INV/${ym}/${String(s.billings.length + 1).padStart(5, '0')}`
+  }, [s.billings])
+
+  const saveBilling = useCallback(async (billing, items) => {
+    const id = billing.id || uuidv4()
+    const entry = { ...billing, id, createdAt: billing.createdAt || new Date().toISOString() }
+    const bItems = items.map(it => ({ ...it, id: it.id || uuidv4(), billingId: id }))
+
+    setState(prev => ({
+      ...prev,
+      billings: [...prev.billings.filter(b => b.id !== id), entry],
       billingItems: [...prev.billingItems.filter(i => i.billingId !== id), ...bItems],
     }))
     try {
@@ -383,13 +486,13 @@ export function useStore() {
 
   // ── Expense ───────────────────────────────────────────────
   const generateExpenseNumber = useCallback(() => {
-    const d  = new Date()
-    const ym = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}`
-    return `EXP/${ym}/${String(s.expenses.length + 1).padStart(5,'0')}`
+    const d = new Date()
+    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
+    return `EXP/${ym}/${String(s.expenses.length + 1).padStart(5, '0')}`
   }, [s.expenses])
 
   const saveExpense = useCallback(async (data) => {
-    const id    = data.id || uuidv4()
+    const id = data.id || uuidv4()
     const entry = { ...data, id, createdAt: data.createdAt || new Date().toISOString() }
     setState(prev => ({ ...prev, expenses: [...prev.expenses.filter(e => e.id !== id), entry] }))
     try { await upsertExpense(entry) } catch (e) { console.error('[saveExpense]', e.message) }
@@ -413,14 +516,508 @@ export function useStore() {
   // ── Audit log ─────────────────────────────────────────────
   const logActivity = useCallback((action, module, detail = '') => {
     const auth = (() => { try { return JSON.parse(localStorage.getItem('currentUser') || '{}') } catch { return {} } })()
-    const log  = {
+    const log = {
       id: uuidv4(), userId: auth.id || 'system',
       userName: auth.name || 'System', userRole: auth.role || 'system',
       action, module, detail, ipAddress: '127.0.0.1',
       createdAt: new Date().toISOString(),
     }
-    insertAuditLog(log).catch(() => {})
+    insertAuditLog(log).catch(() => { })
   }, [])
+
+  // ── Fixed Assets Management ──────────────────────────────
+  const generateAssetCode = useCallback((category = 'Peralatan Medis') => {
+    const prefix = {
+      'Peralatan Medis': 'MED',
+      'Perabot & Perlengkapan': 'FUR',
+      'Kendaraan': 'VEH',
+      'Bangunan': 'BLD',
+      'Komputer & Elektronik': 'ELC',
+    }[category] || 'AST'
+    const count = s.fixedAssets.filter(a => a.category === category).length + 1
+    return `${prefix}-${String(count).padStart(4, '0')}`
+  }, [s.fixedAssets])
+
+  const addAsset = useCallback(async (data) => {
+    const assetId = data.id || uuidv4()
+    const asset = {
+      ...data,
+      id: assetId,
+      status: 'ACTIVE',
+      accumulatedDepreciation: 0,
+      bookValue: data.acquisitionCost,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+
+    const journalId = uuidv4()
+    const now = new Date().toISOString()
+    const entryNumber = generateEntryNumber('AST')
+
+    const journalEntry = {
+      id: journalId,
+      branchId: s.activeBranchId,
+      entryNumber,
+      transactionDate: asset.acquisitionDate,
+      description: `Perolehan aset tetap: ${asset.assetName} - ${asset.assetCode}`,
+      entryType: 'ACQUISITION',
+      status: 'POSTED',
+      totalDebit: asset.acquisitionCost,
+      totalCredit: asset.acquisitionCost,
+      createdBy: 'System',
+      postedBy: 'System',
+      postedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    const journalItems = [
+      {
+        id: uuidv4(),
+        journalEntryId: journalId,
+        accountCode: asset.coaAssetCode,
+        description: `Perolehan aset tetap ${asset.assetName}`,
+        debit: asset.acquisitionCost,
+        credit: 0,
+      },
+      {
+        id: uuidv4(),
+        journalEntryId: journalId,
+        accountCode: '1-11-003', // Bank BCA Operasional
+        description: `Pembelian aset tetap ${asset.assetName}`,
+        debit: 0,
+        credit: asset.acquisitionCost,
+      }
+    ]
+
+    const mutationId = uuidv4()
+    const mutation = {
+      id: mutationId,
+      assetId: assetId,
+      mutationType: 'ACQUISITION',
+      mutationDate: asset.acquisitionDate,
+      referenceNumber: asset.assetCode,
+      amount: asset.acquisitionCost,
+      quantity: 1,
+      description: `Saldo awal / perolehan aset tetap ${asset.assetName}`,
+      journalEntryId: journalId,
+      createdBy: 'System',
+      authorizedBy: 'System',
+      createdAt: now
+    }
+
+    // Optimistic UI updates
+    setState(prev => ({
+      ...prev,
+      fixedAssets: [...prev.fixedAssets, asset],
+      journalEntries: [...prev.journalEntries, journalEntry],
+      journalItems: [...prev.journalItems, ...journalItems],
+      assetMutations: [...prev.assetMutations, mutation]
+    }))
+
+    try {
+      const saved = await upsertFixedAsset(asset)
+      await upsertJournalEntry(journalEntry)
+      await insertJournalItems(journalItems)
+      await insertAssetMutation(mutation)
+
+      logActivity('ACQUISITION_ASSET', 'ASSETS', `Recorded acquisition of asset ${asset.assetCode} - ${asset.assetName}`)
+      return saved
+    } catch (e) {
+      console.error('[addAsset]', e.message)
+      return asset
+    }
+  }, [s.activeBranchId, generateEntryNumber, logActivity])
+
+  const updateAsset = useCallback(async (id, data) => {
+    setState(prev => ({
+      ...prev,
+      fixedAssets: prev.fixedAssets.map(a =>
+        a.id === id ? { ...a, ...data, updatedAt: new Date().toISOString() } : a
+      )
+    }))
+    try {
+      await updateFixedAsset(id, data)
+    } catch (e) {
+      console.error('[updateAsset]', e.message)
+    }
+  }, [])
+
+  const deleteAsset = useCallback(async (id) => {
+    const mutations = s.assetMutations.filter(m => m.assetId === id)
+    const journalEntryIds = mutations.map(m => m.journalEntryId).filter(Boolean)
+
+    const depreciations = s.assetDepreciations.filter(d => d.assetId === id)
+    const depJournalIds = depreciations.map(d => d.journalEntryId).filter(Boolean)
+
+    const allJournalIds = [...new Set([...journalEntryIds, ...depJournalIds])]
+
+    setState(prev => ({
+      ...prev,
+      fixedAssets: prev.fixedAssets.filter(a => a.id !== id),
+      assetMutations: prev.assetMutations.filter(m => m.assetId !== id),
+      assetDepreciations: prev.assetDepreciations.filter(d => d.assetId !== id),
+      journalEntries: prev.journalEntries.filter(j => !allJournalIds.includes(j.id)),
+      journalItems: prev.journalItems.filter(ji => !allJournalIds.includes(ji.journalEntryId)),
+    }))
+
+    try {
+      await deleteAssetDepreciationsByAsset(id)
+      await deleteAssetMutationsByAsset(id)
+      await deleteFixedAsset(id)
+
+      for (const jId of allJournalIds) {
+        await deleteJournalItemsByEntry(jId)
+        await deleteJournalEntry(jId)
+      }
+
+      logActivity('DELETE_ASSET', 'ASSETS', `Deleted asset ID ${id} and all related transactions/journals`)
+    } catch (e) {
+      console.error('[deleteAsset]', e.message)
+    }
+  }, [s.assetMutations, s.assetDepreciations, logActivity])
+
+  const addAssetMutation = useCallback(async (mutation) => {
+    const mutationId = mutation.id || uuidv4()
+    const isDisposal = ['DISPOSAL', 'SALE'].includes(mutation.mutationType)
+
+    let journalId = null
+    let journalEntry = null
+    let journalItems = []
+
+    if (isDisposal) {
+      const asset = s.fixedAssets.find(a => a.id === mutation.assetId)
+      if (asset) {
+        journalId = uuidv4()
+        const now = new Date().toISOString()
+        const entryNumber = generateEntryNumber('DISP')
+        const accumulated = parseFloat(asset.accumulatedDepreciation || 0)
+        const acquisition = parseFloat(asset.acquisitionCost || 0)
+        const bookValue = acquisition - accumulated
+        const disposalValue = parseFloat(mutation.disposalValue || 0)
+        const gainLoss = disposalValue - bookValue
+
+        journalEntry = {
+          id: journalId,
+          branchId: s.activeBranchId,
+          entryNumber,
+          transactionDate: mutation.mutationDate,
+          description: `Pelepasan aset tetap (${mutation.mutationType === 'SALE' ? 'Penjualan' : 'Penghapusan'}): ${asset.assetName} - ${asset.assetCode}`,
+          entryType: 'DISPOSAL',
+          status: 'POSTED',
+          totalDebit: 0,
+          totalCredit: 0,
+          createdBy: 'System',
+          postedBy: 'System',
+          postedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        }
+
+        if (accumulated > 0) {
+          journalItems.push({
+            id: uuidv4(),
+            journalEntryId: journalId,
+            accountCode: asset.coaAccumulatedCode,
+            description: `Akumulasi penyusutan dibalik - ${asset.assetName}`,
+            debit: accumulated,
+            credit: 0
+          })
+        }
+
+        if (mutation.mutationType === 'SALE' && disposalValue > 0) {
+          journalItems.push({
+            id: uuidv4(),
+            journalEntryId: journalId,
+            accountCode: '1-11-003', // Bank BCA
+            description: `Kas masuk dari penjualan ${asset.assetName}`,
+            debit: disposalValue,
+            credit: 0
+          })
+        }
+
+        if (gainLoss < 0) {
+          journalItems.push({
+            id: uuidv4(),
+            journalEntryId: journalId,
+            accountCode: '6-99-001', // Rugi Pelepasan Aset Tetap
+            description: `Kerugian pelepasan aset tetap ${asset.assetName}`,
+            debit: Math.abs(gainLoss),
+            credit: 0
+          })
+        } else if (gainLoss > 0) {
+          journalItems.push({
+            id: uuidv4(),
+            journalEntryId: journalId,
+            accountCode: '8-91-001', // Laba Pelepasan Aset Tetap
+            description: `Keuntungan pelepasan aset tetap ${asset.assetName}`,
+            debit: 0,
+            credit: gainLoss
+          })
+        }
+
+        journalItems.push({
+          id: uuidv4(),
+          journalEntryId: journalId,
+          accountCode: asset.coaAssetCode,
+          description: `Pemberhentian aset tetap ${asset.assetName}`,
+          debit: 0,
+          credit: acquisition
+        })
+
+        const totalDebit = journalItems.reduce((acc, ji) => acc + (ji.debit || 0), 0)
+        journalEntry.totalDebit = totalDebit
+        journalEntry.totalCredit = totalDebit
+      }
+    }
+
+    const newMutation = {
+      ...mutation,
+      id: mutationId,
+      journalEntryId: journalId,
+      createdAt: new Date().toISOString(),
+    }
+
+    setState(prev => {
+      const updatedMutations = [...prev.assetMutations, newMutation]
+      const updatedEntries = journalEntry
+        ? [...prev.journalEntries, journalEntry]
+        : prev.journalEntries
+      const updatedItems = journalItems.length > 0
+        ? [...prev.journalItems, ...journalItems]
+        : prev.journalItems
+      return {
+        ...prev,
+        assetMutations: updatedMutations,
+        journalEntries: updatedEntries,
+        journalItems: updatedItems
+      }
+    })
+
+    try {
+      if (journalEntry) {
+        await upsertJournalEntry(journalEntry)
+        await insertJournalItems(journalItems)
+      }
+      const saved = await insertAssetMutation(newMutation)
+      setState(prev => ({
+        ...prev,
+        assetMutations: prev.assetMutations.map(m => m.id === saved.id ? saved : m)
+      }))
+
+      logActivity('MUTATION_ASSET', 'ASSETS', `Recorded mutation ${newMutation.mutationType} for asset ID ${newMutation.assetId}`)
+      return saved
+    } catch (e) {
+      console.error('[addAssetMutation]', e.message)
+      return newMutation
+    }
+  }, [s.activeBranchId, s.fixedAssets, generateEntryNumber, logActivity])
+
+  const calculateDepreciation = useCallback(async (assetId, year, month) => {
+    try {
+      const amount = await calculateMonthlyDepreciation(assetId, year, month)
+      return amount
+    } catch (e) {
+      console.error('[calculateDepreciation]', e.message)
+      return 0
+    }
+  }, [])
+
+
+
+  const saveDepreciation = useCallback(async (depreciation) => {
+    const id = depreciation.id || uuidv4()
+    const entry = {
+      ...depreciation,
+      id,
+      calculationMethod: 'STRAIGHT_LINE',
+      calculationDate: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
+    }
+    setState(prev => ({
+      ...prev,
+      assetDepreciations: [...prev.assetDepreciations.filter(d => d.id !== id), entry]
+    }))
+    try {
+      const saved = await upsertAssetDepreciation(entry)
+      setState(prev => ({
+        ...prev,
+        assetDepreciations: prev.assetDepreciations.map(d => d.id === saved.id ? saved : d)
+      }))
+      return saved
+    } catch (e) {
+      console.error('[saveDepreciation]', e.message)
+      return entry
+    }
+  }, [])
+
+  const postDepreciation = useCallback(async (depreciationId, postedBy = 'System') => {
+    const depreciation = s.assetDepreciations.find(d => d.id === depreciationId)
+    if (!depreciation) return { ok: false, error: 'Penyusutan tidak ditemukan.' }
+
+    const asset = s.fixedAssets.find(a => a.id === depreciation.assetId)
+    if (!asset) return { ok: false, error: 'Aset tidak ditemukan.' }
+
+    // Update asset accumulated depreciation
+    const newAccumulated = (asset.accumulatedDepreciation || 0) + depreciation.depreciationAmount
+    const newBookValue = asset.acquisitionCost - newAccumulated
+
+    // Generate journal entry for depreciation
+    const journalId = uuidv4()
+    const now = new Date().toISOString()
+    const transactionDate = `${depreciation.periodYear}-${String(depreciation.periodMonth).padStart(2, '0')}-01`
+
+    const journalEntry = {
+      id: journalId,
+      branchId: s.activeBranchId,
+      entryNumber: generateEntryNumber('DEPR'),
+      transactionDate,
+      description: `Penyusutan ${asset.assetName} - ${asset.assetCode} periode ${depreciation.periodMonth}/${depreciation.periodYear}`,
+      entryType: 'DEPRECIATION',
+      status: 'POSTED',
+      totalDebit: depreciation.depreciationAmount,
+      totalCredit: depreciation.depreciationAmount,
+      createdBy: postedBy,
+      postedBy,
+      postedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    const journalItems = [
+      {
+        id: uuidv4(),
+        journalEntryId: journalId,
+        accountCode: asset.coaDepreciationCode,
+        description: `Beban penyusutan ${asset.assetName}`,
+        debit: depreciation.depreciationAmount,
+        credit: 0,
+      },
+      {
+        id: uuidv4(),
+        journalEntryId: journalId,
+        accountCode: asset.coaAccumulatedCode,
+        description: `Akumulasi penyusutan ${asset.assetName}`,
+        debit: 0,
+        credit: depreciation.depreciationAmount,
+      }
+    ]
+
+    const extra = {
+      status: 'POSTED',
+      postedBy,
+      postedAt: now,
+      journalEntryId: journalId,
+    }
+
+    setState(prev => ({
+      ...prev,
+      assetDepreciations: prev.assetDepreciations.map(d =>
+        d.id === depreciationId ? { ...d, ...extra } : d
+      ),
+      fixedAssets: prev.fixedAssets.map(a =>
+        a.id === asset.id
+          ? {
+            ...a,
+            accumulatedDepreciation: newAccumulated,
+            bookValue: newBookValue,
+            lastDepreciationDate: new Date().toISOString().split('T')[0],
+            updatedAt: new Date().toISOString(),
+          }
+          : a
+      ),
+      journalEntries: [...prev.journalEntries, journalEntry],
+      journalItems: [...prev.journalItems, ...journalItems],
+    }))
+
+    try {
+      // Save journal first
+      await upsertJournalEntry(journalEntry)
+      await insertJournalItems(journalItems)
+
+      // Update depreciation status
+      await updateDepreciationStatus(depreciationId, 'POSTED', extra)
+
+      // Update asset
+      await updateFixedAsset(asset.id, {
+        accumulatedDepreciation: newAccumulated,
+        bookValue: newBookValue,
+        lastDepreciationDate: new Date().toISOString().split('T')[0],
+      })
+
+      // Log activity
+      logActivity('POST_DEPRECIATION', 'ASSETS', `Posted depreciation for ${asset.assetCode} - ${asset.assetName}`)
+    } catch (e) {
+      console.error('[postDepreciation]', e.message)
+      return { ok: false, error: e.message }
+    }
+
+    return { ok: true, journalId }
+  }, [s.assetDepreciations, s.fixedAssets, s.activeBranchId, generateEntryNumber, logActivity])
+
+  const addVendor = useCallback(async (data) => {
+    const vendor = {
+      ...data,
+      id: data.id || uuidv4(),
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    setState(prev => ({ ...prev, vendors: [...prev.vendors.filter(v => v.id !== vendor.id), vendor] }))
+    try {
+      const saved = await upsertVendor(vendor)
+      setState(prev => ({ ...prev, vendors: prev.vendors.map(v => v.id === saved.id ? saved : v) }))
+      return saved
+    } catch (e) {
+      console.error('[addVendor]', e.message)
+      return vendor
+    }
+  }, [])
+
+  const updateVendor = useCallback(async (id, data) => {
+    setState(prev => ({
+      ...prev,
+      vendors: prev.vendors.map(v => v.id === id ? { ...v, ...data, updatedAt: new Date().toISOString() } : v)
+    }))
+    try {
+      const cur = s.vendors.find(v => v.id === id)
+      if (cur) await upsertVendor({ ...cur, ...data })
+    } catch (e) {
+      console.error('[updateVendor]', e.message)
+    }
+  }, [s.vendors])
+
+  const addServiceTariff = useCallback(async (data) => {
+    const tariff = {
+      ...data,
+      id: data.id || uuidv4(),
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    setState(prev => ({ ...prev, serviceTariffs: [...prev.serviceTariffs.filter(t => t.id !== tariff.id), tariff] }))
+    try {
+      const saved = await upsertServiceTariff(tariff)
+      setState(prev => ({ ...prev, serviceTariffs: prev.serviceTariffs.map(t => t.id === saved.id ? saved : t) }))
+      return saved
+    } catch (e) {
+      console.error('[addServiceTariff]', e.message)
+      return tariff
+    }
+  }, [])
+
+  const updateServiceTariff = useCallback(async (id, data) => {
+    setState(prev => ({
+      ...prev,
+      serviceTariffs: prev.serviceTariffs.map(t => t.id === id ? { ...t, ...data, updatedAt: new Date().toISOString() } : t)
+    }))
+    try {
+      const cur = s.serviceTariffs.find(t => t.id === id)
+      if (cur) await upsertServiceTariff({ ...cur, ...data })
+    } catch (e) {
+      console.error('[updateServiceTariff]', e.message)
+    }
+  }, [s.serviceTariffs])
 
   return {
     ...s,
@@ -430,10 +1027,13 @@ export function useStore() {
     addAccount, updateAccount: updateAccountFn, deactivateAccount,
     generateEntryNumber, saveJournalDraft, postJournalEntry, reverseJournal,
     generateSku, generateItemCode,
-    addPharmacyItem, updatePharmacyItem, receiveGRN, adjustStock, getItemStock,
+    addPharmacyItem, updatePharmacyItem, receiveGRN, adjustStock, getItemStock, depleteInventoryFIFO,
     generateBillingNumber, saveBilling,
     generateExpenseNumber, saveExpense, postExpense,
     saveDoctorFeeRecord,
+    generateAssetCode, addAsset, updateAsset, deleteAsset,
+    addAssetMutation, calculateDepreciation, saveDepreciation, postDepreciation,
+    addVendor, updateVendor, addServiceTariff, updateServiceTariff,
     logActivity,
   }
 }

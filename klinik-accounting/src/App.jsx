@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
 import AppLayout from './components/layout/AppLayout'
 import LoginPage from './pages/LoginPage'
 import Dashboard from './pages/Dashboard'
@@ -23,10 +24,38 @@ import AuditTrailPage from './pages/settings/AuditTrailPage'
 import DoctorManagementPage from './pages/settings/DoctorManagementPage'
 import TarifLayananPage from './pages/settings/TarifLayananPage'
 import VendorManagementPage from './pages/settings/VendorManagementPage'
+import AssetInventoryPage from './pages/assets/AssetInventoryPage'
+import AssetDepreciationPage from './pages/assets/AssetDepreciationPage'
+import AssetMutationsPage from './pages/assets/AssetMutationsPage'
+import AssetCardPage from './pages/assets/AssetCardPage'
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#333',
+            color: '#fff',
+            borderRadius: '8px',
+            padding: '12px 16px',
+          },
+          success: {
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
       <Routes>
         {/* Public route */}
         <Route path="/login" element={<LoginPage />} />
@@ -44,6 +73,11 @@ export default function App() {
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="grn" element={<GRNPage />} />
           <Route path="stock-ledger" element={<StockLedgerPage />} />
+          {/* Asset Management */}
+          <Route path="assets/inventory" element={<AssetInventoryPage />} />
+          <Route path="assets/depreciation" element={<AssetDepreciationPage />} />
+          <Route path="assets/mutations" element={<AssetMutationsPage />} />
+          <Route path="assets/card" element={<AssetCardPage />} />
           <Route path="billing" element={<BillingPage />} />
           <Route path="expenses" element={<ExpensePage />} />
           <Route path="tax-pph21" element={<PPh21Page />} />
