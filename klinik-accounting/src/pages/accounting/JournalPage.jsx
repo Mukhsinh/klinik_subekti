@@ -34,12 +34,12 @@ function JournalForm({ initial, onSave, onClose }) {
       .map(a => ({
         value: a.accountCode,
         label: a.accountName,
-        sub:   `${a.accountGroup}${a.accountSubgroup ? ' › ' + a.accountSubgroup : ''}`,
-        group: a.accountType === 'ASSET'     ? '🏦 ASET'           :
-               a.accountType === 'LIABILITY' ? '💳 LIABILITAS'     :
-               a.accountType === 'EQUITY'    ? '💰 EKUITAS'        :
-               a.accountType === 'REVENUE'   ? '📈 PENDAPATAN'     :
-               a.accountType === 'EXPENSE'   ? '📉 BEBAN'          : a.accountType,
+        sub: `${a.accountGroup}${a.accountSubgroup ? ' › ' + a.accountSubgroup : ''}`,
+        group: a.accountType === 'ASSET' ? '🏦 ASET' :
+          a.accountType === 'LIABILITY' ? '💳 LIABILITAS' :
+            a.accountType === 'EQUITY' ? '💰 EKUITAS' :
+              a.accountType === 'REVENUE' ? '📈 PENDAPATAN' :
+                a.accountType === 'EXPENSE' ? '📉 BEBAN' : a.accountType,
       })),
     [activeCoa]
   )
@@ -94,9 +94,7 @@ function JournalForm({ initial, onSave, onClose }) {
         </div>
         <div>
           <label className="form-label">Tipe Jurnal</label>
-          <select className="form-select" value={header.entryType} onChange={e => setHeader(h => ({ ...h, entryType: e.target.value }))}>
-            {ENTRY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
+          <input className="form-input bg-slate-50 font-medium font-mono" value="Manual" readOnly />
         </div>
       </div>
       <div>
@@ -279,7 +277,12 @@ export default function JournalPage() {
                   <td className="font-mono text-xs text-primary-700 font-medium">{j.entryNumber}</td>
                   <td className="text-sm">{fmtDate(j.transactionDate)}</td>
                   <td className="max-w-[200px] truncate text-sm">{j.description}</td>
-                  <td><span className="badge badge-gray text-xs">{ENTRY_TYPE_LABEL[j.entryType] || j.entryType}</span></td>
+                  <td>
+                    <span className="badge badge-gray text-xs flex items-center gap-1 w-fit">
+                      {ENTRY_TYPE_LABEL[j.entryType] || j.entryType}
+                      {j.entryType !== 'MANUAL' && j.entryType !== 'REVERSAL' && ' 🔒'}
+                    </span>
+                  </td>
                   <td className="text-right amount-debit text-xs">{fmtIDR(j.totalDebit || 0)}</td>
                   <td className="text-right amount-credit text-xs">{fmtIDR(j.totalCredit || 0)}</td>
                   <td className="text-center"><StatusBadge status={j.status} /></td>

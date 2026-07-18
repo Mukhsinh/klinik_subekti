@@ -110,6 +110,7 @@ export default function BillingPage() {
 
     const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName}`.trim() : ''
     const bId = uuidv4()
+    const eId = uuidv4()
     const items = [
       ...serviceLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'SERVICE', itemName: l.name, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
       ...pharmacyLines.filter(l => l.itemId).map(l => ({ id: uuidv4(), billingId: bId, itemType: 'PHARMACY', itemName: l.name, pharmacyItemId: l.itemId, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
@@ -121,6 +122,7 @@ export default function BillingPage() {
       subtotalServices: subService, subtotalPharmacy: subPharmacy,
       discountAmount: discountAmt, ppnAmount, grandTotal, patientPortion, insurancePortion,
       status: 'PAID', createdBy: 'Kasir',
+      journalEntryId: eId,
     }
 
     // Consolidate HPP / COGS journal entries and deplete stock
@@ -144,7 +146,7 @@ export default function BillingPage() {
       return
     }
 
-    const eId = uuidv4(), eNum = generateEntryNumber('BILLING')
+    const eNum = generateEntryNumber('BILLING')
     const ji = []
     if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
       ji.push({ accountCode: '1-11-002', description: `Kas Tunai — ${billingNumber}`, debit: grandTotal, credit: 0 })

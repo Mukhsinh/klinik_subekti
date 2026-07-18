@@ -249,10 +249,11 @@ export function useStore() {
   }, [])
 
   const postJournalEntry = useCallback(async (entryId, postedBy = 'System') => {
-    const entry = s.journalEntries.find(j => j.id === entryId)
+    const latestState = getState()
+    const entry = latestState.journalEntries.find(j => j.id === entryId)
     if (!entry) return { ok: false, error: 'Jurnal tidak ditemukan.' }
 
-    const items = s.journalItems.filter(i => i.journalEntryId === entryId)
+    const items = latestState.journalItems.filter(i => i.journalEntryId === entryId)
     const totalDebit = items.reduce((sum, i) => sum + parseFloat(i.debit || 0), 0)
     const totalCredit = items.reduce((sum, i) => sum + parseFloat(i.credit || 0), 0)
 
@@ -269,13 +270,14 @@ export function useStore() {
     }))
     try { await updateJournalStatus(entryId, 'POSTED', extra) } catch (e) { console.error('[postJournal]', e.message) }
     return { ok: true }
-  }, [s.journalEntries, s.journalItems])
+  }, [])
 
   const reverseJournal = useCallback(async (entryId, reversedBy = 'System', reason = '') => {
-    const entry = s.journalEntries.find(j => j.id === entryId)
+    const latestState = getState()
+    const entry = latestState.journalEntries.find(j => j.id === entryId)
     if (!entry || entry.status !== 'POSTED') return { ok: false, error: 'Hanya jurnal POSTED yang dapat dibalik.' }
 
-    const origItems = s.journalItems.filter(i => i.journalEntryId === entryId)
+    const origItems = latestState.journalItems.filter(i => i.journalEntryId === entryId)
     const revId = uuidv4()
     const revEntry = {
       id: revId, branchId: entry.branchId,
@@ -305,7 +307,7 @@ export function useStore() {
       await insertJournalItems(revItems)
     } catch (e) { console.error('[reverseJournal]', e.message) }
     return { ok: true, reversalId: revId }
-  }, [s.journalEntries, s.journalItems, generateEntryNumber])
+  }, [generateEntryNumber])
 
   // ── Inventory ─────────────────────────────────────────────
   const generateSku = useCallback(() =>
@@ -499,14 +501,14 @@ export function useStore() {
     return id
   }, [])
 
-  const postExpense = useCallback(async (expenseId, postedBy = 'System') => {
-    const extra = { status: 'POSTED', authorizedBy: postedBy, postedAt: new Date().toISOString() }
+  const postExpense = useCallback(async (expenseId, journalEntryId, postedBy = 'System') => {
+    const extra = { status: 'POSTED', journalEntryId, authorizedBy: postedBy, postedAt: new Date().toISOString() }
     setState(prev => ({ ...prev, expenses: prev.expenses.map(e => e.id === expenseId ? { ...e, ...extra } : e) }))
     try {
-      const cur = s.expenses.find(e => e.id === expenseId)
+      const cur = getState().expenses.find(e => e.id === expenseId)
       if (cur) await upsertExpense({ ...cur, ...extra })
     } catch (e) { console.error('[postExpense]', e.message) }
-  }, [s.expenses])
+  }, [])
 
   // ── Doctor fee + PPh21 recording ─────────────────────────
   const saveDoctorFeeRecord = useCallback(async (rec) => {

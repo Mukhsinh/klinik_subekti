@@ -225,7 +225,7 @@ export default function ExpensePage() {
     ]
     saveJournalDraft(header, jItems)
     postJournalEntry(entryId, 'Admin')
-    postExpense(expense.id, 'Admin')
+    postExpense(expense.id, entryId, 'Admin')
     toast.success(`Pengeluaran ${expense.expenseNumber} diposting ke buku besar.`)
   }
 

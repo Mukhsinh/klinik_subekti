@@ -69,6 +69,11 @@ export default function GRNPage() {
 
     setSubmitting(true)
     try {
+      // Auto journal entry for GRN
+      // Dr: Persediaan Obat (per item)
+      // Cr: Utang PBF / Kas
+      const entryId = uuidv4()
+
       const batchesData = validLines.map(l => {
         const item = pharmacyItems.find(i => i.id === l.itemId)
         return {
@@ -80,13 +85,10 @@ export default function GRNPage() {
           quantityCurrent: parseInt(l.quantityReceived),
           grnReference: grnNumber,
           supplierName,
+          journalEntryId: entryId,
         }
       })
 
-      // Auto journal entry for GRN
-      // Dr: Persediaan Obat (per item)
-      // Cr: Utang PBF / Kas
-      const entryId = uuidv4()
       const entryNumber = generateEntryNumber('GRN')
       const journalLines = []
       validLines.forEach(l => {
