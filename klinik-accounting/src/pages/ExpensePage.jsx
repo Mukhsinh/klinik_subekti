@@ -252,12 +252,12 @@ export default function ExpensePage() {
               <tr>
                 <th>No. Pengeluaran</th><th>Tanggal</th><th>Kategori</th><th>Keterangan</th>
                 <th>Vendor</th><th>Metode</th><th className="text-right">Nilai Bruto</th>
-                <th>Bukti</th><th>Status</th><th></th>
+                <th>Status</th><th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={10} className="text-center py-12 text-slate-400">Belum ada pengeluaran dicatat</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-slate-400">Belum ada pengeluaran dicatat</td></tr>
               ) : filtered.map(e => (
                 <tr key={e.id}>
                   <td className="font-mono text-xs text-primary-700">{e.expenseNumber}</td>
@@ -267,12 +267,6 @@ export default function ExpensePage() {
                   <td className="text-xs text-slate-500">{e.vendorName || '—'}</td>
                   <td className="text-xs">{paymentMethodLabel(e.paymentMethod)}</td>
                   <td className="text-right font-mono text-sm font-bold">{fmtIDR(e.grossAmount)}</td>
-                  <td className="text-center">
-                    {e.receiptUrl
-                      ? <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="text-emerald-600 text-xs flex items-center gap-0.5 justify-center hover:underline"><Paperclip className="w-3.5 h-3.5" />Ada</a>
-                      : <span className="text-red-400 text-xs">Belum</span>
-                    }
-                  </td>
                   <td><StatusBadge status={e.status === 'POSTED' ? 'POSTED' : e.status === 'VOID' ? 'VOID' : 'DRAFT'} /></td>
                   <td>
                     <div className="flex items-center gap-1">
@@ -302,21 +296,23 @@ export default function ExpensePage() {
         </>}>
         {selected && (
           <div className="space-y-3 text-sm">
-            {[['No.', selected.expenseNumber], ['Tanggal', fmtDate(selected.expenseDate)], ['Kategori', selected.category],
-            ['Keterangan', selected.description], ['Vendor', selected.vendorName || '—'],
-            ['Metode', paymentMethodLabel(selected.paymentMethod)],
-            ['Nilai Bruto', fmtIDR(selected.grossAmount)], ['PPN', fmtIDR(selected.ppnAmount || 0)],
-            ['PPh Dipotong', fmtIDR(selected.pphAmount || 0)], ['Net Dibayar', fmtIDR(selected.netAmount || selected.grossAmount)]
+            {[
+              ['No.', selected.expenseNumber], 
+              ['Tanggal', fmtDate(selected.expenseDate)], 
+              ['Kategori', selected.category],
+              ['Keterangan', selected.description], 
+              ['Vendor', selected.vendorName || '—'],
+              ['Metode', paymentMethodLabel(selected.paymentMethod)],
+              ['Nilai Bruto', fmtIDR(selected.grossAmount)], 
+              ['PPN', fmtIDR(selected.ppnAmount || 0)],
+              ['PPh Dipotong', fmtIDR(selected.pphAmount || 0)], 
+              ['Net Dibayar', fmtIDR(selected.netAmount || selected.grossAmount)]
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between border-b border-slate-100 pb-2">
-                <span className="text-slate-500">{k}</span><span className="font-medium">{v}</span>
+                <span className="text-slate-500">{k}</span>
+                <span className="font-medium">{v}</span>
               </div>
             ))}
-            {selected.receiptUrl && (
-              <a href={selected.receiptUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-primary-600 hover:underline">
-                <Paperclip className="w-4 h-4" />Lihat Bukti Pembayaran
-              </a>
-            )}
           </div>
         )}
       </Modal>
