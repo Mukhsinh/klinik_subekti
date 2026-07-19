@@ -4,9 +4,12 @@
  */
 import { supabase, sbErr } from './supabase'
 
-// ── camelCase → snake_case (preserves UUIDs / ISO dates) ─────
+// ── camelCase → snake_case (handles acronyms like COGSCode → cogs_code) ─────
 function toSnake(str) {
-  return str.replace(/([A-Z])/g, '_$1').toLowerCase()
+  return str
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
 }
 function snake(obj) {
   if (!obj || typeof obj !== 'object') return obj
@@ -294,6 +297,9 @@ export async function upsertPharmacyItem(item) {
   row.selling_price = Number(row.selling_price || 0)
   row.min_safety_stock = parseInt(row.min_safety_stock || 50)
   row.reorder_point = parseInt(row.reorder_point || 100)
+  if (!row.sku_code || row.sku_code.trim() === '') {
+    row.sku_code = row.item_code || `SKU-${Date.now()}`
+  }
   const { data, error } = await supabase
     .from('pharmacy_items')
     .upsert(row, { onConflict: 'id' })
@@ -377,7 +383,7 @@ export async function insertBilling(billing) {
     // Ensure numeric
     ;['subtotal_services', 'subtotal_pharmacy', 'discount_amount', 'ppn_amount', 'grand_total', 'patient_portion', 'insurance_portion'].forEach(k => { row[k] = Number(row[k] || 0) })
   const { data, error } = await supabase
-    .from('patient_billings').insert(row).select().single()
+    .from('patient_billings').upsert(row, { onConflict: 'id' }).select().single()
   handleError(error, 'insertBilling')
   return norm(data)
 }

@@ -104,9 +104,9 @@ export default function GRNPage() {
         entryType: 'GRN', totalDebit: totalValue, totalCredit: totalValue,
       }
 
-      receiveGRN({ grnNumber, supplierName, invoiceRef, grnDate }, batchesData)
-      saveJournalDraft(header, journalLines)
-      postJournalEntry(entryId, 'System-GRN')
+      await saveJournalDraft(header, journalLines)
+      await receiveGRN({ grnNumber, supplierName, invoiceRef, grnDate }, batchesData)
+      await postJournalEntry(entryId, 'System-GRN')
 
       toast.success(`GRN ${grnNumber} berhasil diproses. Stok dan jurnal otomatis dicatat.`)
       setLines([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', quantityReceived: '', notes: '' }])

@@ -193,16 +193,16 @@ export default function JournalPage() {
       .sort((a, b) => new Date(b.transactionDate) - new Date(a.transactionDate)),
     [journalEntries, activeBranchId, statusFilter, dateFrom, dateTo, search])
 
-  const handleSaveDraft = (header, items) => {
-    saveJournalDraft(header, items)
+  const handleSaveDraft = async (header, items) => {
+    await saveJournalDraft(header, items)
     logActivity('SIMPAN_JURNAL', 'Jurnal', `Draft jurnal ${header.entryNumber} disimpan`)
     toast.success(`Jurnal ${header.entryNumber} disimpan sebagai Draft.`)
     setModal(null)
   }
 
-  const handlePost = (entry) => {
+  const handlePost = async (entry) => {
     if (!window.confirm(`Posting jurnal ${entry.entryNumber}? Jurnal yang sudah diposting tidak dapat diedit.`)) return
-    const result = postJournalEntry(entry.id, 'Admin')
+    const result = await postJournalEntry(entry.id, 'Admin')
     if (result.ok) {
       logActivity('POSTING_JURNAL', 'Jurnal', `Jurnal ${entry.entryNumber} diposting`)
       toast.success(`Jurnal ${entry.entryNumber} berhasil diposting.`)
@@ -211,9 +211,9 @@ export default function JournalPage() {
     }
   }
 
-  const handleReverse = () => {
+  const handleReverse = async () => {
     if (!reverseReason.trim()) { toast.error('Alasan pembalikan wajib diisi.'); return }
-    const result = reverseJournal(selected.id, 'Admin', reverseReason)
+    const result = await reverseJournal(selected.id, 'Admin', reverseReason)
     if (result.ok) {
       logActivity('BALIK_JURNAL', 'Jurnal', `Jurnal ${selected.entryNumber} dibalik — ${reverseReason}`)
       toast.success('Jurnal pembalik berhasil dibuat.')

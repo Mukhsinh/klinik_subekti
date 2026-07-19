@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Plus, CheckCircle, Paperclip, Eye, Wallet } from 'lucide-react'
+import { Plus, CheckCircle, Eye } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import Modal from '../components/ui/Modal'
 import SearchInput from '../components/ui/SearchInput'
@@ -40,8 +40,6 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     grossAmount: '',
     ppnAmount: '',
     pphAmount: '',
-    receiptFile: null,
-    receiptUrl: '',
   })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -58,25 +56,26 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
   const pph = parseFloat(form.pphAmount) || 0
   const netAmount = gross + ppn - pph
 
-  const handleFile = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    // Simulate file URL (in production would upload to storage)
-    const fakeUrl = URL.createObjectURL(file)
-    set('receiptFile', file)
-    set('receiptUrl', fakeUrl)
-    set('receiptFileName', file.name)
-  }
-
   const submit = (e) => {
     e.preventDefault()
-    if (!form.description.trim()) { toast.error('Keterangan pengeluaran wajib diisi.'); return }
-    if (!(parseFloat(form.grossAmount) > 0)) { toast.error('Nominal pengeluaran harus lebih dari 0.'); return }
-    if (!form.receiptUrl && !form.receiptFileName) {
-      toast.error('Bukti pembayaran (foto/scan kwitansi) wajib diunggah sebelum posting.')
-      return
+    if (!form.description.trim()) { 
+      toast.error('Keterangan pengeluaran wajib diisi.')
+      return 
     }
-    onSave({ ...form, grossAmount: gross, ppnAmount: ppn, pphAmount: pph, netAmount, coaCode: selectedCat.coa, branchId: activeBranchId, status: 'DRAFT' })
+    if (!(parseFloat(form.grossAmount) > 0)) { 
+      toast.error('Nominal pengeluaran harus lebih dari 0.')
+      return 
+    }
+    onSave({ 
+      ...form, 
+      grossAmount: gross, 
+      ppnAmount: ppn, 
+      pphAmount: pph, 
+      netAmount, 
+      coaCode: selectedCat.coa, 
+      branchId: activeBranchId, 
+      status: 'DRAFT' 
+    })
   }
 
   return (
@@ -147,28 +146,6 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
         <span className="font-mono font-bold text-slate-800">{fmtIDR(netAmount)}</span>
       </div>
 
-      {/* Receipt upload */}
-      <div>
-        <label className="form-label">Bukti Pembayaran <span className="text-red-500">*</span></label>
-        <div className={`border-2 border-dashed rounded-xl p-4 text-center transition-colors ${form.receiptFileName ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 hover:border-primary-300'}`}>
-          {form.receiptFileName ? (
-            <div className="flex items-center justify-center gap-2 text-emerald-700">
-              <Paperclip className="w-4 h-4" />
-              <span className="text-sm font-medium">{form.receiptFileName}</span>
-              <button type="button" onClick={() => { set('receiptFile', null); set('receiptUrl', ''); set('receiptFileName', '') }} className="text-xs text-red-500 ml-2">Hapus</button>
-            </div>
-          ) : (
-            <>
-              <Paperclip className="w-5 h-5 mx-auto mb-2 text-slate-400" />
-              <p className="text-sm text-slate-500">Unggah foto/scan kwitansi, nota, atau faktur</p>
-              <p className="text-xs text-slate-400 mt-0.5">JPG, PNG, PDF — Maks 5MB</p>
-            </>
-          )}
-          <input type="file" accept="image/*,.pdf" onChange={handleFile} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" style={{ position: 'relative' }} />
-        </div>
-        <p className="text-xs text-red-500 mt-1">⚠ Bukti pembayaran wajib diunggah sebelum pengeluaran dapat diotorisasi dan diposting ke buku besar.</p>
-      </div>
-
       <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 text-xs text-blue-700">
         Jurnal otomatis: <strong>Debit {selectedCat.coa} {selectedCat.label}</strong> / <strong>Kredit {form.paymentMethod === 'KAS' ? '1-11-001 Kas Kecil' : '1-11-003 Bank BCA'}</strong>
       </div>
@@ -197,35 +174,35 @@ export default function ExpensePage() {
       .sort((a, b) => new Date(b.expenseDate) - new Date(a.expenseDate)),
     [expenses, catFilter, search])
 
-  const handleSaveDraft = (data) => {
-    saveExpense(data)
+  const handleSaveDraft = async (data) => {
+    await saveExpense(data)
     toast.success(`Draft pengeluaran ${data.expenseNumber} disimpan.`)
     setModal(null)
   }
 
-  const handlePost = (expense) => {
-    if (!expense.receiptUrl && !expense.receiptFileName) {
-      toast.error('Bukti pembayaran belum ada. Unggah terlebih dahulu.')
-      return
-    }
+  const handlePost = async (expense) => {
     const entryId = uuidv4()
     const entryNumber = generateEntryNumber('EXP')
     const catObj = EXPENSE_CATEGORIES.find(c => c.label === expense.category) || { coa: '6-18-006' }
     const debitAcc = catObj.coa
     const creditAcc = expense.paymentMethod === 'KAS' ? '1-11-001' : '1-11-003'
     const header = {
-      id: entryId, branchId: expense.branchId || activeBranchId, entryNumber,
+      id: entryId, 
+      branchId: expense.branchId || activeBranchId, 
+      entryNumber,
       transactionDate: expense.expenseDate,
       description: `Pengeluaran: ${expense.category} — ${expense.description}`,
-      entryType: 'EXPENSE', totalDebit: expense.grossAmount, totalCredit: expense.grossAmount,
+      entryType: 'EXPENSE', 
+      totalDebit: expense.grossAmount, 
+      totalCredit: expense.grossAmount,
     }
     const jItems = [
       { accountCode: debitAcc, description: expense.description, debit: expense.grossAmount, credit: 0 },
       { accountCode: creditAcc, description: `${paymentMethodLabel(expense.paymentMethod)} — ${expense.vendorName || ''}`, debit: 0, credit: expense.grossAmount },
     ]
-    saveJournalDraft(header, jItems)
-    postJournalEntry(entryId, 'Admin')
-    postExpense(expense.id, entryId, 'Admin')
+    await saveJournalDraft(header, jItems)
+    await postJournalEntry(entryId, 'Admin')
+    await postExpense(expense.id, entryId, 'Admin')
     toast.success(`Pengeluaran ${expense.expenseNumber} diposting ke buku besar.`)
   }
 
@@ -237,7 +214,7 @@ export default function ExpensePage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="page-title">Portal Pengeluaran (Expense)</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Pencatatan biaya operasional — wajib unggah bukti pembayaran</p>
+          <p className="text-sm text-slate-400 mt-0.5">Pencatatan biaya operasional</p>
         </div>
         <button className="btn-primary" onClick={() => setModal('add')}><Plus className="w-4 h-4" />Catat Pengeluaran</button>
       </div>

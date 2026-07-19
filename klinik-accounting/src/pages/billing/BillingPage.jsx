@@ -177,9 +177,9 @@ export default function BillingPage() {
 
     const td = ji.reduce((s, i) => s + (i.debit || 0), 0)
     const tc = ji.reduce((s, i) => s + (i.credit || 0), 0)
-    saveBilling(billing, items)
-    saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, ji)
-    postJournalEntry(eId, 'System-Billing')
+    await saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, ji)
+    await saveBilling(billing, items)
+    await postJournalEntry(eId, 'System-Billing')
     toast.success(`Billing ${billingNumber} berhasil. Jurnal diposting.`)
     setModal(null); resetForm()
   }

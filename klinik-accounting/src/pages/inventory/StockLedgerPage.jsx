@@ -8,23 +8,25 @@ import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
 const TRANS_LABELS = {
-  GRN:           'Penerimaan (GRN)',
-  PATIENT_SALE:  'Penjualan Pasien',
-  ADJUSTMENT:    'Penyesuaian',
-  EXPIRED:       'Kadaluarsa/Rusak',
-  DAMAGED:       'Rusak',
-  TRANSFER_IN:   'Masuk Transfer',
-  TRANSFER_OUT:  'Keluar Transfer',
-  RETURN:        'Retur',
+  GRN: 'Penerimaan (GRN)',
+  BILLING: 'Penjualan Pasien',
+  PATIENT_SALE: 'Penjualan Pasien',
+  ADJUSTMENT: 'Penyesuaian',
+  EXPIRED: 'Kadaluarsa/Rusak',
+  DAMAGED: 'Rusak',
+  TRANSFER_IN: 'Masuk Transfer',
+  TRANSFER_OUT: 'Keluar Transfer',
+  RETURN: 'Retur',
 }
 const TRANS_COLORS = {
-  GRN:           'badge-green',
-  PATIENT_SALE:  'badge-blue',
-  ADJUSTMENT:    'badge-yellow',
-  EXPIRED:       'badge-red',
-  DAMAGED:       'badge-red',
-  TRANSFER_IN:   'badge-teal',
-  TRANSFER_OUT:  'badge-orange',
+  GRN: 'badge-green',
+  BILLING: 'badge-blue',
+  PATIENT_SALE: 'badge-blue',
+  ADJUSTMENT: 'badge-yellow',
+  EXPIRED: 'badge-red',
+  DAMAGED: 'badge-red',
+  TRANSFER_IN: 'badge-teal',
+  TRANSFER_OUT: 'badge-orange',
 }
 
 export default function StockLedgerPage() {
@@ -35,11 +37,11 @@ export default function StockLedgerPage() {
   } = useStore()
 
   const [selectedItem, setSelectedItem] = useState('')
-  const [adjustModal,  setAdjustModal]  = useState(false)
-  const [adjBatch,     setAdjBatch]     = useState(null)
-  const [adjReason,    setAdjReason]    = useState('')
-  const [adjType,      setAdjType]      = useState('REMOVE')
-  const [adjQty,       setAdjQty]       = useState('')
+  const [adjustModal, setAdjustModal] = useState(false)
+  const [adjBatch, setAdjBatch] = useState(null)
+  const [adjReason, setAdjReason] = useState('')
+  const [adjType, setAdjType] = useState('REMOVE')
+  const [adjQty, setAdjQty] = useState('')
 
   const item = useMemo(
     () => pharmacyItems.find(i => i.id === selectedItem),
@@ -75,19 +77,19 @@ export default function StockLedgerPage() {
   }
 
   // ── Execute stock adjustment ──────────────────────────────
-  const handleAdjust = () => {
+  const handleAdjust = async () => {
     if (!adjReason.trim()) { toast.error('Alasan penyesuaian wajib diisi.'); return }
     if (adjType !== 'REMOVE' && (!adjQty || parseInt(adjQty) <= 0)) {
       toast.error('Jumlah penyesuaian harus lebih dari 0.')
       return
     }
 
-    const batch     = adjBatch
+    const batch = adjBatch
     const lostValue = adjType === 'REMOVE'
       ? batch.quantityCurrent * batch.unitCostPrice
       : Math.abs(parseInt(adjQty)) * batch.unitCostPrice
 
-    adjustStock(
+    await adjustStock(
       batch.id,
       batch.itemId,
       adjType === 'ADD' ? parseInt(adjQty) : -batch.quantityCurrent,
@@ -97,36 +99,36 @@ export default function StockLedgerPage() {
 
     // Auto journal for expired / damaged write-off
     if (adjType === 'REMOVE' && lostValue > 0) {
-      const entryId     = uuidv4()
+      const entryId = uuidv4()
       const entryNumber = generateEntryNumber('ADJ')
-      const it          = pharmacyItems.find(p => p.id === batch.itemId)
+      const it = pharmacyItems.find(p => p.id === batch.itemId)
 
       const header = {
-        id:              entryId,
-        branchId:        activeBranchId,
+        id: entryId,
+        branchId: activeBranchId,
         entryNumber,
         transactionDate: new Date().toISOString().split('T')[0],
-        description:     `Penghapusan Stok Expired/Rusak — ${it?.itemName} Batch ${batch.batchNumber}: ${adjReason}`,
-        entryType:       'ADJUSTMENT',
-        totalDebit:      lostValue,
-        totalCredit:     lostValue,
+        description: `Penghapusan Stok Expired/Rusak — ${it?.itemName} Batch ${batch.batchNumber}: ${adjReason}`,
+        entryType: 'ADJUSTMENT',
+        totalDebit: lostValue,
+        totalCredit: lostValue,
       }
       const jItems = [
         {
           accountCode: '6-17-001',
           description: `Kerugian stok ${it?.itemName}`,
-          debit:  lostValue,
+          debit: lostValue,
           credit: 0,
         },
         {
           accountCode: it?.coaInventoryCode || '1-13-001',
           description: `Hapus stok ${it?.itemName} batch ${batch.batchNumber}`,
-          debit:  0,
+          debit: 0,
           credit: lostValue,
         },
       ]
-      saveJournalDraft(header, jItems)
-      postJournalEntry(entryId, 'System-ADJ')
+      await saveJournalDraft(header, jItems)
+      await postJournalEntry(entryId, 'System-ADJ')
     }
 
     toast.success('Penyesuaian stok berhasil dicatat. Jurnal otomatis dibuat.')
@@ -244,8 +246,8 @@ export default function StockLedgerPage() {
                       </td>
                     </tr>
                   ) : itemBatches.map((b, i) => {
-                    const days        = Math.ceil((new Date(b.expiryDate) - new Date()) / 86400000)
-                    const isExpired   = days <= 0
+                    const days = Math.ceil((new Date(b.expiryDate) - new Date()) / 86400000)
+                    const isExpired = days <= 0
                     const isNearExpiry = days > 0 && days <= 180
                     return (
                       <tr
@@ -271,15 +273,14 @@ export default function StockLedgerPage() {
                         <td className="text-right font-mono text-sm">{b.quantityReceived}</td>
                         <td className="text-right font-bold text-sm">{b.quantityCurrent}</td>
                         <td>
-                          <span className={`badge text-xs ${
-                            isExpired        ? 'badge-red'    :
-                            isNearExpiry     ? 'badge-yellow' :
-                            b.quantityCurrent === 0 ? 'badge-gray' :
-                            'badge-green'
-                          }`}>
-                            {isExpired             ? 'Kadaluarsa' :
-                             isNearExpiry          ? 'Hampir ED'  :
-                             b.quantityCurrent === 0 ? 'Habis'   : 'Aktif'}
+                          <span className={`badge text-xs ${isExpired ? 'badge-red' :
+                              isNearExpiry ? 'badge-yellow' :
+                                b.quantityCurrent === 0 ? 'badge-gray' :
+                                  'badge-green'
+                            }`}>
+                            {isExpired ? 'Kadaluarsa' :
+                              isNearExpiry ? 'Hampir ED' :
+                                b.quantityCurrent === 0 ? 'Habis' : 'Aktif'}
                           </span>
                         </td>
                         <td>
@@ -338,7 +339,7 @@ export default function StockLedgerPage() {
                         {l.referenceNumber || '—'}
                       </td>
                       <td className="text-right font-mono text-sm text-emerald-700">
-                        {l.quantityIn  > 0 ? `+${l.quantityIn}`  : ''}
+                        {l.quantityIn > 0 ? `+${l.quantityIn}` : ''}
                       </td>
                       <td className="text-right font-mono text-sm text-red-600">
                         {l.quantityOut > 0 ? `-${l.quantityOut}` : ''}
