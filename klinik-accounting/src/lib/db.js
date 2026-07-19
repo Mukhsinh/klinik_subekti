@@ -250,15 +250,40 @@ export async function upsertJournalEntry(entry) {
 }
 
 export async function insertJournalItems(items) {
-  if (!items.length) return []
+  if (!items.length) {
+    console.log('[insertJournalItems] No items to insert')
+    return []
+  }
+  
   const rows = items.map(it => {
     const r = snake(it)
     r.debit = Number(r.debit || 0)
     r.credit = Number(r.credit || 0)
+    
+    // Ensure required fields exist
+    if (!r.journal_entry_id) {
+      console.error('[insertJournalItems] Missing journal_entry_id for item:', it)
+      throw new Error('journal_entry_id is required for journal items')
+    }
+    if (!r.account_code) {
+      console.error('[insertJournalItems] Missing account_code for item:', it)
+      throw new Error('account_code is required for journal items')
+    }
+    
     return r
   })
+  
+  console.log('[insertJournalItems] Inserting', rows.length, 'items:', rows)
+  
   const { data, error } = await supabase
     .from('journal_items').insert(rows).select()
+  
+  if (error) {
+    console.error('[insertJournalItems] Database error:', error)
+  } else {
+    console.log('[insertJournalItems] Successfully inserted:', data?.length, 'items')
+  }
+  
   handleError(error, 'insertJournalItems')
   return normArr(data)
 }

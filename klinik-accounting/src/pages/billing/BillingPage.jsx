@@ -222,15 +222,16 @@ export default function BillingPage() {
     }
 
     const eNum = generateEntryNumber('BILLING')
-    const ji = []
+    const journalItems = []
+    
     if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
-      ji.push({ accountCode: '1-11-002', description: `Kas Tunai — ${billingNumber}`, debit: grandTotal, credit: 0 })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Kas Tunai — ${billingNumber}`, debit: grandTotal, credit: 0 })
     } else if (payMethod === 'BPJS') {
-      ji.push({ accountCode: '1-11-002', description: `Bayar Pasien BPJS — ${billingNumber}`, debit: patientPortion, credit: 0 })
-      ji.push({ accountCode: '1-12-001', description: `Piutang BPJS — ${billingNumber}`, debit: insurancePortion, credit: 0 })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Bayar Pasien BPJS — ${billingNumber}`, debit: patientPortion, credit: 0 })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-12-001', description: `Piutang BPJS — ${billingNumber}`, debit: insurancePortion, credit: 0 })
     } else {
-      ji.push({ accountCode: '1-11-002', description: `Bayar Pasien Asuransi — ${billingNumber}`, debit: patientPortion, credit: 0 })
-      ji.push({ accountCode: '1-12-002', description: `Piutang Asuransi — ${billingNumber}`, debit: insurancePortion, credit: 0 })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Bayar Pasien Asuransi — ${billingNumber}`, debit: patientPortion, credit: 0 })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-12-002', description: `Piutang Asuransi — ${billingNumber}`, debit: insurancePortion, credit: 0 })
     }
 
     // Group revenue by account code from service tariff
@@ -247,34 +248,35 @@ export default function BillingPage() {
     // Add revenue entries
     Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
       if (amount > 0) {
-        ji.push({ accountCode: accCode, description: `Pendapatan Layanan — ${billingNumber}`, debit: 0, credit: amount })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `Pendapatan Layanan — ${billingNumber}`, debit: 0, credit: amount })
       }
     })
 
-    if (subPharmacy > 0) ji.push({ accountCode: '4-13-001', description: `Penjualan Obat — ${billingNumber}`, debit: 0, credit: subPharmacy })
-    if (ppnAmount > 0) ji.push({ accountCode: '2-14-001', description: `PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
+    if (subPharmacy > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '4-13-001', description: `Penjualan Obat — ${billingNumber}`, debit: 0, credit: subPharmacy })
+    if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-14-001', description: `PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
     if (discountAmt > 0) {
       // Discount reduces the first revenue account
       const firstRevAccount = Object.keys(revenueByAccount)[0] || '4-11-001'
-      ji.push({ accountCode: firstRevAccount, description: `Diskon — ${billingNumber}`, debit: discountAmt, credit: 0 })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon — ${billingNumber}`, debit: discountAmt, credit: 0 })
     }
     if (grossDoctorFee > 0 && selectedDoctor) {
-      ji.push({ accountCode: '6-12-001', description: `Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
-      ji.push({ accountCode: '2-13-001', description: `PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
-      ji.push({ accountCode: '2-12-001', description: `Net Fee ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '6-12-001', description: `Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-13-001', description: `PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-12-001', description: `Net Fee ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
     }
 
     // Append consolidated HPP / COGS journal entries
     Object.entries(hppDebits).forEach(([coaCode, val]) => {
-      ji.push({ accountCode: coaCode, description: `HPP Penjualan Obat — ${billingNumber}`, debit: val, credit: 0 })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `HPP Penjualan Obat — ${billingNumber}`, debit: val, credit: 0 })
     })
     Object.entries(hppCredits).forEach(([coaCode, val]) => {
-      ji.push({ accountCode: coaCode, description: `Persediaan Obat Terjual — ${billingNumber}`, debit: 0, credit: val })
+      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${billingNumber}`, debit: 0, credit: val })
     })
 
-    const td = ji.reduce((s, i) => s + (i.debit || 0), 0)
-    const tc = ji.reduce((s, i) => s + (i.credit || 0), 0)
-    await saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, ji)
+    const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
+    const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
+    
+    await saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
     await saveBilling(billing, items)
     await postJournalEntry(eId, 'System-Billing')
     toast.success(`Billing ${billingNumber} berhasil. Jurnal diposting.`)

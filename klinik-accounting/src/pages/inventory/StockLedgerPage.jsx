@@ -115,12 +115,16 @@ export default function StockLedgerPage() {
       }
       const jItems = [
         {
+          id: uuidv4(),
+          journalEntryId: entryId,
           accountCode: '6-17-001',
           description: `Kerugian stok ${it?.itemName}`,
           debit: lostValue,
           credit: 0,
         },
         {
+          id: uuidv4(),
+          journalEntryId: entryId,
           accountCode: it?.coaInventoryCode || '1-13-001',
           description: `Hapus stok ${it?.itemName} batch ${batch.batchNumber}`,
           debit: 0,

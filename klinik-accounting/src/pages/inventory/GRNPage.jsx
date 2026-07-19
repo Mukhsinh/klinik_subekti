@@ -94,9 +94,9 @@ export default function GRNPage() {
       validLines.forEach(l => {
         const item = pharmacyItems.find(i => i.id === l.itemId)
         const val = parseFloat(l.unitCostPrice) * parseInt(l.quantityReceived)
-        journalLines.push({ id: uuidv4(), accountCode: item.coaInventoryCode, description: `GRN ${grnNumber} — ${item.itemName}`, debit: val, credit: 0 })
+        journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: item.coaInventoryCode, description: `GRN ${grnNumber} — ${item.itemName}`, debit: val, credit: 0 })
       })
-      journalLines.push({ id: uuidv4(), accountCode: '2-11-001', description: `Utang PBF — ${supplierName || 'Supplier'}`, debit: 0, credit: totalValue })
+      journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: '2-11-001', description: `Utang PBF — ${supplierName || 'Supplier'}`, debit: 0, credit: totalValue })
 
       const header = {
         id: entryId, branchId: activeBranchId, entryNumber,

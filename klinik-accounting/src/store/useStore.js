@@ -273,8 +273,17 @@ export function useStore() {
     try {
       await deleteJournalItemsByEntry(entryId)
       await upsertJournalEntry(entry)
-      await insertJournalItems(newItems)
-    } catch (e) { console.error('[saveJournalDraft]', e.message) }
+      
+      // Ensure items have all required fields before insert
+      if (newItems.length > 0) {
+        console.log('[saveJournalDraft] Saving items:', newItems.length, 'items')
+        const result = await insertJournalItems(newItems)
+        console.log('[saveJournalDraft] Insert result:', result)
+      }
+    } catch (e) { 
+      console.error('[saveJournalDraft] Error:', e.message, e) 
+      throw e // Re-throw to allow caller to handle
+    }
     return entryId
   }, [])
 

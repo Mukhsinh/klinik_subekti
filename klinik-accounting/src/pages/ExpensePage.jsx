@@ -197,8 +197,8 @@ export default function ExpensePage() {
       totalCredit: expense.grossAmount,
     }
     const jItems = [
-      { accountCode: debitAcc, description: expense.description, debit: expense.grossAmount, credit: 0 },
-      { accountCode: creditAcc, description: `${paymentMethodLabel(expense.paymentMethod)} — ${expense.vendorName || ''}`, debit: 0, credit: expense.grossAmount },
+      { id: uuidv4(), journalEntryId: entryId, accountCode: debitAcc, description: expense.description, debit: expense.grossAmount, credit: 0 },
+      { id: uuidv4(), journalEntryId: entryId, accountCode: creditAcc, description: `${paymentMethodLabel(expense.paymentMethod)} — ${expense.vendorName || ''}`, debit: 0, credit: expense.grossAmount },
     ]
     await saveJournalDraft(header, jItems)
     await postJournalEntry(entryId, 'Admin')
