@@ -13,7 +13,9 @@ import CashFlowPage from './pages/reports/CashFlowPage'
 import InventoryPage from './pages/inventory/InventoryPage'
 import GRNPage from './pages/inventory/GRNPage'
 import StockLedgerPage from './pages/inventory/StockLedgerPage'
+import StockOutflowPage from './pages/inventory/StockOutflowPage'
 import BillingPage from './pages/billing/BillingPage'
+import BillingReportPage from './pages/reports/BillingReportPage'
 import ExpensePage from './pages/ExpensePage'
 import PPh21Page from './pages/tax/PPh21Page'
 import PPNPage from './pages/tax/PPNPage'
@@ -72,6 +74,7 @@ export default function App() {
           <Route path="cash-flow" element={<CashFlowPage />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="grn" element={<GRNPage />} />
+          <Route path="stock-outflow" element={<StockOutflowPage />} />
           <Route path="stock-ledger" element={<StockLedgerPage />} />
           {/* Asset Management */}
           <Route path="assets/inventory" element={<AssetInventoryPage />} />
@@ -79,6 +82,7 @@ export default function App() {
           <Route path="assets/mutations" element={<AssetMutationsPage />} />
           <Route path="assets/card" element={<AssetCardPage />} />
           <Route path="billing" element={<BillingPage />} />
+          <Route path="billing-report" element={<BillingReportPage />} />
           <Route path="expenses" element={<ExpensePage />} />
           <Route path="tax-pph21" element={<PPh21Page />} />
           <Route path="tax-ppn" element={<PPNPage />} />

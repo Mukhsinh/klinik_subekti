@@ -3,16 +3,31 @@ import { Plus, Pencil, PowerOff, ShieldCheck, DollarSign } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
+import SearchableSelect from '../../components/ui/SearchableSelect'
 import { StatusBadge } from '../../components/ui/Badge'
 import { fmtIDR } from '../../utils/format'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
-function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, nextCode }) {
+const SERVICE_CATEGORIES = [
+    { value: 'KONSULTASI_UMUM', label: 'Konsultasi Dokter Umum' },
+    { value: 'KONSULTASI_SPESIALIS', label: 'Konsultasi Dokter Spesialis' },
+    { value: 'TINDAKAN_MEDIS_MINOR', label: 'Tindakan Medis Minor' },
+    { value: 'TINDAKAN_MEDIS_MAYOR', label: 'Tindakan Medis Mayor' },
+    { value: 'IMUNISASI_VAKSINASI', label: 'Imunisasi & Vaksinasi' },
+    { value: 'MCU', label: 'MCU (Medical Check Up)' },
+    { value: 'KLINIK_GIGI', label: 'Klinik Gigi' },
+    { value: 'LABORATORIUM', label: 'Pemeriksaan Laboratorium' },
+    { value: 'LAINNYA', label: 'Lainnya' },
+]
+
+function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, nextCode, revenueAccounts }) {
     const [form, setForm] = useState({
         code: initial.code || nextCode || '',
         name: initial.name || '',
         price: initial.price || '',
+        serviceCategory: initial.serviceCategory || 'KONSULTASI_UMUM',
+        revenueAccountCode: initial.revenueAccountCode || '4-11-001',
     })
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -20,7 +35,14 @@ function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, next
         e.preventDefault()
         if (!form.name.trim()) { toast.error('Nama layanan wajib diisi.'); return }
         if (!(parseFloat(form.price) >= 0)) { toast.error('Tarif layanan harus bernilai 0 atau lebih.'); return }
-        onSave({ ...form, price: parseFloat(form.price) })
+        if (!form.serviceCategory) { toast.error('Kategori layanan wajib dipilih.'); return }
+        if (!form.revenueAccountCode) { toast.error('Akun pendapatan wajib dipilih.'); return }
+        onSave({ 
+            ...form, 
+            price: parseFloat(form.price),
+            service_category: form.serviceCategory,
+            revenue_account_code: form.revenueAccountCode
+        })
     }
 
     return (
@@ -29,15 +51,49 @@ function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, next
                 <label className="form-label">Kode Layanan</label>
                 <input className="form-input font-mono bg-slate-50" value={form.code} readOnly />
             </div>
+            
+            <div>
+                <label className="form-label">Kategori Layanan *</label>
+                <select 
+                    className="form-select" 
+                    value={form.serviceCategory} 
+                    onChange={e => set('serviceCategory', e.target.value)}
+                    required
+                >
+                    {SERVICE_CATEGORIES.map(cat => (
+                        <option key={cat.value} value={cat.value}>{cat.label}</option>
+                    ))}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                    Kategori ini akan memudahkan pengelompokan layanan dan pelaporan
+                </p>
+            </div>
+
             <div>
                 <label className="form-label">Nama Layanan *</label>
                 <input className="form-input" value={form.name} onChange={e => set('name', e.target.value)}
                     placeholder="Nama layanan medis…" required />
             </div>
+            
             <div>
                 <label className="form-label">Tarif Layanan (Rp) *</label>
                 <input type="number" className="form-input" value={form.price} onChange={e => set('price', e.target.value)}
                     placeholder="Tarif layanan dalam rupiah…" min={0} step={1000} required />
+            </div>
+
+            <div>
+                <label className="form-label">Akun Pendapatan (COA) *</label>
+                <SearchableSelect
+                    value={form.revenueAccountCode}
+                    onChange={val => set('revenueAccountCode', val)}
+                    options={revenueAccounts}
+                    placeholder="— Pilih akun pendapatan —"
+                    searchPlaceholder="Cari akun pendapatan..."
+                    required
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                    Akun ini akan digunakan saat membuat jurnal entry dari billing/kasir
+                </p>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -49,10 +105,21 @@ function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, next
 }
 
 export default function TarifLayananPage() {
-    const { serviceTariffs, addServiceTariff, updateServiceTariff, logActivity } = useStore()
+    const { serviceTariffs, coa, addServiceTariff, updateServiceTariff, logActivity } = useStore()
     const [search, setSearch] = useState('')
     const [modal, setModal] = useState(null)
     const [selected, setSelected] = useState(null)
+
+    // Filter revenue accounts (type REVENUE)
+    const revenueAccounts = useMemo(() => 
+        (coa || [])
+            .filter(a => a.accountType === 'REVENUE' && a.isActive !== false && !a.isHeader)
+            .map(a => ({ 
+                value: a.accountCode, 
+                label: `${a.accountCode} — ${a.accountName}`
+            }))
+            .sort((a, b) => a.value.localeCompare(b.value)),
+        [coa])
 
     const filtered = useMemo(() =>
         (serviceTariffs || [])
@@ -67,6 +134,11 @@ export default function TarifLayananPage() {
         const activeLength = (serviceTariffs || []).length
         return `SVC-${String(activeLength + 1).padStart(3, '0')}`
     }, [serviceTariffs])
+    
+    const getCategoryLabel = (category) => {
+        const cat = SERVICE_CATEGORIES.find(c => c.value === category)
+        return cat ? cat.label : category
+    }
 
     const handleSave = async (data) => {
         try {
@@ -140,8 +212,10 @@ export default function TarifLayananPage() {
                         <thead>
                             <tr>
                                 <th>Kode</th>
+                                <th>Kategori</th>
                                 <th>Nama Layanan</th>
                                 <th className="text-right">Tarif</th>
+                                <th>Akun Pendapatan</th>
                                 <th className="text-center">Status</th>
                                 <th></th>
                             </tr>
@@ -149,7 +223,7 @@ export default function TarifLayananPage() {
                         <tbody>
                             {filtered.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="text-center py-16 text-slate-400">
+                                    <td colSpan={7} className="text-center py-16 text-slate-400">
                                         <DollarSign className="w-8 h-8 mx-auto mb-2 opacity-30" />
                                         {search ? 'Layanan tidak ditemukan' : 'Belum ada tarif layanan — klik Tambah Layanan untuk memulai'}
                                     </td>
@@ -157,8 +231,16 @@ export default function TarifLayananPage() {
                             ) : filtered.map(s => (
                                 <tr key={s.id}>
                                     <td className="font-mono text-xs text-primary-700 font-medium">{s.code}</td>
+                                    <td>
+                                        <span className="badge badge-blue text-xs">
+                                            {getCategoryLabel(s.serviceCategory || s.service_category)}
+                                        </span>
+                                    </td>
                                     <td className="text-sm font-medium text-slate-700">{s.name}</td>
                                     <td className="text-right font-mono text-sm font-bold text-slate-800">{fmtIDR(s.price || 0)}</td>
+                                    <td className="font-mono text-xs text-slate-600">
+                                        {s.revenueAccountCode || s.revenue_account_code || '4-11-001'}
+                                    </td>
                                     <td className="text-center">
                                         <StatusBadge status={s.isActive !== false ? 'ACTIVE' : 'INACTIVE'} />
                                     </td>
@@ -186,11 +268,16 @@ export default function TarifLayananPage() {
                 size="md"
             >
                 <ServiceTariffForm
-                    initial={modal === 'edit' ? selected : {}}
+                    initial={modal === 'edit' ? {
+                        ...selected,
+                        serviceCategory: selected?.serviceCategory || selected?.service_category || 'KONSULTASI_UMUM',
+                        revenueAccountCode: selected?.revenueAccountCode || selected?.revenue_account_code || '4-11-001'
+                    } : {}}
                     onSave={handleSave}
                     onClose={() => setModal(null)}
                     isEdit={modal === 'edit'}
                     nextCode={nextCode}
+                    revenueAccounts={revenueAccounts}
                 />
             </Modal>
         </div>

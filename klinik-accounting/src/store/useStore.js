@@ -18,14 +18,18 @@ import {
   fetchBillings, insertBilling, insertBillingItems, fetchBillingItems,
   fetchExpenses, upsertExpense,
   fetchDoctors,
-  insertAuditLog,
-  insertDoctorFeeRecord,
+  insertAuditLog, fetchAuditLogs,
+  insertDoctorFeeRecord, fetchDoctorFeeRecords,
   fetchFixedAssets, upsertFixedAsset, updateFixedAsset, deleteFixedAsset,
   fetchAssetMutations, insertAssetMutation, deleteAssetMutationsByAsset,
   fetchAssetDepreciations, upsertAssetDepreciation, updateDepreciationStatus, deleteAssetDepreciationsByAsset,
   calculateMonthlyDepreciation, deleteJournalEntry,
   fetchVendors, upsertVendor,
   fetchServiceTariffs, upsertServiceTariff,
+  fetchStockOutflows, insertStockOutflow, updateStockOutflow,
+  fetchStockOutflowItems, insertStockOutflowItems,
+  fetchAppSettings, saveAllAppSettings,
+  fetchUsers, upsertUser, deleteUser,
 } from '../lib/db'
 import { initialCOA } from '../data/initialCOA'
 import { initialBranches } from '../data/initialData'
@@ -43,11 +47,17 @@ let _state = {
   billingItems: [],
   expenses: [],
   doctors: [],
+  doctorFeeRecords: [],
   fixedAssets: [],
   assetMutations: [],
   assetDepreciations: [],
   vendors: [],
   serviceTariffs: [],
+  stockOutflows: [],
+  stockOutflowItems: [],
+  users: [],
+  auditLogs: [],
+  appSettings: {},
   activeBranchId: null,
   loading: true,
   initialized: false,
@@ -76,7 +86,8 @@ async function bootstrap() {
         branches, coa, journals, pharmacyItems,
         batches, billings, expenses, doctors,
         fixedAssets, assetMutations, assetDepreciations,
-        vendors, serviceTariffs,
+        vendors, serviceTariffs, stockOutflows,
+        doctorFeeRecords, auditLogs, users, appSettings,
       ] = await Promise.all([
         fetchBranches(),
         fetchCOA(),
@@ -91,6 +102,11 @@ async function bootstrap() {
         fetchAssetDepreciations({}),
         fetchVendors(),
         fetchServiceTariffs(),
+        fetchStockOutflows(),
+        fetchDoctorFeeRecords(null, null, 500), // Last 500 records
+        fetchAuditLogs(500), // Last 500 logs
+        fetchUsers(),
+        fetchAppSettings(),
       ])
 
       // Use local seed as fallback if DB empty
@@ -100,11 +116,13 @@ async function bootstrap() {
       // Fetch relational data
       const entryIds = journals.map(j => j.id)
       const billingIds = billings.map(b => b.id)
+      const outflowIds = stockOutflows.map(o => o.id)
 
-      const [jItems, bItems, stockRows] = await Promise.all([
+      const [jItems, bItems, stockRows, outflowItems] = await Promise.all([
         entryIds.length ? fetchJournalItems(entryIds) : Promise.resolve([]),
         billingIds.length ? fetchBillingItems(billingIds) : Promise.resolve([]),
         fetchStockLedger(),
+        outflowIds.length ? fetchStockOutflowItems(outflowIds) : Promise.resolve([]),
       ])
 
       // Active branch persistence
@@ -124,11 +142,17 @@ async function bootstrap() {
         billingItems: bItems,
         expenses,
         doctors,
+        doctorFeeRecords,
         fixedAssets,
         assetMutations,
         assetDepreciations,
         vendors,
         serviceTariffs,
+        stockOutflows,
+        stockOutflowItems: outflowItems,
+        users,
+        auditLogs,
+        appSettings,
         activeBranchId,
         loading: false,
         initialized: true,
@@ -145,6 +169,12 @@ async function bootstrap() {
         assetDepreciations: [],
         vendors: [],
         serviceTariffs: [],
+        stockOutflows: [],
+        stockOutflowItems: [],
+        doctorFeeRecords: [],
+        auditLogs: [],
+        users: [],
+        appSettings: {},
         loading: false,
         initialized: true,
         error: err.message,
@@ -1021,6 +1051,243 @@ export function useStore() {
     }
   }, [s.serviceTariffs])
 
+  // ── Stock Outflow Management ─────────────────────────────
+  const generateOutflowNumber = useCallback(() => {
+    const d = new Date()
+    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
+    return `OUT/${ym}/${String((s.stockOutflows || []).length + 1).padStart(5, '0')}`
+  }, [s.stockOutflows])
+
+  const saveStockOutflow = useCallback(async (data) => {
+    const { outflowNumber, outflowDate, outflowType, description, totalValue, items } = data
+    
+    if (!items || items.length === 0) {
+      throw new Error('Minimal harus ada 1 item')
+    }
+
+    const outflowId = uuidv4()
+    const journalId = uuidv4()
+    const now = new Date().toISOString()
+
+    // Create outflow entry
+    const outflow = {
+      id: outflowId,
+      branchId: s.activeBranchId,
+      outflowNumber,
+      outflowDate,
+      outflowType,
+      description,
+      totalValue,
+      status: 'DRAFT',
+      journalEntryId: journalId,
+      createdBy: 'User',
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    // Create outflow items
+    const outflowItems = items.map(item => ({
+      id: uuidv4(),
+      outflowId,
+      itemId: item.itemId,
+      itemName: item.itemName,
+      quantity: item.quantity,
+      unitCost: item.unitCost,
+      totalCost: item.totalCost,
+      notes: item.notes || '',
+    }))
+
+    // Deplete inventory using FIFO
+    const cogsDetails = []
+    for (const item of items) {
+      const depletedBatches = await depleteInventoryFIFO(
+        item.itemId,
+        item.quantity,
+        outflowNumber,
+        outflowId
+      )
+      cogsDetails.push(...depletedBatches)
+    }
+
+    // Create journal entry
+    const entryNumber = generateEntryNumber('OUT')
+    const journalItems = []
+
+    // Consolidate by COA codes
+    const expenseDebits = {}
+    const inventoryCredits = {}
+
+    cogsDetails.forEach(d => {
+      const val = d.qty * d.unitCostPrice
+      if (val > 0) {
+        expenseDebits[d.coaCOGSCode] = (expenseDebits[d.coaCOGSCode] || 0) + val
+        inventoryCredits[d.coaInventoryCode] = (inventoryCredits[d.coaInventoryCode] || 0) + val
+      }
+    })
+
+    Object.entries(expenseDebits).forEach(([coaCode, val]) => {
+      journalItems.push({
+        id: uuidv4(),
+        journalEntryId: journalId,
+        accountCode: coaCode,
+        description: `Pengeluaran ${outflowType} — ${outflowNumber}`,
+        debit: val,
+        credit: 0,
+      })
+    })
+
+    Object.entries(inventoryCredits).forEach(([coaCode, val]) => {
+      journalItems.push({
+        id: uuidv4(),
+        journalEntryId: journalId,
+        accountCode: coaCode,
+        description: `Pengurangan Persediaan — ${outflowNumber}`,
+        debit: 0,
+        credit: val,
+      })
+    })
+
+    const totalDebit = journalItems.reduce((sum, i) => sum + (i.debit || 0), 0)
+
+    const journalEntry = {
+      id: journalId,
+      branchId: s.activeBranchId,
+      entryNumber,
+      transactionDate: outflowDate,
+      description: `Pengeluaran Stok ${outflowType} — ${description}`,
+      entryType: 'STOCK_OUTFLOW',
+      status: 'POSTED',
+      totalDebit,
+      totalCredit: totalDebit,
+      createdBy: 'System',
+      postedBy: 'System',
+      postedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    // Optimistic updates
+    setState(prev => ({
+      ...prev,
+      stockOutflows: [...prev.stockOutflows, outflow],
+      stockOutflowItems: [...prev.stockOutflowItems, ...outflowItems],
+      journalEntries: [...prev.journalEntries, journalEntry],
+      journalItems: [...prev.journalItems, ...journalItems],
+    }))
+
+    // Persist to database
+    try {
+      await insertStockOutflow(outflow)
+      await insertStockOutflowItems(outflowItems)
+      await upsertJournalEntry(journalEntry)
+      await insertJournalItems(journalItems)
+      
+      // Update outflow status to POSTED
+      await updateStockOutflow(outflowId, { status: 'POSTED', journalEntryId: journalId })
+      
+      setState(prev => ({
+        ...prev,
+        stockOutflows: prev.stockOutflows.map(o => 
+          o.id === outflowId ? { ...o, status: 'POSTED', journalEntryId: journalId } : o
+        ),
+      }))
+
+      logActivity('CREATE_STOCK_OUTFLOW', 'INVENTORY', `Created stock outflow ${outflowNumber}`)
+    } catch (e) {
+      console.error('[saveStockOutflow]', e.message)
+      throw e
+    }
+
+    return outflowId
+  }, [s.activeBranchId, depleteInventoryFIFO, generateEntryNumber, logActivity])
+
+  const postStockOutflow = useCallback(async (outflowId, postedBy = 'System') => {
+    const outflow = s.stockOutflows.find(o => o.id === outflowId)
+    if (!outflow || outflow.status !== 'DRAFT') {
+      return { ok: false, error: 'Hanya draft yang dapat diposting' }
+    }
+
+    const extra = { status: 'POSTED', authorizedBy: postedBy }
+    setState(prev => ({
+      ...prev,
+      stockOutflows: prev.stockOutflows.map(o => o.id === outflowId ? { ...o, ...extra } : o),
+    }))
+
+    try {
+      await updateStockOutflow(outflowId, extra)
+      logActivity('POST_STOCK_OUTFLOW', 'INVENTORY', `Posted stock outflow ${outflow.outflowNumber}`)
+    } catch (e) {
+      console.error('[postStockOutflow]', e.message)
+      return { ok: false, error: e.message }
+    }
+
+    return { ok: true }
+  }, [s.stockOutflows, logActivity])
+
+  // ── User Management ──────────────────────────────────────
+  const addUser = useCallback(async (data) => {
+    const user = {
+      ...data,
+      id: data.id || uuidv4(),
+      createdAt: new Date().toISOString(),
+    }
+    setState(prev => ({ ...prev, users: [...prev.users, user] }))
+    try {
+      const saved = await upsertUser(user)
+      setState(prev => ({ ...prev, users: prev.users.map(u => u.id === saved.id ? saved : u) }))
+      logActivity('CREATE_USER', 'SETTINGS', `Created user ${user.name}`)
+      return saved
+    } catch (e) {
+      console.error('[addUser]', e.message)
+      setState(prev => ({ ...prev, users: prev.users.filter(u => u.id !== user.id) }))
+      throw e
+    }
+  }, [logActivity])
+
+  const updateUser = useCallback(async (id, data) => {
+    const oldData = s.users.find(u => u.id === id)
+    setState(prev => ({
+      ...prev,
+      users: prev.users.map(u => u.id === id ? { ...u, ...data } : u)
+    }))
+    try {
+      const cur = s.users.find(u => u.id === id)
+      if (cur) await upsertUser({ ...cur, ...data })
+      logActivity('UPDATE_USER', 'SETTINGS', `Updated user ${data.name || cur.name}`)
+    } catch (e) {
+      console.error('[updateUser]', e.message)
+      setState(prev => ({ ...prev, users: prev.users.map(u => u.id === id ? oldData : u) }))
+      throw e
+    }
+  }, [s.users, logActivity])
+
+  const removeUser = useCallback(async (id) => {
+    const user = s.users.find(u => u.id === id)
+    setState(prev => ({ ...prev, users: prev.users.filter(u => u.id !== id) }))
+    try {
+      await deleteUser(id)
+      logActivity('DELETE_USER', 'SETTINGS', `Deleted user ${user?.name}`)
+    } catch (e) {
+      console.error('[removeUser]', e.message)
+      setState(prev => ({ ...prev, users: [...prev.users, user] }))
+      throw e
+    }
+  }, [s.users, logActivity])
+
+  // ── App Settings ─────────────────────────────────────────
+  const updateAppSettings = useCallback(async (settings) => {
+    const oldSettings = { ...s.appSettings }
+    setState(prev => ({ ...prev, appSettings: { ...prev.appSettings, ...settings } }))
+    try {
+      await saveAllAppSettings(settings)
+      logActivity('UPDATE_SETTINGS', 'SETTINGS', `Updated app settings`)
+    } catch (e) {
+      console.error('[updateAppSettings]', e.message)
+      setState(prev => ({ ...prev, appSettings: oldSettings }))
+      throw e
+    }
+  }, [s.appSettings, logActivity])
+
   return {
     ...s,
     refreshAll,
@@ -1036,6 +1303,9 @@ export function useStore() {
     generateAssetCode, addAsset, updateAsset, deleteAsset,
     addAssetMutation, calculateDepreciation, saveDepreciation, postDepreciation,
     addVendor, updateVendor, addServiceTariff, updateServiceTariff,
+    generateOutflowNumber, saveStockOutflow, postStockOutflow,
+    addUser, updateUser, removeUser,
+    updateAppSettings,
     logActivity,
   }
 }

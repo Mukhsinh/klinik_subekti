@@ -520,11 +520,12 @@ export async function insertDoctorFeeRecord(rec) {
   handleError(error, 'insertDoctorFeeRecord')
   return norm(data)
 }
-export async function fetchDoctorFeeRecords(doctorId = null, year = null) {
+export async function fetchDoctorFeeRecords(doctorId = null, year = null, limit = null) {
   let q = supabase.from('doctor_fee_records').select('*')
     .order('created_at', { ascending: false })
   if (doctorId) q = q.eq('doctor_id', doctorId)
   if (year) q = q.gte('created_at', `${year}-01-01`).lte('created_at', `${year}-12-31`)
+  if (limit) q = q.limit(limit)
   const { data, error } = await q
   handleError(error, 'fetchDoctorFeeRecords')
   return normArr(data)
@@ -593,5 +594,62 @@ export async function deleteUser(id) {
     .delete()
     .eq('id', id)
   handleError(error, 'deleteUser')
+}
+
+// ══════════════════════════════════════════════════════════════
+// STOCK OUTFLOW ENTRIES
+// ══════════════════════════════════════════════════════════════
+export async function fetchStockOutflows(branchId = null) {
+  let q = supabase.from('stock_outflow_entries').select('*')
+    .order('outflow_date', { ascending: false })
+  if (branchId) q = q.eq('branch_id', branchId)
+  const { data, error } = await q
+  handleError(error, 'fetchStockOutflows')
+  return normArr(data)
+}
+
+export async function insertStockOutflow(outflow) {
+  const row = snake(outflow)
+  row.total_value = Number(row.total_value || 0)
+  const { data, error } = await supabase
+    .from('stock_outflow_entries')
+    .insert(row)
+    .select().single()
+  handleError(error, 'insertStockOutflow')
+  return norm(data)
+}
+
+export async function updateStockOutflow(id, updates) {
+  const { data, error } = await supabase
+    .from('stock_outflow_entries')
+    .update(snake(updates))
+    .eq('id', id)
+    .select().single()
+  handleError(error, 'updateStockOutflow')
+  return norm(data)
+}
+
+export async function fetchStockOutflowItems(outflowIds = []) {
+  if (!outflowIds.length) return []
+  const { data, error } = await supabase
+    .from('stock_outflow_items').select('*')
+    .in('outflow_id', outflowIds)
+  handleError(error, 'fetchStockOutflowItems')
+  return normArr(data)
+}
+
+export async function insertStockOutflowItems(items) {
+  if (!items.length) return []
+  const rows = items.map(it => {
+    const r = snake(it)
+    r.quantity = parseInt(r.quantity || 0)
+    r.unit_cost = Number(r.unit_cost || 0)
+    r.total_cost = Number(r.total_cost || 0)
+    return r
+  })
+  const { data, error } = await supabase
+    .from('stock_outflow_items').insert(rows).select()
+  handleError(error, 'insertStockOutflowItems')
+  return normArr(data)
 }
 
