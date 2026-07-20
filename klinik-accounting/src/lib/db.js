@@ -46,10 +46,21 @@ export function handleError(error, context = '') {
 // CLINIC ENTITIES
 // ══════════════════════════════════════════════════════════════
 export async function fetchBranches() {
+  console.log('[fetchBranches] Fetching from clinic_entities table...')
   const { data, error } = await supabase
     .from('clinic_entities').select('*').order('branch_code')
+  console.log('[fetchBranches] Raw Supabase response:', { data, error })
+  console.log('[fetchBranches] Data count:', data?.length || 0)
+  if (data && data.length > 0) {
+    console.log('[fetchBranches] First record (raw):', data[0])
+  }
   handleError(error, 'fetchBranches')
-  return normArr(data)
+  const normalized = normArr(data)
+  console.log('[fetchBranches] After normalization:', normalized)
+  if (normalized && normalized.length > 0) {
+    console.log('[fetchBranches] First record (normalized):', normalized[0])
+  }
+  return normalized
 }
 export async function upsertBranch(branch) {
   const { data, error } = await supabase
@@ -254,12 +265,12 @@ export async function insertJournalItems(items) {
     console.log('[insertJournalItems] No items to insert')
     return []
   }
-  
+
   const rows = items.map(it => {
     const r = snake(it)
     r.debit = Number(r.debit || 0)
     r.credit = Number(r.credit || 0)
-    
+
     // Ensure required fields exist
     if (!r.journal_entry_id) {
       console.error('[insertJournalItems] Missing journal_entry_id for item:', it)
@@ -269,21 +280,21 @@ export async function insertJournalItems(items) {
       console.error('[insertJournalItems] Missing account_code for item:', it)
       throw new Error('account_code is required for journal items')
     }
-    
+
     return r
   })
-  
+
   console.log('[insertJournalItems] Inserting', rows.length, 'items:', rows)
-  
+
   const { data, error } = await supabase
     .from('journal_items').insert(rows).select()
-  
+
   if (error) {
     console.error('[insertJournalItems] Database error:', error)
   } else {
     console.log('[insertJournalItems] Successfully inserted:', data?.length, 'items')
   }
-  
+
   handleError(error, 'insertJournalItems')
   return normArr(data)
 }
@@ -676,5 +687,284 @@ export async function insertStockOutflowItems(items) {
     .from('stock_outflow_items').insert(rows).select()
   handleError(error, 'insertStockOutflowItems')
   return normArr(data)
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// OPENING BALANCES (SALDO AWAL)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Fetch opening balances with optional filters
+ * @param {Object} filters - { branchId, fiscalYear, accountCode }
+ * @returns {Promise<Array>} Array of opening balance records
+ */
+export async function fetchOpeningBalances(filters = {}) {
+  let q = supabase
+    .from('opening_balances')
+    .select(`
+      *,
+      chart_of_accounts:account_code (
+        account_code,
+        account_name,
+        account_type,
+        normal_balance
+      ),
+      clinic_entities:branch_id (
+        id,
+        branch_code,
+        branch_name
+      )
+    `)
+    .order('account_code')
+
+  if (filters.branchId) q = q.eq('branch_id', filters.branchId)
+  if (filters.fiscalYear) q = q.eq('fiscal_year', filters.fiscalYear)
+  if (filters.accountCode) q = q.eq('account_code', filters.accountCode)
+
+  const { data, error } = await q
+  handleError(error, 'fetchOpeningBalances')
+  return normArr(data)
+}
+
+/**
+ * Upsert a single opening balance
+ * @param {Object} openingBalance - Opening balance data
+ * @returns {Promise<Object>} The upserted record
+ */
+export async function upsertOpeningBalance(openingBalance) {
+  const row = snake(openingBalance)
+  row.opening_balance = Number(row.opening_balance || 0)
+
+  // Validate required fields
+  if (!row.account_code || !row.branch_id || !row.fiscal_year || !row.opening_date) {
+    throw new Error('Missing required fields: account_code, branch_id, fiscal_year, opening_date')
+  }
+
+  const { data, error } = await supabase
+    .from('opening_balances')
+    .upsert(row, {
+      onConflict: 'account_code,branch_id,fiscal_year',
+      ignoreDuplicates: false
+    })
+    .select()
+    .single()
+
+  handleError(error, 'upsertOpeningBalance')
+  return norm(data)
+}
+
+/**
+ * Batch upsert opening balances (for bulk save)
+ * @param {Array} openingBalances - Array of opening balance records
+ * @returns {Promise<Array>} Array of upserted records
+ */
+export async function batchUpsertOpeningBalances(openingBalances) {
+  if (!openingBalances || openingBalances.length === 0) {
+    console.log('[batchUpsertOpeningBalances] No records to upsert')
+    return []
+  }
+
+  const rows = openingBalances.map(ob => {
+    const r = snake(ob)
+    r.opening_balance = Number(r.opening_balance || 0)
+
+    // Validate required fields
+    if (!r.account_code || !r.branch_id || !r.fiscal_year || !r.opening_date) {
+      console.error('[batchUpsertOpeningBalances] Invalid record:', ob)
+      throw new Error(`Invalid opening balance record: ${JSON.stringify(ob)}`)
+    }
+
+    return r
+  })
+
+  console.log('[batchUpsertOpeningBalances] Upserting', rows.length, 'records')
+
+  const { data, error } = await supabase
+    .from('opening_balances')
+    .upsert(rows, {
+      onConflict: 'account_code,branch_id,fiscal_year',
+      ignoreDuplicates: false
+    })
+    .select()
+
+  if (error) {
+    console.error('[batchUpsertOpeningBalances] Database error:', error)
+  } else {
+    console.log('[batchUpsertOpeningBalances] Successfully upserted:', data?.length, 'records')
+  }
+
+  handleError(error, 'batchUpsertOpeningBalances')
+  return normArr(data)
+}
+
+/**
+ * Delete an opening balance by ID
+ * @param {string} id - Opening balance ID
+ * @returns {Promise<void>}
+ */
+export async function deleteOpeningBalance(id) {
+  const { error } = await supabase
+    .from('opening_balances')
+    .delete()
+    .eq('id', id)
+
+  handleError(error, 'deleteOpeningBalance')
+}
+
+/**
+ * Delete opening balances by filters (e.g., delete all for a fiscal year)
+ * @param {Object} filters - { branchId, fiscalYear, accountCode }
+ * @returns {Promise<void>}
+ */
+export async function deleteOpeningBalancesByFilter(filters = {}) {
+  let q = supabase.from('opening_balances').delete()
+
+  if (filters.branchId) q = q.eq('branch_id', filters.branchId)
+  if (filters.fiscalYear) q = q.eq('fiscal_year', filters.fiscalYear)
+  if (filters.accountCode) q = q.eq('account_code', filters.accountCode)
+
+  const { error } = await q
+  handleError(error, 'deleteOpeningBalancesByFilter')
+}
+
+/**
+ * Get opening balance for a specific account, branch, and fiscal year
+ * @param {string} accountCode - Account code
+ * @param {string} branchId - Branch ID
+ * @param {number} fiscalYear - Fiscal year
+ * @returns {Promise<number>} Opening balance amount (0 if not found)
+ */
+export async function getOpeningBalance(accountCode, branchId, fiscalYear) {
+  const { data, error } = await supabase
+    .from('opening_balances')
+    .select('opening_balance')
+    .eq('account_code', accountCode)
+    .eq('branch_id', branchId)
+    .eq('fiscal_year', fiscalYear)
+    .maybeSingle()
+
+  if (error) {
+    console.error('[getOpeningBalance] Error:', error)
+    return 0
+  }
+
+  return data ? Number(data.opening_balance || 0) : 0
+}
+
+/**
+ * Batch insert/update inventory batches and stock ledger cards
+ */
+export async function batchUpsertInventoryStatus(batchesToInsert, batchesToUpdate, ledgerToInsert, ledgerToUpdate) {
+  // 1. Insert batches
+  if (batchesToInsert.length > 0) {
+    const rows = batchesToInsert.map(b => {
+      const r = snake(b)
+      r.unit_cost_price = Number(r.unit_cost_price || 0)
+      r.quantity_received = parseInt(r.quantity_received || 0)
+      r.quantity_current = parseInt(r.quantity_current || 0)
+      return r
+    })
+    const { error } = await supabase.from('inventory_batches').insert(rows)
+    handleError(error, 'batchUpsertInventoryStatus:insertBatches')
+  }
+
+  // 2. Insert ledger
+  if (ledgerToInsert.length > 0) {
+    const rows = ledgerToInsert.map(l => {
+      const r = snake(l)
+      r.quantity_in = parseInt(r.quantity_in || 0)
+      r.quantity_out = parseInt(r.quantity_out || 0)
+      r.balance_after = parseInt(r.balance_after || 0)
+      r.unit_cost = Number(r.unit_cost || 0)
+      r.total_value = Number(r.total_value || 0)
+      return r
+    })
+    const { error } = await supabase.from('stock_ledger_cards').insert(rows)
+    handleError(error, 'batchUpsertInventoryStatus:insertLedger')
+  }
+
+  // 3. Update batches
+  for (const ub of batchesToUpdate) {
+    const { error } = await supabase
+      .from('inventory_batches')
+      .update({
+        quantity_received: parseInt(ub.quantityReceived),
+        quantity_current: parseInt(ub.quantityCurrent),
+        unit_cost_price: Number(ub.unitCostPrice)
+      })
+      .eq('id', ub.id)
+    handleError(error, 'batchUpsertInventoryStatus:updateBatch')
+  }
+
+  // 4. Update ledger
+  for (const ul of ledgerToUpdate) {
+    const { error } = await supabase
+      .from('stock_ledger_cards')
+      .update({
+        quantity_in: parseInt(ul.quantityIn),
+        balance_after: parseInt(ul.balanceAfter),
+        unit_cost: Number(ul.unitCost),
+        total_value: Number(ul.totalValue)
+      })
+      .eq('id', ul.id)
+    handleError(error, 'batchUpsertInventoryStatus:updateLedger')
+  }
+}
+
+/**
+ * Get opening balance batches for all items or specific item
+ * @param {string|null} itemId - Optional item ID to filter
+ * @returns {Promise<Array>} Array of opening balance batches
+ */
+export async function fetchInventoryOpeningBalances(itemId = null) {
+  let q = supabase
+    .from('inventory_batches')
+    .select('*')
+    .like('batch_number', '%SALDO-AWAL%')
+    .order('item_id')
+
+  if (itemId) q = q.eq('item_id', itemId)
+
+  const { data, error } = await q
+  handleError(error, 'fetchInventoryOpeningBalances')
+  return normArr(data)
+}
+
+/**
+ * Delete opening balance batch for an item
+ * @param {string} itemId - Item ID
+ * @returns {Promise<void>}
+ */
+export async function deleteInventoryOpeningBalance(itemId) {
+  // Delete ledger entries first (foreign key constraint)
+  const { data: batches } = await supabase
+    .from('inventory_batches')
+    .select('id')
+    .eq('item_id', itemId)
+    .like('batch_number', '%SALDO-AWAL%')
+
+  if (batches && batches.length > 0) {
+    const batchIds = batches.map(b => b.id)
+    
+    // Delete ledger entries
+    const { error: ledgerError } = await supabase
+      .from('stock_ledger_cards')
+      .delete()
+      .in('batch_id', batchIds)
+      .eq('transaction_type', 'SALDO_AWAL')
+
+    if (ledgerError) {
+      console.warn('[deleteInventoryOpeningBalance] Ledger delete warning:', ledgerError)
+    }
+
+    // Delete batches
+    const { error: batchError } = await supabase
+      .from('inventory_batches')
+      .delete()
+      .in('id', batchIds)
+
+    handleError(batchError, 'deleteInventoryOpeningBalance')
+  }
 }
 

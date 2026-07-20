@@ -11,7 +11,7 @@ const INVESTING_CODES = ['1-21-001','1-21-002','1-21-003','1-21-004','1-21-005',
 const FINANCING_CODES = ['2-21-001','2-21-002','3-11-001','3-11-002','3-13-001']
 
 export default function CashFlowPage() {
-  const { coa, journalEntries, journalItems, branches, activeBranchId } = useStore()
+  const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
@@ -68,6 +68,19 @@ export default function CashFlowPage() {
   const investingCF = -getNetFlow(INVESTING_CODES)
   const financingCF = getNetFlow(FINANCING_CODES)
   const netCashFlow = operatingCF + investingCF + financingCF
+
+  // Get opening cash balance (sum of all cash accounts' opening balances)
+  const fiscalYear = new Date(dateFrom).getFullYear()
+  const openingCashBalance = OPERATING_CASH_CODES.reduce((sum, code) => {
+    const ob = openingBalances.find(
+      o => o.accountCode === code && 
+           o.fiscalYear === fiscalYear &&
+           (branchFilter === 'ALL' || o.branchId === branchFilter)
+    )
+    return sum + parseFloat(ob?.openingBalance || 0)
+  }, 0)
+
+  const endingCashBalance = openingCashBalance + netCashFlow
 
   const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
   const branchName = branches.find(b => b.id === branchFilter)?.entityName || 'Semua Cabang'
@@ -163,6 +176,14 @@ export default function CashFlowPage() {
               <tr className={`${netCashFlow >= 0 ? 'bg-emerald-700' : 'bg-red-700'} text-white`}>
                 <td className="px-4 py-3 font-bold">KENAIKAN / (PENURUNAN) KAS BERSIH</td>
                 <td className="px-4 py-3 text-right font-mono font-bold pr-4">{fmtIDR(netCashFlow)}</td>
+              </tr>
+              <tr className="bg-blue-50 border-t-2 border-blue-200">
+                <td className="px-4 py-2.5 font-semibold text-blue-800">SALDO KAS AWAL PERIODE</td>
+                <td className="px-4 py-2.5 text-right font-mono font-semibold pr-4 text-blue-800">{fmtIDR(openingCashBalance)}</td>
+              </tr>
+              <tr className="bg-primary-700 text-white">
+                <td className="px-4 py-3 font-bold text-lg">SALDO KAS AKHIR PERIODE</td>
+                <td className="px-4 py-3 text-right font-mono font-bold pr-4 text-lg">{fmtIDR(endingCashBalance)}</td>
               </tr>
             </tfoot>
           </table>

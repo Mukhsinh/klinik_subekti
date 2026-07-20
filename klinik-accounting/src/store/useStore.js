@@ -30,6 +30,8 @@ import {
   fetchStockOutflowItems, insertStockOutflowItems,
   fetchAppSettings, saveAllAppSettings,
   fetchUsers, upsertUser, deleteUser,
+  fetchOpeningBalances, batchUpsertOpeningBalances, deleteOpeningBalance,
+  batchUpsertInventoryStatus,
 } from '../lib/db'
 import { initialCOA } from '../data/initialCOA'
 import { initialBranches } from '../data/initialData'
@@ -58,6 +60,7 @@ let _state = {
   users: [],
   auditLogs: [],
   appSettings: {},
+  openingBalances: [],
   activeBranchId: null,
   loading: true,
   initialized: false,
@@ -75,21 +78,38 @@ function setState(upd) {
 let _bootstrapDone = false
 let _bootstrapProm = null
 
+// Force reset bootstrap (untuk debugging)
+export function resetBootstrap() {
+  _bootstrapDone = false
+  _bootstrapProm = null
+  console.log('[Bootstrap] Reset - will re-fetch on next call')
+}
+
 async function bootstrap() {
   if (_bootstrapDone) return
   if (_bootstrapProm) return _bootstrapProm
 
   _bootstrapProm = (async () => {
+    console.log('[Bootstrap] Starting fresh data load from Supabase...')
+    console.log('[Bootstrap] Reset state:', { _bootstrapDone, hasPromise: !!_bootstrapProm })
     try {
-      // Parallel fetch all data
+      // Log before fetching
+      console.log('[Bootstrap] Step 1: Fetching branches from clinic_entities table...')
+      const branchesRaw = await fetchBranches()
+      console.log('[Bootstrap] Branches fetched:', branchesRaw)
+      console.log('[Bootstrap] Branches count:', branchesRaw?.length || 0)
+      console.log('[Bootstrap] Branches raw data:', JSON.stringify(branchesRaw, null, 2))
+
+      // Parallel fetch all other data
+      console.log('[Bootstrap] Step 2: Fetching all other data in parallel...')
       const [
-        branches, coa, journals, pharmacyItems,
+        coa, journals, pharmacyItems,
         batches, billings, expenses, doctors,
         fixedAssets, assetMutations, assetDepreciations,
         vendors, serviceTariffs, stockOutflows,
         doctorFeeRecords, auditLogs, users, appSettings,
+        openingBalances,
       ] = await Promise.all([
-        fetchBranches(),
         fetchCOA(),
         fetchJournalEntries(),
         fetchPharmacyItems(),
@@ -107,11 +127,28 @@ async function bootstrap() {
         fetchAuditLogs(500), // Last 500 logs
         fetchUsers(),
         fetchAppSettings(),
+        fetchOpeningBalances(),
       ])
 
-      // Use local seed as fallback if DB empty
-      const finalBranches = branches.length ? branches : initialBranches
-      const finalCOA = coa.length ? coa : initialCOA
+      // IMPORTANT: Prioritize database data over local fallback
+      // Only use fallback if fetch fails (not if it returns empty array)
+      const finalBranches = branchesRaw // Always use what database returns, even if empty
+      const finalCOA = coa.length ? coa : initialCOA // COA still needs fallback for initial setup
+
+      // Log data source for debugging
+      console.log('[Bootstrap] Step 3: Data Sources Summary:')
+      console.log('  - Branches:', finalBranches?.length > 0 ? `${finalBranches.length} from Supabase ✓` : '0 from Supabase (database empty)')
+      console.log('  - Branches Detail:', finalBranches)
+      console.log('  - COA:', coa.length > 0 ? `${coa.length} from Supabase ✓` : `${initialCOA.length} from local fallback`)
+
+      if (finalBranches.length === 0) {
+        console.warn('[Bootstrap] ⚠️ No branches in database. Please add branch via /branches page.')
+      } else {
+        console.log('[Bootstrap] ✓ Successfully loaded', finalBranches.length, 'branches')
+        finalBranches.forEach((b, idx) => {
+          console.log(`  [${idx}] ${b.branchCode} - ${b.entityName} (ID: ${b.id})`)
+        })
+      }
 
       // Fetch relational data
       const entryIds = journals.map(j => j.id)
@@ -153,6 +190,7 @@ async function bootstrap() {
         users,
         auditLogs,
         appSettings,
+        openingBalances,
         activeBranchId,
         loading: false,
         initialized: true,
@@ -160,10 +198,11 @@ async function bootstrap() {
       })
       _bootstrapDone = true
     } catch (err) {
-      console.error('[Bootstrap] Supabase load failed, using local fallback:', err.message)
+      console.error('[Bootstrap] Supabase load failed:', err.message)
+      console.error('[Bootstrap] Using minimal fallback for COA only')
       setState({
-        branches: initialBranches,
-        coa: initialCOA,
+        branches: [], // No fallback for branches - force user to add via UI
+        coa: initialCOA, // COA needs fallback for basic functionality
         fixedAssets: [],
         assetMutations: [],
         assetDepreciations: [],
@@ -175,6 +214,7 @@ async function bootstrap() {
         auditLogs: [],
         users: [],
         appSettings: {},
+        openingBalances: [],
         loading: false,
         initialized: true,
         error: err.message,
@@ -202,7 +242,9 @@ export function useStore() {
 
   // ── Refresh (re-fetch from Supabase) ──────────────────────
   const refreshAll = useCallback(async () => {
-    _bootstrapDone = false; _bootstrapProm = null
+    console.log('[RefreshAll] Resetting bootstrap and reloading...')
+    _bootstrapDone = false
+    _bootstrapProm = null
     setState(prev => ({ ...prev, loading: true }))
     await bootstrap()
   }, [])
@@ -273,15 +315,15 @@ export function useStore() {
     try {
       await deleteJournalItemsByEntry(entryId)
       await upsertJournalEntry(entry)
-      
+
       // Ensure items have all required fields before insert
       if (newItems.length > 0) {
         console.log('[saveJournalDraft] Saving items:', newItems.length, 'items')
         const result = await insertJournalItems(newItems)
         console.log('[saveJournalDraft] Insert result:', result)
       }
-    } catch (e) { 
-      console.error('[saveJournalDraft] Error:', e.message, e) 
+    } catch (e) {
+      console.error('[saveJournalDraft] Error:', e.message, e)
       throw e // Re-throw to allow caller to handle
     }
     return entryId
@@ -396,7 +438,138 @@ export function useStore() {
       await insertStockLedger(ledger)
     } catch (e) { console.error('[receiveGRN]', e.message) }
     return batches
-  }, [])
+  }, [s.invBatches])
+
+  const saveInventoryOpeningBalance = useCallback(async (itemsData) => {
+    const now = new Date().toISOString()
+    const latestState = getState()
+
+    const batchesToInsert = []
+    const batchesToUpdate = []
+    const ledgerToInsert = []
+    const ledgerToUpdate = []
+
+    for (const data of itemsData) {
+      const { itemId, quantity, unitCost } = data
+      const existingBatch = latestState.invBatches.find(
+        b => b.itemId === itemId && b.batchNumber === 'SALDO-AWAL'
+      )
+
+      if (existingBatch) {
+        const diffQty = quantity - existingBatch.quantityReceived
+        const newQtyCurrent = Math.max(0, existingBatch.quantityCurrent + diffQty)
+
+        const updatedB = {
+          ...existingBatch,
+          quantityReceived: quantity,
+          quantityCurrent: newQtyCurrent,
+          unitCostPrice: unitCost,
+        }
+        batchesToUpdate.push(updatedB)
+
+        const existingLedger = latestState.stockLedger.find(
+          l => l.batchId === existingBatch.id && l.transactionType === 'SALDO_AWAL'
+        )
+
+        if (existingLedger) {
+          const updatedL = {
+            ...existingLedger,
+            quantityIn: quantity,
+            balanceAfter: quantity,
+            unitCost: unitCost,
+            totalValue: quantity * unitCost,
+          }
+          ledgerToUpdate.push(updatedL)
+        } else {
+          ledgerToInsert.push({
+            id: uuidv4(),
+            batchId: existingBatch.id,
+            itemId,
+            transactionType: 'SALDO_AWAL',
+            referenceId: existingBatch.id,
+            referenceNumber: 'SALDO-AWAL',
+            quantityIn: quantity,
+            quantityOut: 0,
+            balanceAfter: quantity,
+            unitCost: unitCost,
+            totalValue: quantity * unitCost,
+            notes: 'Saldo Awal',
+            loggedAt: now,
+          })
+        }
+      } else {
+        const batchId = uuidv4()
+        const newB = {
+          id: batchId,
+          itemId,
+          batchNumber: 'SALDO-AWAL',
+          expiryDate: '2035-12-31',
+          manufactureDate: null,
+          unitCostPrice: unitCost,
+          quantityReceived: quantity,
+          quantityCurrent: quantity,
+          grnReference: 'SALDO-AWAL',
+          supplierName: 'Saldo Awal',
+          receivedAt: now,
+          createdAt: now,
+        }
+        batchesToInsert.push(newB)
+
+        ledgerToInsert.push({
+          id: uuidv4(),
+          batchId,
+          itemId,
+          transactionType: 'SALDO_AWAL',
+          referenceId: batchId,
+          referenceNumber: 'SALDO-AWAL',
+          quantityIn: quantity,
+          quantityOut: 0,
+          balanceAfter: quantity,
+          unitCost: unitCost,
+          totalValue: quantity * unitCost,
+          notes: 'Saldo Awal',
+          loggedAt: now,
+        })
+      }
+    }
+
+    // Optimistic UI updates
+    setState(prev => {
+      let nextBatches = [...prev.invBatches]
+      let nextLedger = [...prev.stockLedger]
+
+      nextBatches = [...nextBatches, ...batchesToInsert]
+      nextLedger = [...nextLedger, ...ledgerToInsert]
+
+      batchesToUpdate.forEach(ub => {
+        nextBatches = nextBatches.map(b => b.id === ub.id ? ub : b)
+      })
+      ledgerToUpdate.forEach(ul => {
+        nextLedger = nextLedger.map(l => l.id === ul.id ? ul : l)
+      })
+
+      return {
+        ...prev,
+        invBatches: nextBatches,
+        stockLedger: nextLedger
+      }
+    })
+
+    try {
+      await batchUpsertInventoryStatus(batchesToInsert, batchesToUpdate, ledgerToInsert, ledgerToUpdate)
+      // Log activity directly (logActivity is defined later in hook, can't reference it here)
+      insertAuditLog({
+        id: uuidv4(), user_id: 'system', user_name: 'System', user_role: 'system',
+        action: 'SAVE_INVENTORY_OPENING_BALANCES', module: 'INVENTORY',
+        detail: `Saved opening balances for ${itemsData.length} items`,
+        ip_address: '127.0.0.1', created_at: new Date().toISOString(),
+      }).catch(() => { })
+    } catch (e) {
+      console.error('[saveInventoryOpeningBalance]', e.message)
+      throw e
+    }
+  }, [s.invBatches, s.stockLedger])
+
 
   const adjustStock = useCallback(async (batchId, itemId, qty, reason, type) => {
     const batch = s.invBatches.find(b => b.id === batchId)
@@ -1069,7 +1242,7 @@ export function useStore() {
 
   const saveStockOutflow = useCallback(async (data) => {
     const { outflowNumber, outflowDate, outflowType, description, totalValue, items } = data
-    
+
     if (!items || items.length === 0) {
       throw new Error('Minimal harus ada 1 item')
     }
@@ -1190,13 +1363,13 @@ export function useStore() {
       await insertStockOutflowItems(outflowItems)
       await upsertJournalEntry(journalEntry)
       await insertJournalItems(journalItems)
-      
+
       // Update outflow status to POSTED
       await updateStockOutflow(outflowId, { status: 'POSTED', journalEntryId: journalId })
-      
+
       setState(prev => ({
         ...prev,
-        stockOutflows: prev.stockOutflows.map(o => 
+        stockOutflows: prev.stockOutflows.map(o =>
           o.id === outflowId ? { ...o, status: 'POSTED', journalEntryId: journalId } : o
         ),
       }))
@@ -1297,6 +1470,37 @@ export function useStore() {
     }
   }, [s.appSettings, logActivity])
 
+  // ── Opening Balances ──────────────────────────────────────
+  const saveOpeningBalances = useCallback(async (openingBalancesData) => {
+    const oldBalances = [...s.openingBalances]
+
+    // Optimistic update
+    setState(prev => ({ ...prev, openingBalances: openingBalancesData }))
+
+    try {
+      const saved = await batchUpsertOpeningBalances(openingBalancesData)
+      setState(prev => ({ ...prev, openingBalances: saved }))
+      logActivity('SAVE_OPENING_BALANCES', 'ACCOUNTING', `Saved opening balances for ${openingBalancesData.length} accounts`)
+      return { ok: true, data: saved }
+    } catch (e) {
+      console.error('[saveOpeningBalances]', e.message)
+      // Rollback on error
+      setState(prev => ({ ...prev, openingBalances: oldBalances }))
+      return { ok: false, error: e.message }
+    }
+  }, [s.openingBalances, logActivity])
+
+  const refreshOpeningBalances = useCallback(async (filters = {}) => {
+    try {
+      const balances = await fetchOpeningBalances(filters)
+      setState(prev => ({ ...prev, openingBalances: balances }))
+      return balances
+    } catch (e) {
+      console.error('[refreshOpeningBalances]', e.message)
+      return []
+    }
+  }, [])
+
   return {
     ...s,
     refreshAll,
@@ -1305,7 +1509,7 @@ export function useStore() {
     addAccount, updateAccount: updateAccountFn, deactivateAccount,
     generateEntryNumber, saveJournalDraft, postJournalEntry, reverseJournal,
     generateSku, generateItemCode,
-    addPharmacyItem, updatePharmacyItem, receiveGRN, adjustStock, getItemStock, depleteInventoryFIFO,
+    addPharmacyItem, updatePharmacyItem, receiveGRN, adjustStock, getItemStock, depleteInventoryFIFO, saveInventoryOpeningBalance,
     generateBillingNumber, saveBilling,
     generateExpenseNumber, saveExpense, postExpense,
     saveDoctorFeeRecord,
@@ -1315,6 +1519,7 @@ export function useStore() {
     generateOutflowNumber, saveStockOutflow, postStockOutflow,
     addUser, updateUser, removeUser,
     updateAppSettings,
+    saveOpeningBalances, refreshOpeningBalances,
     logActivity,
   }
 }

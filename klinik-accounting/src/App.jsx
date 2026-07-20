@@ -4,6 +4,7 @@ import AppLayout from './components/layout/AppLayout'
 import LoginPage from './pages/LoginPage'
 import Dashboard from './pages/Dashboard'
 import COAPage from './pages/accounting/COAPage'
+import OpeningBalancePage from './pages/accounting/OpeningBalancePage'
 import JournalPage from './pages/accounting/JournalPage'
 import LedgerPage from './pages/accounting/LedgerPage'
 import TrialBalancePage from './pages/accounting/TrialBalancePage'
@@ -11,6 +12,8 @@ import IncomeStatementPage from './pages/reports/IncomeStatementPage'
 import BalanceSheetPage from './pages/reports/BalanceSheetPage'
 import CashFlowPage from './pages/reports/CashFlowPage'
 import InventoryPage from './pages/inventory/InventoryPage'
+import InventoryOpeningBalancePage from './pages/inventory/InventoryOpeningBalancePage'
+import InventoryItemOpeningBalancePage from './pages/inventory/InventoryItemOpeningBalancePage'
 import GRNPage from './pages/inventory/GRNPage'
 import StockLedgerPage from './pages/inventory/StockLedgerPage'
 import StockOutflowPage from './pages/inventory/StockOutflowPage'
@@ -66,6 +69,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="coa" element={<COAPage />} />
+          <Route path="opening-balance" element={<OpeningBalancePage />} />
           <Route path="journal" element={<JournalPage />} />
           <Route path="ledger" element={<LedgerPage />} />
           <Route path="trial-balance" element={<TrialBalancePage />} />
@@ -73,6 +77,8 @@ export default function App() {
           <Route path="balance-sheet" element={<BalanceSheetPage />} />
           <Route path="cash-flow" element={<CashFlowPage />} />
           <Route path="inventory" element={<InventoryPage />} />
+          <Route path="inventory/opening-balance" element={<InventoryOpeningBalancePage />} />
+          <Route path="inventory/item-opening-balance" element={<InventoryItemOpeningBalancePage />} />
           <Route path="grn" element={<GRNPage />} />
           <Route path="stock-outflow" element={<StockOutflowPage />} />
           <Route path="stock-ledger" element={<StockLedgerPage />} />

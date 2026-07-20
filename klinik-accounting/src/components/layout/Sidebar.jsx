@@ -5,7 +5,7 @@ import {
   Building2, Users, ChevronDown, ChevronRight,
   Scale, FileBarChart, Layers, Wallet, ArrowRightLeft,
   Settings, UserCog, ClipboardList, Activity, LogOut, Stethoscope,
-  Boxes, FolderInput, ClipboardCheck, Calculator, CreditCard, FileSpreadsheet, TrendingDown
+  Boxes, FolderInput, ClipboardCheck, Calculator, CreditCard, FileSpreadsheet, TrendingDown, BookMarked
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../../store/useAuth'
@@ -17,6 +17,7 @@ const NAV = [
   {
     label: 'Akuntansi', icon: BookOpen, roles: ['admin', 'keuangan'], children: [
       { to: '/coa', icon: Layers, label: 'Bagan Akun (COA)' },
+      { to: '/opening-balance', icon: BookMarked, label: 'Saldo Awal' },
       { to: '/journal', icon: FileText, label: 'Jurnal Umum' },
       { to: '/ledger', icon: BookOpen, label: 'Buku Besar' },
       { to: '/trial-balance', icon: Scale, label: 'Neraca Saldo' },
@@ -39,6 +40,7 @@ const NAV = [
   {
     label: 'Inventory', icon: Package, roles: ['admin', 'keuangan', 'gudang'], children: [
       { to: '/inventory', icon: Package, label: 'Master Item' },
+      { to: '/inventory/item-opening-balance', icon: BookMarked, label: 'Saldo Awal Item' },
       { to: '/grn', icon: ShoppingCart, label: 'Penerimaan (GRN)' },
       { to: '/stock-outflow', icon: TrendingDown, label: 'Pengeluaran Stok' },
       { to: '/stock-ledger', icon: BarChart3, label: 'Kartu Stok' },

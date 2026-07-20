@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { Plus, Pencil, Package, AlertTriangle, Download, Upload, FileDown, RefreshCw } from 'lucide-react'
-import { useStore } from '../../store/useStore'
+import { supabase } from '../../lib/supabase'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
 import { StatusBadge } from '../../components/ui/Badge'
@@ -150,7 +150,10 @@ function ItemForm({ initial = {}, onSave, onClose, coa, nextCode, nextSku }) {
 
 // ─── Main Page ───────────────────────────────────────────────
 export default function InventoryPage() {
-  const { coa, pharmacyItems, invBatches, addPharmacyItem, updatePharmacyItem, generateSku, generateItemCode } = useStore()
+  const [coa, setCoa] = useState([])
+  const [pharmacyItems, setPharmacyItems] = useState([])
+  const [invBatches, setInvBatches] = useState([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [catFilter, setCatFilter] = useState('ALL')
   const [modal, setModal] = useState(null)
@@ -160,9 +163,110 @@ export default function InventoryPage() {
   const [importErrs, setImportErrs] = useState([])
   const fileRef = useRef(null)
 
+  // Load data dari Supabase
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      // Fetch COA
+      const { data: coaData, error: coaError } = await supabase
+        .from('chart_of_accounts')
+        .select('*')
+        .order('sort_order')
+
+      if (coaError) throw coaError
+
+      // Fetch pharmacy items
+      const { data: itemsData, error: itemsError } = await supabase
+        .from('pharmacy_items')
+        .select('*')
+        .order('item_name')
+
+      if (itemsError) throw itemsError
+
+      // Fetch batches
+      const { data: batchesData, error: batchesError } = await supabase
+        .from('inventory_batches')
+        .select('*')
+        .order('expiry_date')
+
+      if (batchesError) throw batchesError
+
+      // Normalize COA
+      const normalizedCoa = (coaData || []).map(account => ({
+        accountCode: account.account_code,
+        accountName: account.account_name,
+        accountType: account.account_type,
+        accountGroup: account.account_group,
+        accountSubgroup: account.account_subgroup,
+        naturalBalance: account.natural_balance,
+        isHeader: account.is_header,
+        parentCode: account.parent_code,
+        description: account.description,
+        isActive: account.is_active,
+        sortOrder: account.sort_order
+      }))
+
+      // Normalize pharmacy items
+      const normalizedItems = (itemsData || []).map(item => ({
+        id: item.id,
+        itemCode: item.item_code,
+        skuCode: item.sku_code,
+        itemName: item.item_name,
+        genericName: item.generic_name,
+        category: item.category,
+        baseUnit: item.base_unit,
+        minSafetyStock: item.min_safety_stock,
+        reorderPoint: item.reorder_point,
+        coaInventoryCode: item.coa_inventory_code,
+        coaCOGSCode: item.coa_cogs_code,
+        sellingPrice: item.selling_price,
+        isActive: item.is_active,
+        isPrescription: item.is_prescription
+      }))
+
+      // Normalize batches
+      const normalizedBatches = (batchesData || []).map(batch => ({
+        id: batch.id,
+        itemId: batch.item_id,
+        batchNumber: batch.batch_number,
+        expiryDate: batch.expiry_date,
+        manufactureDate: batch.manufacture_date,
+        unitCostPrice: batch.unit_cost_price,
+        quantityReceived: batch.quantity_received,
+        quantityCurrent: batch.quantity_current,
+        grnReference: batch.grn_reference,
+        supplierName: batch.supplier_name,
+        journalEntryId: batch.journal_entry_id,
+        receivedAt: batch.received_at
+      }))
+
+      setCoa(normalizedCoa)
+      setPharmacyItems(normalizedItems)
+      setInvBatches(normalizedBatches)
+      
+      console.log('[InventoryPage] Data loaded:', {
+        coa: normalizedCoa.length,
+        items: normalizedItems.length,
+        batches: normalizedBatches.length
+      })
+    } catch (error) {
+      console.error('[InventoryPage] Error loading data:', error)
+      toast.error(`Gagal memuat data: ${error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // ── Derived ──────────────────────────────────────────────
-  const nextSku = useMemo(() => generateSku ? generateSku() : `SKU-${String(pharmacyItems.length + 1).padStart(5, '0')}`, [pharmacyItems])
-  const nextCode = useMemo(() => generateItemCode ? generateItemCode('OBAT_PATEN') : `PAT-${String(pharmacyItems.filter(p => p.category === 'OBAT_PATEN').length + 1).padStart(4, '0')}`, [pharmacyItems])
+  const nextSku = useMemo(() => `SKU-${String(pharmacyItems.length + 1).padStart(5, '0')}`, [pharmacyItems])
+  const nextCode = useMemo(() => {
+    const patCount = pharmacyItems.filter(p => p.category === 'OBAT_PATEN').length
+    return `PAT-${String(patCount + 1).padStart(4, '0')}`
+  }, [pharmacyItems])
 
   const filtered = useMemo(() =>
     pharmacyItems
@@ -192,11 +296,68 @@ export default function InventoryPage() {
         toast.error(`Kode barang ${data.itemCode} sudah digunakan.`)
         return
       }
-      await addPharmacyItem({ ...data, isActive: true })
-      toast.success(`Item ${data.itemName} berhasil ditambahkan.`)
+      
+      try {
+        const newItem = {
+          id: uuidv4(),
+          item_code: data.itemCode,
+          sku_code: data.skuCode,
+          item_name: data.itemName,
+          generic_name: data.genericName || null,
+          category: data.category,
+          base_unit: data.baseUnit,
+          min_safety_stock: data.minSafetyStock,
+          reorder_point: data.reorderPoint,
+          coa_inventory_code: data.coaInventoryCode,
+          coa_cogs_code: data.coaCOGSCode,
+          selling_price: data.sellingPrice,
+          is_active: true,
+          is_prescription: data.isPrescription || false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+
+        const { error } = await supabase
+          .from('pharmacy_items')
+          .insert(newItem)
+
+        if (error) throw error
+
+        toast.success(`Item ${data.itemName} berhasil ditambahkan.`)
+        await loadData()
+      } catch (error) {
+        toast.error(`Gagal menambahkan item: ${error.message}`)
+        console.error('[handleSave] Error:', error)
+      }
     } else {
-      await updatePharmacyItem(selected.id, data)
-      toast.success('Item berhasil diperbarui.')
+      try {
+        const { error } = await supabase
+          .from('pharmacy_items')
+          .update({
+            item_code: data.itemCode,
+            sku_code: data.skuCode,
+            item_name: data.itemName,
+            generic_name: data.genericName || null,
+            category: data.category,
+            base_unit: data.baseUnit,
+            min_safety_stock: data.minSafetyStock,
+            reorder_point: data.reorderPoint,
+            coa_inventory_code: data.coaInventoryCode,
+            coa_cogs_code: data.coaCOGSCode,
+            selling_price: data.sellingPrice,
+            is_prescription: data.isPrescription || false,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', selected.id)
+
+        if (error) throw error
+
+        toast.success('Item berhasil diperbarui.')
+        await loadData()
+      } catch (error) {
+        toast.error(`Gagal memperbarui item: ${error.message}`)
+        console.error('[handleSave] Error:', error)
+      }
     }
     setModal(null)
   }
@@ -278,17 +439,68 @@ export default function InventoryPage() {
   const executeImport = async () => {
     if (importErrs.length > 0) { toast.error('Perbaiki error terlebih dahulu.'); return }
     let added = 0, skipped = 0
-    for (const item of importRows) {
-      if (pharmacyItems.find(p => p.itemCode === item.itemCode)) { skipped++; continue }
-      await addPharmacyItem({ ...item, isActive: true })
-      added++
+    
+    try {
+      for (const item of importRows) {
+        if (pharmacyItems.find(p => p.itemCode === item.itemCode)) { 
+          skipped++
+          continue 
+        }
+        
+        const newItem = {
+          id: uuidv4(),
+          item_code: item.itemCode,
+          sku_code: item.skuCode,
+          item_name: item.itemName,
+          generic_name: item.genericName || null,
+          category: item.category,
+          base_unit: item.baseUnit,
+          min_safety_stock: item.minSafetyStock,
+          reorder_point: item.reorderPoint,
+          coa_inventory_code: item.coaInventoryCode,
+          coa_cogs_code: item.coaCOGSCode,
+          selling_price: item.sellingPrice,
+          is_active: true,
+          is_prescription: item.isPrescription || false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+
+        const { error } = await supabase
+          .from('pharmacy_items')
+          .insert(newItem)
+
+        if (error) {
+          console.error('[executeImport] Error inserting item:', error)
+          continue
+        }
+        
+        added++
+      }
+      
+      toast.success(`Import selesai: ${added} item ditambahkan, ${skipped} dilewati (kode sudah ada).`)
+      await loadData()
+    } catch (error) {
+      toast.error(`Gagal import: ${error.message}`)
+      console.error('[executeImport] Error:', error)
     }
-    toast.success(`Import selesai: ${added} item ditambahkan, ${skipped} dilewati (kode sudah ada).`)
+    
     setImportModal(false)
     setImportRows([])
   }
 
   // ── Render ───────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto text-primary-600 mb-3" />
+          <p className="text-slate-500">Memuat data inventory...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -302,6 +514,7 @@ export default function InventoryPage() {
           <button className="btn-secondary" onClick={() => fileRef.current?.click()}><Upload className="w-4 h-4" />Import Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileChange} className="hidden" />
           <button className="btn-secondary" onClick={() => exportStockExcel(pharmacyItems, invBatches)}><Download className="w-4 h-4" />Export Stok</button>
+          <button className="btn-secondary" onClick={loadData}><RefreshCw className="w-4 h-4" />Refresh</button>
           <button className="btn-primary" onClick={() => { setSelected(null); setModal('add') }}><Plus className="w-4 h-4" />Tambah Item</button>
         </div>
       </div>

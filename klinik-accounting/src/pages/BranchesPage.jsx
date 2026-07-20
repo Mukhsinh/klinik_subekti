@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Building2, Plus, Pencil, MapPin, Phone, Mail, FileText } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Building2, Plus, Pencil, MapPin, Phone, Mail, FileText, RefreshCw, Trash2 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import Modal from '../components/ui/Modal'
 import { StatusBadge } from '../components/ui/Badge'
@@ -118,9 +118,50 @@ function BranchForm({ initial = {}, onSave, onClose }) {
 }
 
 export default function BranchesPage() {
-  const { branches, activeBranchId, setActiveBranch, addBranch, updateBranch } = useStore()
+  const { branches, activeBranchId, setActiveBranch, addBranch, updateBranch, refreshAll } = useStore()
   const [modal,    setModal]    = useState(null) // null | 'add' | 'edit'
   const [selected, setSelected] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  // Debug: log branches data
+  useEffect(() => {
+    console.log('[BranchesPage] Current branches data:', branches)
+    console.log('[BranchesPage] Active branch ID:', activeBranchId)
+  }, [branches, activeBranchId])
+
+  // Refresh data when page loads to ensure sync with database
+  useEffect(() => {
+    const refresh = async () => {
+      setRefreshing(true)
+      await refreshAll()
+      setRefreshing(false)
+    }
+    refresh()
+  }, [refreshAll])
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    console.log('[BranchesPage] Force refresh - clearing cache and reloading from DB')
+    
+    // Clear localStorage cache
+    localStorage.removeItem('activeBranchId')
+    
+    await refreshAll()
+    setRefreshing(false)
+    toast.success('Data berhasil di-refresh dari database')
+  }
+
+  const handleClearCache = () => {
+    if (window.confirm('Clear semua cache dan reload aplikasi dari database?\n\nIni akan mereset semua data ke state fresh dari database.')) {
+      console.log('[BranchesPage] Clearing all cache...')
+      
+      // Clear localStorage
+      localStorage.clear()
+      
+      // Reload page to force fresh bootstrap
+      window.location.reload()
+    }
+  }
 
   const handleSave = (data) => {
     if (modal === 'add') {
@@ -145,15 +186,34 @@ export default function BranchesPage() {
         <div>
           <h1 className="page-title">Manajemen Cabang</h1>
           <p className="text-sm text-slate-400 mt-0.5">
-            Multi-entitas — konsolidasi lintas cabang klinik
+            Multi-entitas — konsolidasi lintas cabang klinik. Data real-time dari database Supabase.
           </p>
         </div>
-        <button
-          className="btn-primary"
-          onClick={() => { setSelected(null); setModal('add') }}
-        >
-          <Plus className="w-4 h-4" />Tambah Cabang
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="btn-secondary text-red-600 hover:bg-red-50"
+            onClick={handleClearCache}
+            title="Clear cache & reload"
+          >
+            <Trash2 className="w-4 h-4" />
+            Clear Cache
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title="Refresh data dari database"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          <button
+            className="btn-primary"
+            onClick={() => { setSelected(null); setModal('add') }}
+          >
+            <Plus className="w-4 h-4" />Tambah Cabang
+          </button>
+        </div>
       </div>
 
       {/* Summary row */}
@@ -161,23 +221,69 @@ export default function BranchesPage() {
         <div className="card card-body bg-blue-50 border-0">
           <p className="text-xs text-slate-500 mb-1">Total Cabang</p>
           <p className="font-bold text-2xl text-blue-700">{branches.length}</p>
+          <p className="text-xs text-slate-400 mt-1">
+            {branches.length === 0 ? 'Belum ada data' : 'Dari database'}
+          </p>
         </div>
         <div className="card card-body bg-emerald-50 border-0">
           <p className="text-xs text-slate-500 mb-1">Cabang Aktif</p>
           <p className="font-bold text-2xl text-emerald-700">
-            {branches.filter(b => b.isActive).length}
+            {branches.filter(b => b.isActive !== false).length}
           </p>
+          <p className="text-xs text-slate-400 mt-1">Status aktif</p>
         </div>
         <div className="card card-body bg-purple-50 border-0">
           <p className="text-xs text-slate-500 mb-1">Cabang Aktif Saat Ini</p>
           <p className="font-semibold text-sm text-purple-700 mt-1 truncate">
             {branches.find(b => b.id === activeBranchId)?.branchCode || '—'}
           </p>
+          <p className="text-xs text-slate-400 mt-1">
+            {branches.find(b => b.id === activeBranchId)?.entityName?.substring(0, 25) || 'Belum dipilih'}
+          </p>
         </div>
       </div>
 
+      {/* Info: Data source */}
+      {branches.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
+          <Building2 className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-blue-800">
+            <p className="font-semibold">Data Real-time dari Supabase Database</p>
+            <p className="text-blue-700 mt-0.5">
+              Menampilkan {branches.length} cabang dari tabel <code className="bg-blue-100 px-1 rounded">clinic_entities</code>. 
+              Pilihan cabang di header akan otomatis tersinkronisasi dengan data ini.
+            </p>
+            <details className="mt-2">
+              <summary className="cursor-pointer text-blue-600 hover:text-blue-800 font-medium">
+                🔍 Debug: Lihat Data Mentah
+              </summary>
+              <pre className="mt-2 p-2 bg-white rounded text-xs overflow-auto max-h-40 border border-blue-200">
+{JSON.stringify(branches, null, 2)}
+              </pre>
+            </details>
+          </div>
+        </div>
+      )}
+
       {/* Branch cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+      {refreshing ? (
+        <div className="card card-body text-center py-16">
+          <RefreshCw className="w-8 h-8 mx-auto mb-3 text-primary-600 animate-spin" />
+          <p className="text-slate-500">Memuat data cabang dari database...</p>
+        </div>
+      ) : branches.length === 0 ? (
+        <div className="card card-body text-center py-16">
+          <Building2 className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+          <p className="text-slate-500 mb-4">Belum ada data cabang di database</p>
+          <button
+            className="btn-primary mx-auto"
+            onClick={() => { setSelected(null); setModal('add') }}
+          >
+            <Plus className="w-4 h-4" />Tambah Cabang Pertama
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
         {branches.map(b => (
           <div
             key={b.id}
@@ -260,6 +366,7 @@ export default function BranchesPage() {
           </div>
         ))}
       </div>
+      )}
 
       {/* Modal */}
       <Modal

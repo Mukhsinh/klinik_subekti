@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Database Connection</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f8fafc;
+        }
+        h1 {
+            color: #1e293b;
+            border-bottom: 3px solid #3b82f6;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        .result {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 6px;
+            margin-top: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .success {
+            background: #dcfce7;
+            border-left: 4px solid #22c55e;
+            color: #166534;
+        }
+        .error {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            color: #991b1b;
+        }
+        .info {
+            background: #dbeafe;
+            border-left: 4px solid #3b82f6;
+            color: #1e40af;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .badge-success { background: #22c55e; color: white; }
+        .badge-error { background: #ef4444; color: white; }
+        .badge-warning { background: #f59e0b; color: white; }
+    </style>
+</head>
+<body>
+    <h1>🔬 Klinik Accounting - Database Connection Test</h1>
+    
+    <div class="test-section">
+        <h2>📡 Connection Status</h2>
+        <p>Supabase URL: <code id="supabase-url"></code></p>
+        <p>Anon Key: <code id="anon-key"></code></p>
+    </div>
+
+    <div class="test-section">
+        <h2>🧪 Test Suite</h2>
+        <button onclick="testConnection()">1️⃣ Test Connection</button>
+        <button onclick="testFetchBranches()">2️⃣ Fetch Branches (Raw)</button>
+        <button onclick="testFetchBranchesNormalized()">3️⃣ Fetch Branches (Normalized)</button>
+        <button onclick="testAllTables()">4️⃣ Test All Tables</button>
+        <div id="test-results"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://jrnhkiljfudmzoglkisf.supabase.co';
+        const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpybmhraWxqZnVkbXpvZ2xraXNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMDQwNTYsImV4cCI6MjA5OTc4MDA1Nn0.xU1Okb53w0cgyRmUkldTbJVLO7tpCUUYYTuzDKGt1mk';
+
+        document.getElementById('supabase-url').textContent = SUPABASE_URL;
+        document.getElementById('anon-key').textContent = SUPABASE_ANON.substring(0, 30) + '...';
+
+        const { createClient } = supabase;
+        const client = createClient(SUPABASE_URL, SUPABASE_ANON, {
+            auth: { persistSession: false }
+        });
+
+        function showResult(title, content, type = 'info') {
+            const badge = type === 'success' ? 'badge-success' : type === 'error' ? 'badge-error' : 'badge-warning';
+            const html = `
+                <div class="result ${type}">
+                    <strong>${title}</strong> <span class="badge ${badge}">${type.toUpperCase()}</span>
+                    <div style="margin-top: 12px;">${content}</div>
+                </div>
+            `;
+            document.getElementById('test-results').insertAdjacentHTML('beforeend', html);
+        }
+
+        async function testConnection() {
+            showResult('🔌 Testing Connection...', 'Connecting to Supabase...', 'info');
+            try {
+                const { data, error } = await client.from('clinic_entities').select('count');
+                if (error) throw error;
+                showResult('✅ Connection Test', `Successfully connected! Total records: ${data?.length || 0}`, 'success');
+            } catch (err) {
+                showResult('❌ Connection Test', `Failed: ${err.message}`, 'error');
+            }
+        }
+
+        async function testFetchBranches() {
+            showResult('📊 Fetching Branches (Raw)...', 'Querying clinic_entities table...', 'info');
+            try {
+                const { data, error } = await client
+                    .from('clinic_entities')
+                    .select('*')
+                    .order('branch_code');
+                
+                if (error) throw error;
+                
+                const output = `
+<strong>Query Result:</strong>
+- Total Records: ${data.length}
+- Columns: ${data.length > 0 ? Object.keys(data[0]).join(', ') : 'N/A'}
+
+<strong>Raw Data (snake_case from database):</strong>
+${JSON.stringify(data, null, 2)}
+                `;
+                showResult('✅ Fetch Branches (Raw)', output, 'success');
+            } catch (err) {
+                showResult('❌ Fetch Branches (Raw)', `Error: ${err.message}`, 'error');
+            }
+        }
+
+        function toCamel(str) {
+            return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+        }
+
+        function normalize(obj) {
+            if (!obj || typeof obj !== 'object') return obj;
+            const out = {};
+            for (const [k, v] of Object.entries(obj)) {
+                out[toCamel(k)] = v;
+            }
+            return out;
+        }
+
+        async function testFetchBranchesNormalized() {
+            showResult('🔄 Fetching Branches (Normalized)...', 'Querying and transforming to camelCase...', 'info');
+            try {
+                const { data, error } = await client
+                    .from('clinic_entities')
+                    .select('*')
+                    .order('branch_code');
+                
+                if (error) throw error;
+                
+                const normalized = data.map(normalize);
+                
+                const output = `
+<strong>Query Result:</strong>
+- Total Records: ${normalized.length}
+- Columns (camelCase): ${normalized.length > 0 ? Object.keys(normalized[0]).join(', ') : 'N/A'}
+
+<strong>Normalized Data (camelCase for React):</strong>
+${JSON.stringify(normalized, null, 2)}
+
+<strong>🎯 Expected UI Data:</strong>
+${normalized.map((b, i) => `
+  Branch ${i + 1}:
+    - ID: ${b.id}
+    - Name: ${b.entityName}
+    - Code: ${b.branchCode}
+    - HQ: ${b.isHeadquarters ? 'Yes' : 'No'}
+    - Active: ${b.isActive ? 'Yes' : 'No'}
+`).join('\n')}
+                `;
+                showResult('✅ Fetch Branches (Normalized)', output, 'success');
+            } catch (err) {
+                showResult('❌ Fetch Branches (Normalized)', `Error: ${err.message}`, 'error');
+            }
+        }
+
+        async function testAllTables() {
+            showResult('🗃️ Testing All Tables...', 'Checking record counts across all tables...', 'info');
+            
+            const tables = [
+                'clinic_entities', 'chart_of_accounts', 'journal_entries', 
+                'journal_items', 'patient_billings', 'billing_items',
+                'pharmacy_items', 'inventory_batches', 'expense_entries',
+                'opening_balances', 'users', 'doctors'
+            ];
+
+            let output = '<strong>Database Tables Record Count:</strong>\n\n';
+            
+            for (const table of tables) {
+                try {
+                    const { data, error } = await client.from(table).select('count');
+                    const count = data?.length || 0;
+                    output += `✓ ${table.padEnd(25)} : ${count} records\n`;
+                } catch (err) {
+                    output += `✗ ${table.padEnd(25)} : ERROR - ${err.message}\n`;
+                }
+            }
+            
+            showResult('📋 All Tables Summary', output, 'success');
+        }
+    </script>
+</body>
+</html>

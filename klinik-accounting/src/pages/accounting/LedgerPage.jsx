@@ -7,7 +7,7 @@ import { exportLedgerPDF } from '../../utils/exportPDF'
 import { exportLedgerExcel } from '../../utils/exportExcel'
 
 export default function LedgerPage() {
-  const { coa, journalEntries, journalItems, activeBranchId } = useStore()
+  const { coa, journalEntries, journalItems, activeBranchId, openingBalances } = useStore()
 
   const [selectedCode, setSelectedCode] = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
@@ -24,6 +24,14 @@ export default function LedgerPage() {
   // Build ledger entries with running balance
   const ledgerEntries = useMemo(() => {
     if (!selectedCode) return []
+
+    // Get opening balance for the selected account
+    const fiscalYear = new Date(dateFrom).getFullYear()
+    const openingBalance = openingBalances.find(
+      ob => ob.accountCode === selectedCode && 
+            ob.fiscalYear === fiscalYear &&
+            (activeBranchId ? ob.branchId === activeBranchId : true)
+    )
 
     const relevantEntries = journalEntries.filter(j =>
       j.status === 'POSTED' &&
@@ -46,24 +54,52 @@ export default function LedgerPage() {
       }))
       .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate) || a.entryNumber.localeCompare(b.entryNumber))
 
-    // Running balance
+    // Add opening balance as first entry if exists
+    const allLines = []
     let balance = 0
-    return lines.map(line => {
-      if (selectedAccount?.naturalBalance === 'DEBIT') {
+
+    if (openingBalance && parseFloat(openingBalance.openingBalance || 0) !== 0) {
+      const obAmount = parseFloat(openingBalance.openingBalance || 0)
+      const isDebitNormal = selectedAccount?.normalBalance === 'DEBIT'
+      
+      // Opening balance entry
+      const openingEntry = {
+        id: `opening-${selectedCode}`,
+        transactionDate: openingBalance.openingDate || dateFrom,
+        entryNumber: 'SALDO AWAL',
+        description: openingBalance.description || `Saldo Awal Tahun ${fiscalYear}`,
+        entryType: 'OPENING_BALANCE',
+        debit: isDebitNormal ? obAmount : 0,
+        credit: isDebitNormal ? 0 : obAmount,
+        runningBalance: obAmount,
+        balanceSide: selectedAccount?.normalBalance || 'DEBIT',
+        isOpeningBalance: true,
+      }
+      
+      balance = obAmount
+      allLines.push(openingEntry)
+    }
+
+    // Running balance for transaction lines
+    lines.forEach(line => {
+      if (selectedAccount?.normalBalance === 'DEBIT') {
         balance += line.debit - line.credit
       } else {
         balance += line.credit - line.debit
       }
-      return {
+      allLines.push({
         ...line,
         runningBalance: balance,
-        balanceSide: balance >= 0 ? (selectedAccount?.naturalBalance || 'DEBIT') : (selectedAccount?.naturalBalance === 'DEBIT' ? 'CREDIT' : 'DEBIT'),
-      }
+        balanceSide: balance >= 0 ? (selectedAccount?.normalBalance || 'DEBIT') : (selectedAccount?.normalBalance === 'DEBIT' ? 'CREDIT' : 'DEBIT'),
+        isOpeningBalance: false,
+      })
     })
-  }, [selectedCode, journalEntries, journalItems, dateFrom, dateTo, activeBranchId, selectedAccount])
 
-  const totalDebit = ledgerEntries.reduce((s, e) => s + e.debit, 0)
-  const totalCredit = ledgerEntries.reduce((s, e) => s + e.credit, 0)
+    return allLines
+  }, [selectedCode, journalEntries, journalItems, dateFrom, dateTo, activeBranchId, selectedAccount, openingBalances])
+
+  const totalDebit = ledgerEntries.reduce((s, e) => s + (e.isOpeningBalance ? 0 : e.debit), 0)
+  const totalCredit = ledgerEntries.reduce((s, e) => s + (e.isOpeningBalance ? 0 : e.credit), 0)
   const endingBalance = ledgerEntries.at(-1)?.runningBalance || 0
   const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
 
@@ -159,9 +195,11 @@ export default function LedgerPage() {
                 {ledgerEntries.length === 0 ? (
                   <tr><td colSpan={7} className="text-center py-10 text-slate-400">Tidak ada transaksi pada periode ini</td></tr>
                 ) : ledgerEntries.map((e, i) => (
-                  <tr key={e.id || i}>
+                  <tr key={e.id || i} className={e.isOpeningBalance ? 'bg-blue-50 font-semibold' : ''}>
                     <td className="text-sm">{fmtDate(e.transactionDate)}</td>
-                    <td className="font-mono text-xs text-primary-700">{e.entryNumber}</td>
+                    <td className={`font-mono text-xs ${e.isOpeningBalance ? 'text-blue-700 font-bold' : 'text-primary-700'}`}>
+                      {e.entryNumber}
+                    </td>
                     <td className="text-sm max-w-[220px] truncate">{e.description}</td>
                     <td className="text-right amount-debit text-sm">{e.debit > 0 ? fmtIDR(e.debit) : ''}</td>
                     <td className="text-right amount-credit text-sm">{e.credit > 0 ? fmtIDR(e.credit) : ''}</td>

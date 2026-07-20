@@ -7,13 +7,23 @@ import { exportTrialBalanceExcel } from '../../utils/exportExcel'
 import Alert from '../../components/ui/Alert'
 
 export default function TrialBalancePage() {
-  const { coa, journalEntries, journalItems, branches, activeBranchId } = useStore()
+  const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo,   setDateTo]   = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
   const [hideZero, setHideZero] = useState(true)
 
   const trialBalance = useMemo(() => {
+    const fiscalYear = new Date(dateFrom).getFullYear()
+    
+    // Get opening balances for the fiscal year
+    const openingBalanceMap = {}
+    openingBalances.forEach(ob => {
+      if (ob.fiscalYear === fiscalYear && (branchFilter === 'ALL' || ob.branchId === branchFilter)) {
+        openingBalanceMap[ob.accountCode] = parseFloat(ob.openingBalance || 0)
+      }
+    })
+
     const postedIds = new Set(
       journalEntries
         .filter(j =>
@@ -37,13 +47,30 @@ export default function TrialBalancePage() {
       .filter(a => !a.isHeader)
       .map(a => {
         const b = balances[a.accountCode] || { totalDebit: 0, totalCredit: 0 }
-        const finalDebit  = a.naturalBalance === 'DEBIT'  ? Math.max(0, b.totalDebit - b.totalCredit) : 0
-        const finalCredit = a.naturalBalance === 'CREDIT' ? Math.max(0, b.totalCredit - b.totalDebit) : 0
-        return { ...a, ...b, finalDebit, finalCredit }
+        const openingBalance = openingBalanceMap[a.accountCode] || 0
+        
+        // Calculate ending balance: opening + period movements
+        let endingBalance = openingBalance
+        if (a.normalBalance === 'DEBIT') {
+          endingBalance += b.totalDebit - b.totalCredit
+        } else {
+          endingBalance += b.totalCredit - b.totalDebit
+        }
+        
+        const finalDebit  = (a.normalBalance === 'DEBIT'  && endingBalance > 0) ? endingBalance : 0
+        const finalCredit = (a.normalBalance === 'CREDIT' && endingBalance > 0) ? endingBalance : 0
+        
+        return { 
+          ...a, 
+          ...b, 
+          openingBalance,
+          finalDebit, 
+          finalCredit 
+        }
       })
-      .filter(a => !hideZero || (a.totalDebit > 0 || a.totalCredit > 0))
+      .filter(a => !hideZero || (a.totalDebit > 0 || a.totalCredit > 0 || a.openingBalance !== 0))
       .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-  }, [coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter, hideZero])
+  }, [coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter, hideZero, openingBalances])
 
   const totDebit  = trialBalance.reduce((s, a) => s + (a.finalDebit  || 0), 0)
   const totCredit = trialBalance.reduce((s, a) => s + (a.finalCredit || 0), 0)
@@ -134,6 +161,7 @@ export default function TrialBalancePage() {
                 <th style={{width:120}}>Kode Akun</th>
                 <th>Nama Akun</th>
                 <th>Tipe</th>
+                <th className="text-right">Saldo Awal</th>
                 <th className="text-right">Total Debit</th>
                 <th className="text-right">Total Kredit</th>
                 <th className="text-right">Saldo Debit</th>
@@ -142,7 +170,7 @@ export default function TrialBalancePage() {
             </thead>
             <tbody>
               {trialBalance.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-slate-400">
+                <tr><td colSpan={8} className="text-center py-12 text-slate-400">
                   <RefreshCw className="w-6 h-6 mx-auto mb-2 opacity-40" />
                   Belum ada transaksi diposting pada periode ini
                 </td></tr>
@@ -151,6 +179,7 @@ export default function TrialBalancePage() {
                   <td className="font-mono text-xs text-primary-700 font-medium">{a.accountCode}</td>
                   <td className="text-sm">{a.accountName}</td>
                   <td><span className={`badge text-xs ${accountTypeBadge(a.accountType)}`}>{accountTypeLabel(a.accountType)}</span></td>
+                  <td className="text-right font-mono text-xs text-blue-700 font-semibold">{a.openingBalance !== 0 ? fmtIDR(Math.abs(a.openingBalance)) : ''}</td>
                   <td className="text-right font-mono text-xs amount-debit">{a.totalDebit > 0 ? fmtIDR(a.totalDebit) : ''}</td>
                   <td className="text-right font-mono text-xs amount-credit">{a.totalCredit > 0 ? fmtIDR(a.totalCredit) : ''}</td>
                   <td className="text-right font-mono text-xs amount-debit">{a.finalDebit > 0 ? fmtIDR(a.finalDebit) : ''}</td>
@@ -161,6 +190,7 @@ export default function TrialBalancePage() {
             <tfoot>
               <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
                 <td colSpan={3} className="text-right py-3 pr-4">GRAND TOTAL</td>
+                <td className="text-right font-mono text-blue-700 py-3">{fmtIDR(trialBalance.reduce((s,a) => s + Math.abs(a.openingBalance || 0), 0))}</td>
                 <td className="text-right font-mono amount-debit py-3">{fmtIDR(trialBalance.reduce((s,a) => s + (a.totalDebit  || 0), 0))}</td>
                 <td className="text-right font-mono amount-credit py-3">{fmtIDR(trialBalance.reduce((s,a) => s + (a.totalCredit || 0), 0))}</td>
                 <td className="text-right font-mono amount-debit py-3">{fmtIDR(totDebit)}</td>

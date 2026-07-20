@@ -55,13 +55,34 @@ function BSSection({ title, groups, total, colorClass = '' }) {
 }
 
 export default function BalanceSheetPage() {
-  const { coa, journalEntries, journalItems, branches, activeBranchId } = useStore()
+  const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
   const [asOf, setAsOf] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
 
-  const balances = useMemo(() =>
-    buildBalancesUpTo(coa, journalEntries, journalItems, asOf, branchFilter),
-  [coa, journalEntries, journalItems, asOf, branchFilter])
+  const balances = useMemo(() => {
+    const fiscalYear = new Date(asOf).getFullYear()
+    
+    // Get opening balances for the fiscal year
+    const openingBalanceMap = {}
+    openingBalances.forEach(ob => {
+      if (ob.fiscalYear === fiscalYear && (branchFilter === 'ALL' || ob.branchId === branchFilter)) {
+        openingBalanceMap[ob.accountCode] = parseFloat(ob.openingBalance || 0)
+      }
+    })
+    
+    // Calculate period balances
+    const periodBalances = buildBalancesUpTo(coa, journalEntries, journalItems, asOf, branchFilter)
+    
+    // Combine: opening + period movements
+    const finalBalances = {}
+    coa.filter(a => !a.isHeader).forEach(a => {
+      const opening = openingBalanceMap[a.accountCode] || 0
+      const period = periodBalances[a.accountCode] || 0
+      finalBalances[a.accountCode] = opening + period
+    })
+    
+    return finalBalances
+  }, [coa, journalEntries, journalItems, asOf, branchFilter, openingBalances])
 
   const getBalanceItems = (type, group) =>
     coa

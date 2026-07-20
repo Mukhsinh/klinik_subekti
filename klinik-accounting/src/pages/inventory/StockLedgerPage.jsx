@@ -1,13 +1,15 @@
 import { useState, useMemo } from 'react'
-import { AlertTriangle, RotateCcw, Download } from 'lucide-react'
+import { AlertTriangle, RotateCcw, Download, Search } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import Modal from '../../components/ui/Modal'
+import SearchableSelect from '../../components/ui/SearchableSelect'
 import { fmtIDR, fmtDate, fmtDateTime } from '../../utils/format'
 import { exportStockExcel } from '../../utils/exportExcel'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
 const TRANS_LABELS = {
+  SALDO_AWAL: 'Saldo Awal',
   GRN: 'Penerimaan (GRN)',
   BILLING: 'Penjualan Pasien',
   PATIENT_SALE: 'Penjualan Pasien',
@@ -19,6 +21,7 @@ const TRANS_LABELS = {
   RETURN: 'Retur',
 }
 const TRANS_COLORS = {
+  SALDO_AWAL: 'badge-purple',
   GRN: 'badge-green',
   BILLING: 'badge-blue',
   PATIENT_SALE: 'badge-blue',
@@ -42,6 +45,70 @@ export default function StockLedgerPage() {
   const [adjReason, setAdjReason] = useState('')
   const [adjType, setAdjType] = useState('REMOVE')
   const [adjQty, setAdjQty] = useState('')
+  const [recapSearch, setRecapSearch] = useState('')
+
+  const selectOptions = useMemo(() => {
+    const list = pharmacyItems
+      .sort((a, b) => a.itemName.localeCompare(b.itemName))
+      .map(i => {
+        const qty = invBatches
+          .filter(b => b.itemId === i.id && b.quantityCurrent > 0)
+          .reduce((s, b) => s + b.quantityCurrent, 0)
+        return {
+          value: i.id,
+          label: i.itemName,
+          sub: `${i.skuCode} — Stok: ${qty} ${i.baseUnit}`,
+          group: 'Item Farmasi'
+        }
+      })
+    return [
+      {
+        value: 'ALL_ITEMS',
+        label: 'Semua Item (Laporan Rekapitulasi)',
+        sub: 'Tampilkan rekap seluruh saldo awal & mutasi',
+        group: 'Global'
+      },
+      ...list
+    ]
+  }, [pharmacyItems, invBatches])
+
+  const recapData = useMemo(() => {
+    return pharmacyItems.map(item => {
+      const itemLedger = stockLedger.filter(l => l.itemId === item.id)
+
+      const saldoAwal = itemLedger
+        .filter(l => l.transactionType === 'SALDO_AWAL')
+        .reduce((sum, l) => sum + l.quantityIn, 0)
+
+      const penerimaan = itemLedger
+        .filter(l => l.transactionType !== 'SALDO_AWAL')
+        .reduce((sum, l) => sum + l.quantityIn, 0)
+
+      const pengeluaran = itemLedger
+        .reduce((sum, l) => sum + l.quantityOut, 0)
+
+      const saldoAkhir = saldoAwal + penerimaan - pengeluaran
+
+      return {
+        ...item,
+        saldoAwal,
+        penerimaan,
+        pengeluaran,
+        saldoAkhir
+      }
+    })
+  }, [pharmacyItems, stockLedger])
+
+  const filteredRecap = useMemo(() => {
+    if (!recapSearch.trim()) return recapData
+    const q = recapSearch.toLowerCase()
+    return recapData.filter(
+      r =>
+        r.itemName.toLowerCase().includes(q) ||
+        (r.skuCode || '').toLowerCase().includes(q) ||
+        (r.itemCode || '').toLowerCase().includes(q)
+    )
+  }, [recapData, recapSearch])
 
   const item = useMemo(
     () => pharmacyItems.find(i => i.id === selectedItem),
@@ -160,26 +227,14 @@ export default function StockLedgerPage() {
 
       {/* Item picker */}
       <div className="card card-body">
-        <label className="form-label">Pilih Item</label>
-        <select
-          className="form-select max-w-lg"
+        <label className="form-label mb-1.5">Pilih Item</label>
+        <SearchableSelect
+          options={selectOptions}
           value={selectedItem}
-          onChange={e => setSelectedItem(e.target.value)}
-        >
-          <option value="">— Pilih item untuk melihat kartu stok —</option>
-          {pharmacyItems
-            .sort((a, b) => a.itemName.localeCompare(b.itemName))
-            .map(i => {
-              const qty = invBatches
-                .filter(b => b.itemId === i.id && b.quantityCurrent > 0)
-                .reduce((s, b) => s + b.quantityCurrent, 0)
-              return (
-                <option key={i.id} value={i.id}>
-                  {i.skuCode} — {i.itemName} (Stok: {qty} {i.baseUnit})
-                </option>
-              )
-            })}
-        </select>
+          onChange={val => setSelectedItem(val)}
+          placeholder="— Cari & Pilih Item untuk melihat kartu stok —"
+          className="max-w-lg"
+        />
       </div>
 
       {/* No item selected */}
@@ -189,8 +244,94 @@ export default function StockLedgerPage() {
         </div>
       )}
 
+      {/* All Items Recap */}
+      {selectedItem === 'ALL_ITEMS' && (
+        <div className="space-y-4">
+          {/* Search Input at Top */}
+          <div className="card card-body">
+            <div className="flex items-center gap-3">
+              <Search className="w-5 h-5 text-slate-400 flex-shrink-0" />
+              <input
+                type="text"
+                className="form-input flex-1"
+                placeholder="Ketik kata kunci untuk mencari item (nama, kode, SKU)..."
+                value={recapSearch}
+                onChange={e => setRecapSearch(e.target.value)}
+                autoFocus
+              />
+              {recapSearch && (
+                <button
+                  className="btn-secondary text-sm"
+                  onClick={() => setRecapSearch('')}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {recapSearch && (
+              <p className="text-xs text-slate-500 mt-2">
+                Menampilkan {filteredRecap.length} dari {recapData.length} item
+              </p>
+            )}
+          </div>
+
+          <div className="card card-body">
+            <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-700">Rekapitulasi Mutasi Seluruh Item</h3>
+                <p className="text-xs text-slate-400">Menampilkan rekapitulasi Saldo Awal, Penerimaan, Pengeluaran, dan Saldo Akhir per item</p>
+              </div>
+              <div className="text-sm text-slate-500">
+                Total: <strong>{filteredRecap.length}</strong> item
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="table-base">
+                <thead>
+                  <tr>
+                    <th>Kode / SKU</th>
+                    <th>Nama Item</th>
+                    <th>Satuan</th>
+                    <th className="text-right">Saldo Awal</th>
+                    <th className="text-right">Penerimaan (+)</th>
+                    <th className="text-right">Pengeluaran (-)</th>
+                    <th className="text-right">Saldo Akhir</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRecap.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-8 text-slate-400">Tidak ada data rekapitulasi</td>
+                    </tr>
+                  ) : (
+                    filteredRecap.map(r => (
+                      <tr key={r.id} className="hover:bg-slate-50">
+                        <td className="font-mono text-xs text-slate-500">{r.itemCode || r.skuCode || '—'}</td>
+                        <td>
+                          <button
+                            className="text-left font-semibold text-primary-600 hover:text-primary-800 hover:underline"
+                            onClick={() => setSelectedItem(r.id)}
+                          >
+                            {r.itemName}
+                          </button>
+                        </td>
+                        <td className="text-slate-500 text-sm">{r.baseUnit}</td>
+                        <td className="text-right font-mono text-sm text-slate-600">{r.saldoAwal}</td>
+                        <td className="text-right font-mono text-sm text-emerald-700 font-medium">+{r.penerimaan}</td>
+                        <td className="text-right font-mono text-sm text-red-600 font-medium">-{r.pengeluaran}</td>
+                        <td className="text-right font-mono text-sm font-bold text-slate-900">{r.saldoAkhir}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Item content */}
-      {selectedItem && (
+      {selectedItem && selectedItem !== 'ALL_ITEMS' && (
         <>
           {/* Summary cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -278,9 +419,9 @@ export default function StockLedgerPage() {
                         <td className="text-right font-bold text-sm">{b.quantityCurrent}</td>
                         <td>
                           <span className={`badge text-xs ${isExpired ? 'badge-red' :
-                              isNearExpiry ? 'badge-yellow' :
-                                b.quantityCurrent === 0 ? 'badge-gray' :
-                                  'badge-green'
+                            isNearExpiry ? 'badge-yellow' :
+                              b.quantityCurrent === 0 ? 'badge-gray' :
+                                'badge-green'
                             }`}>
                             {isExpired ? 'Kadaluarsa' :
                               isNearExpiry ? 'Hampir ED' :
