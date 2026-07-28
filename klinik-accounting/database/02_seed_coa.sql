@@ -1,232 +1,236 @@
--- ============================================================
--- BAGAN AKUN STANDAR KLINIK MEDIS ANTIGRAVITY
--- Mengacu: PSAK, ISAK 35, PMK 174/2021, PER-2/PJ/2024
--- Format Kode: X-XX-XXX
--- ============================================================
+-- Seeding Chart of Accounts (COA) Klinik
+TRUNCATE TABLE chart_of_accounts CASCADE;
 
-INSERT INTO chart_of_accounts (account_code, account_name, account_type, account_group, account_subgroup, natural_balance, is_header, sort_order) VALUES
-
--- ============================================================
--- 1. ASET (ASSET)
--- ============================================================
-('1', 'ASET', 'ASSET', 'ASET', NULL, 'DEBIT', TRUE, 100),
-
--- 1.1 Aset Lancar
-('1-1', 'Aset Lancar', 'ASSET', 'ASET LANCAR', NULL, 'DEBIT', TRUE, 110),
-('1-11', 'Kas dan Bank', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', TRUE, 111),
-('1-11-001', 'Kas Kecil', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', FALSE, 112),
-('1-11-002', 'Kas Kasir Utama', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', FALSE, 113),
-('1-11-003', 'Bank BCA - Operasional', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', FALSE, 114),
-('1-11-004', 'Bank Mandiri - Payroll', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', FALSE, 115),
-('1-11-005', 'Bank BNI - BPJS', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', FALSE, 116),
-
--- 1.12 Piutang
-('1-12', 'Piutang Usaha', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', TRUE, 120),
-('1-12-001', 'Piutang Klaim BPJS Kesehatan', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', FALSE, 121),
-('1-12-002', 'Piutang Klaim Asuransi Swasta', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', FALSE, 122),
-('1-12-003', 'Piutang Pasien Umum', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', FALSE, 123),
-('1-12-004', 'Piutang Perusahaan Rekanan', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', FALSE, 124),
-
--- 1.13 Persediaan
-('1-13', 'Persediaan', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', TRUE, 130),
-('1-13-001', 'Persediaan Obat Etikal (Rx)', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', FALSE, 131),
-('1-13-002', 'Persediaan Obat OTC', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', FALSE, 132),
-('1-13-003', 'Persediaan BHP Medis', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', FALSE, 133),
-('1-13-004', 'Persediaan Alat Medis Pakai Habis', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', FALSE, 134),
-('1-13-005', 'Persediaan Vaksin', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', FALSE, 135),
-
--- 1.14 Aset Lancar Lainnya
-('1-14', 'Aset Lancar Lainnya', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', TRUE, 140),
-('1-14-001', 'Uang Muka Pembelian', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', FALSE, 141),
-('1-14-002', 'Pajak Dibayar Dimuka (PPN Masukan)', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', FALSE, 142),
-('1-14-003', 'PPh 25 Dibayar Dimuka', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', FALSE, 143),
-('1-14-004', 'Biaya Dibayar Dimuka', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', FALSE, 144);
-
--- 1.2 Aset Tidak Lancar
-INSERT INTO chart_of_accounts (account_code, account_name, account_type, account_group, account_subgroup, natural_balance, is_header, sort_order) VALUES
-('1-2', 'Aset Tidak Lancar', 'ASSET', 'ASET TIDAK LANCAR', NULL, 'DEBIT', TRUE, 150),
-('1-21', 'Aset Tetap', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', TRUE, 151),
-('1-21-001', 'Tanah', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', FALSE, 152),
-('1-21-002', 'Bangunan', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', FALSE, 153),
-('1-21-003', 'Peralatan Medis', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', FALSE, 154),
-('1-21-004', 'Alat Laboratorium', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', FALSE, 155),
-('1-21-005', 'Mebel dan Perlengkapan Kantor', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', FALSE, 156),
-('1-21-006', 'Kendaraan Operasional', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', FALSE, 157),
-('1-21-007', 'Komputer dan Sistem Informasi', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', FALSE, 158),
-
--- Akumulasi Penyusutan
-('1-22', 'Akumulasi Penyusutan', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', TRUE, 160),
-('1-22-001', 'Akum. Penyusutan Bangunan', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', FALSE, 161),
-('1-22-002', 'Akum. Penyusutan Peralatan Medis', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', FALSE, 162),
-('1-22-003', 'Akum. Penyusutan Alat Laboratorium', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', FALSE, 163),
-('1-22-004', 'Akum. Penyusutan Mebel & Perlengkapan', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', FALSE, 164),
-('1-22-005', 'Akum. Penyusutan Kendaraan', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', FALSE, 165),
-('1-22-006', 'Akum. Penyusutan Komputer & SI', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', FALSE, 166),
-
--- Aset Tidak Berwujud
-('1-23', 'Aset Tidak Berwujud', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tidak Berwujud', 'DEBIT', TRUE, 170),
-('1-23-001', 'Lisensi Perangkat Lunak', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tidak Berwujud', 'DEBIT', FALSE, 171),
-('1-23-002', 'Izin Praktik Klinik (SIK/SIA)', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tidak Berwujud', 'DEBIT', FALSE, 172);
-
--- ============================================================
--- 2. LIABILITAS (LIABILITY)
--- ============================================================
-INSERT INTO chart_of_accounts (account_code, account_name, account_type, account_group, account_subgroup, natural_balance, is_header, sort_order) VALUES
-('2', 'LIABILITAS', 'LIABILITY', 'LIABILITAS', NULL, 'CREDIT', TRUE, 200),
-
--- 2.1 Liabilitas Jangka Pendek
-('2-1', 'Liabilitas Jangka Pendek', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', NULL, 'CREDIT', TRUE, 210),
-('2-11', 'Utang Usaha', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Usaha', 'CREDIT', TRUE, 211),
-('2-11-001', 'Utang Pembelian Obat & Alkes (PBF)', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Usaha', 'CREDIT', FALSE, 212),
-('2-11-002', 'Utang Pembelian Alat Medis', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Usaha', 'CREDIT', FALSE, 213),
-('2-11-003', 'Utang Biaya Operasional', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Usaha', 'CREDIT', FALSE, 214),
-
-('2-12', 'Utang Jasa Medis', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Jasa Medis', 'CREDIT', TRUE, 220),
-('2-12-001', 'Utang Jasa Medis Dokter Umum', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Jasa Medis', 'CREDIT', FALSE, 221),
-('2-12-002', 'Utang Jasa Medis Dokter Spesialis', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Jasa Medis', 'CREDIT', FALSE, 222),
-
-('2-13', 'Utang Pajak', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', TRUE, 230),
-('2-13-001', 'Utang PPh Pasal 21 (Dokter)', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', FALSE, 231),
-('2-13-002', 'Utang PPh Pasal 21 (Karyawan)', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', FALSE, 232),
-('2-13-003', 'Utang PPh Pasal 23', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', FALSE, 233),
-('2-13-004', 'Utang PPh Pasal 25', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', FALSE, 234),
-('2-14', 'Utang PPN', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', TRUE, 235),
-('2-14-001', 'PPN Keluaran - Penjualan Obat', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', FALSE, 236),
-
-('2-15', 'Utang Lainnya', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', TRUE, 240),
-('2-15-001', 'Utang BPJS Ketenagakerjaan', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', FALSE, 241),
-('2-15-002', 'Utang BPJS Kesehatan', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', FALSE, 242),
-('2-15-003', 'Pendapatan Diterima Dimuka', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', FALSE, 243),
-('2-15-004', 'Uang Jaminan Pasien', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', FALSE, 244),
-
--- 2.2 Liabilitas Jangka Panjang
-('2-2', 'Liabilitas Jangka Panjang', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', NULL, 'CREDIT', TRUE, 250),
-('2-21-001', 'Utang Bank Jangka Panjang', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', 'Utang Bank', 'CREDIT', FALSE, 251),
-('2-21-002', 'Utang Leasing Alat Medis', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', 'Utang Leasing', 'CREDIT', FALSE, 252);
-
--- ============================================================
--- 3. EKUITAS (EQUITY)
--- ============================================================
-INSERT INTO chart_of_accounts (account_code, account_name, account_type, account_group, account_subgroup, natural_balance, is_header, sort_order) VALUES
-('3', 'EKUITAS', 'EQUITY', 'EKUITAS', NULL, 'CREDIT', TRUE, 300),
-('3-11-001', 'Modal Disetor', 'EQUITY', 'EKUITAS', 'Modal', 'CREDIT', FALSE, 301),
-('3-11-002', 'Tambahan Modal Disetor', 'EQUITY', 'EKUITAS', 'Modal', 'CREDIT', FALSE, 302),
-('3-12-001', 'Laba Ditahan', 'EQUITY', 'EKUITAS', 'Laba Ditahan', 'CREDIT', FALSE, 303),
-('3-12-002', 'Laba / Rugi Tahun Berjalan', 'EQUITY', 'EKUITAS', 'Laba Ditahan', 'CREDIT', FALSE, 304),
-('3-13-001', 'Dividen Dibayarkan', 'EQUITY', 'EKUITAS', 'Dividen', 'DEBIT', FALSE, 305);
-
--- ============================================================
--- 4. PENDAPATAN (REVENUE)
--- ============================================================
-INSERT INTO chart_of_accounts (account_code, account_name, account_type, account_group, account_subgroup, natural_balance, is_header, sort_order) VALUES
-('4', 'PENDAPATAN', 'REVENUE', 'PENDAPATAN', NULL, 'CREDIT', TRUE, 400),
-
--- 4.1 Pendapatan Jasa Medis
-('4-11', 'Pendapatan Jasa Medis', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', TRUE, 410),
-('4-11-001', 'Pendapatan Konsultasi Dokter Umum', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', FALSE, 411),
-('4-11-002', 'Pendapatan Konsultasi Dokter Spesialis', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', FALSE, 412),
-('4-11-003', 'Pendapatan Tindakan Medis Minor', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', FALSE, 413),
-('4-11-004', 'Pendapatan Tindakan Medis Mayor', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', FALSE, 414),
-('4-11-005', 'Pendapatan Imunisasi & Vaksinasi', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', FALSE, 415),
-('4-11-006', 'Pendapatan MCU (Medical Check Up)', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', FALSE, 416),
-('4-11-007', 'Pendapatan Klinik Gigi', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', FALSE, 417),
-
--- 4.12 Pendapatan Laboratorium
-('4-12', 'Pendapatan Laboratorium', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Laboratorium', 'CREDIT', TRUE, 420),
-('4-12-001', 'Pendapatan Pemeriksaan Darah', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Laboratorium', 'CREDIT', FALSE, 421),
-('4-12-002', 'Pendapatan Pemeriksaan Urine', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Laboratorium', 'CREDIT', FALSE, 422),
-('4-12-003', 'Pendapatan Pemeriksaan Radiologi', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Laboratorium', 'CREDIT', FALSE, 423),
-
--- 4.13 Pendapatan Farmasi
-('4-13', 'Pendapatan Farmasi', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Farmasi', 'CREDIT', TRUE, 430),
-('4-13-001', 'Pendapatan Penjualan Obat Etikal', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Farmasi', 'CREDIT', FALSE, 431),
-('4-13-002', 'Pendapatan Penjualan Obat OTC', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Farmasi', 'CREDIT', FALSE, 432),
-('4-13-003', 'Pendapatan Penjualan BHP Medis', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Farmasi', 'CREDIT', FALSE, 433),
-
--- 4.14 Pendapatan BPJS
-('4-14', 'Pendapatan Klaim BPJS', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'BPJS', 'CREDIT', TRUE, 440),
-('4-14-001', 'Pendapatan Kapitasi BPJS', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'BPJS', 'CREDIT', FALSE, 441),
-('4-14-002', 'Pendapatan Non-Kapitasi BPJS', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'BPJS', 'CREDIT', FALSE, 442),
-
--- 4.9 Pendapatan Non-Operasional
-('4-91-001', 'Pendapatan Bunga Bank', 'REVENUE', 'PENDAPATAN NON-OPERASIONAL', 'Non-Operasional', 'CREDIT', FALSE, 491),
-('4-91-002', 'Pendapatan Lain-Lain', 'REVENUE', 'PENDAPATAN NON-OPERASIONAL', 'Non-Operasional', 'CREDIT', FALSE, 492);
-
--- ============================================================
--- 5. BEBAN (EXPENSE)
--- ============================================================
-INSERT INTO chart_of_accounts (account_code, account_name, account_type, account_group, account_subgroup, natural_balance, is_header, sort_order) VALUES
-('5', 'HARGA POKOK', 'EXPENSE', 'HARGA POKOK', NULL, 'DEBIT', TRUE, 500),
-
--- 5.1 HPP
-('5-11', 'Harga Pokok Penjualan', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', TRUE, 510),
-('5-11-001', 'HPP Obat Etikal (FIFO)', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', FALSE, 511),
-('5-11-002', 'HPP Obat OTC (FIFO)', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', FALSE, 512),
-('5-11-003', 'HPP BHP Medis (FIFO)', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', FALSE, 513),
-('5-11-004', 'HPP Alat Medis Pakai Habis', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', FALSE, 514),
-
-('6', 'BEBAN OPERASIONAL', 'EXPENSE', 'BEBAN OPERASIONAL', NULL, 'DEBIT', TRUE, 600),
-
--- 6.1 Beban SDM
-('6-11', 'Beban Sumber Daya Manusia', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', TRUE, 610),
-('6-11-001', 'Gaji Dokter Tetap', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', FALSE, 611),
-('6-11-002', 'Gaji Perawat & Bidan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', FALSE, 612),
-('6-11-003', 'Gaji Apoteker & Asisten Apoteker', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', FALSE, 613),
-('6-11-004', 'Gaji Staff Administrasi', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', FALSE, 614),
-('6-11-005', 'Tunjangan Karyawan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', FALSE, 615),
-('6-11-006', 'BPJS Ketenagakerjaan - Bagian Perusahaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', FALSE, 616),
-('6-11-007', 'BPJS Kesehatan - Bagian Perusahaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', FALSE, 617),
-
--- 6.12 Jasa Medis Dokter
-('6-12', 'Beban Jasa Medis Dokter', 'EXPENSE', 'BEBAN OPERASIONAL', 'Jasa Medis', 'DEBIT', TRUE, 620),
-('6-12-001', 'Bagi Hasil Jasa Medis - Dokter Umum', 'EXPENSE', 'BEBAN OPERASIONAL', 'Jasa Medis', 'DEBIT', FALSE, 621),
-('6-12-002', 'Bagi Hasil Jasa Medis - Dokter Spesialis', 'EXPENSE', 'BEBAN OPERASIONAL', 'Jasa Medis', 'DEBIT', FALSE, 622),
-
--- 6.13 Beban Operasional Klinik
-('6-13', 'Beban Operasional Klinik', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', TRUE, 630),
-('6-13-001', 'Beban Listrik', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', FALSE, 631),
-('6-13-002', 'Beban Air (PDAM)', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', FALSE, 632),
-('6-13-003', 'Beban Telepon & Internet', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', FALSE, 633),
-('6-13-004', 'Beban Sewa Gedung', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', FALSE, 634),
-('6-13-005', 'Beban Alat Tulis Kantor', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', FALSE, 635),
-('6-13-006', 'Beban Kebersihan & Sanitasi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', FALSE, 636),
-
--- 6.14 Pemeliharaan & Kalibrasi
-('6-14', 'Beban Pemeliharaan & Kalibrasi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', TRUE, 640),
-('6-14-001', 'Pemeliharaan Gedung', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', FALSE, 641),
-('6-14-002', 'Servis & Kalibrasi Alat Medis', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', FALSE, 642),
-('6-14-003', 'Pemeliharaan Kendaraan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', FALSE, 643),
-
--- 6.15 Penyusutan
-('6-15', 'Beban Penyusutan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', TRUE, 650),
-('6-15-001', 'Penyusutan Bangunan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', FALSE, 651),
-('6-15-002', 'Penyusutan Peralatan Medis', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', FALSE, 652),
-('6-15-003', 'Penyusutan Kendaraan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', FALSE, 653),
-('6-15-004', 'Penyusutan Komputer & SI', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', FALSE, 654),
-
--- 6.16 Pemasaran
-('6-16', 'Beban Pemasaran', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', TRUE, 660),
-('6-16-001', 'Iklan & Promosi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', FALSE, 661),
-('6-16-002', 'Biaya Pameran & Event', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', FALSE, 662),
-
--- 6.17 Kerugian Stok
-('6-17', 'Beban Kerugian Persediaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', TRUE, 670),
-('6-17-001', 'Kerugian Stok Expired/Rusak', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', FALSE, 671),
-('6-17-002', 'Selisih Stok Opname', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', FALSE, 672),
-
--- 6.18 Beban Lain
-('6-18', 'Beban Administrasi & Umum', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', TRUE, 680),
-('6-18-001', 'Biaya Audit & Konsultasi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', FALSE, 681),
-('6-18-002', 'Biaya Notaris & Legal', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', FALSE, 682),
-('6-18-003', 'Biaya Perjalanan Dinas', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', FALSE, 683),
-('6-18-004', 'Beban Bunga Pinjaman', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', FALSE, 684),
-('6-18-005', 'Beban Pajak Lainnya', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', FALSE, 685),
-('6-18-006', 'Beban Lain-Lain', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', FALSE, 686);
-
--- ============================================================
--- SEED: ENTITAS KLINIK DEFAULT
--- ============================================================
-INSERT INTO clinic_entities (entity_name, branch_code, address, phone, email, is_headquarters) VALUES
-('Klinik Medis Antigravity - Pusat', 'HQ-001', 'Jl. Sudirman No. 1, Jakarta Pusat', '021-12345678', 'pusat@antigravity-klinik.id', TRUE),
-('Klinik Medis Antigravity - Cabang Selatan', 'BR-002', 'Jl. Fatmawati No. 45, Jakarta Selatan', '021-87654321', 'selatan@antigravity-klinik.id', FALSE),
-('Klinik Medis Antigravity - Cabang Barat', 'BR-003', 'Jl. Puri Indah No. 12, Jakarta Barat', '021-11223344', 'barat@antigravity-klinik.id', FALSE);
+INSERT INTO chart_of_accounts (account_code, account_name, account_type, account_group, account_subgroup, natural_balance, is_header, parent_code, description, is_active, sort_order) VALUES
+('1-00-000', 'ASET', 'ASSET', 'ASET', NULL, 'DEBIT', true, NULL, NULL, true, 100),
+('1-10-000', 'Aset Lancar', 'ASSET', 'ASET LANCAR', NULL, 'DEBIT', true, '1-00-000', NULL, true, 110),
+('1-11-000', 'Kas dan Bank', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', true, '1-10-000', NULL, true, 111),
+('1-11-001', 'Kas Kecil', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', false, '1-11-000', 'Kas tunai untuk operasional harian', true, 112),
+('1-11-002', 'Kas Besar', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', false, '1-11-000', 'Kas utama klinik', true, 113),
+('1-11-003', 'Bank BRI - Operasional', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', false, '1-11-000', 'Rekening operasional di Bank BRI', true, 114),
+('1-11-004', 'Bank Mandiri - Operasional', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', false, '1-11-000', 'Rekening operasional di Bank Mandiri', true, 115),
+('1-11-005', 'Bank BCA - Operasional', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', false, '1-11-000', 'Rekening operasional di Bank BCA', true, 116),
+('1-11-006', 'Deposito Jangka Pendek', 'ASSET', 'ASET LANCAR', 'Kas dan Bank', 'DEBIT', false, '1-11-000', 'Deposito dengan jangka waktu kurang dari 1 tahun', true, 117),
+('1-12-000', 'Piutang Usaha', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', true, '1-10-000', NULL, true, 121),
+('1-12-001', 'Piutang Klaim BPJS Kesehatan', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', false, '1-12-000', 'Piutang klaim dari BPJS Kesehatan', true, 122),
+('1-12-002', 'Piutang Klaim Asuransi Swasta', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', false, '1-12-000', 'Piutang klaim dari perusahaan asuransi swasta', true, 123),
+('1-12-003', 'Piutang Pasien Umum', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', false, '1-12-000', 'Piutang dari pasien umum (non-asuransi)', true, 124),
+('1-12-004', 'Piutang Perusahaan Rekanan', 'ASSET', 'ASET LANCAR', 'Piutang', 'DEBIT', false, '1-12-000', 'Piutang dari perusahaan yang bekerja sama', true, 125),
+('1-12-005', 'Penyisihan Piutang Tak Tertagih', 'ASSET', 'ASET LANCAR', 'Piutang', 'CREDIT', false, '1-12-000', 'Cadangan untuk piutang yang tidak dapat ditagih (kontra aset)', true, 126),
+('1-13-000', 'Persediaan', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', true, '1-10-000', NULL, true, 131),
+('1-13-001', 'Persediaan Obat Paten', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', false, '1-13-000', 'Persediaan obat dengan merk dagang (branded)', true, 132),
+('1-13-002', 'Persediaan Obat Generik', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', false, '1-13-000', 'Persediaan obat generik', true, 133),
+('1-13-003', 'Persediaan BHP (Bahan Habis Pakai)', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', false, '1-13-000', 'Bahan habis pakai medis', true, 134),
+('1-13-004', 'Persediaan Rumah Tangga', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', false, '1-13-000', 'Persediaan untuk kebutuhan rumah tangga klinik', true, 135),
+('1-13-005', 'Persediaan Vaksin', 'ASSET', 'ASET LANCAR', 'Persediaan', 'DEBIT', false, '1-13-000', 'Persediaan vaksin dan imunisasi', true, 136),
+('1-14-000', 'Aset Lancar Lainnya', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', true, '1-10-000', NULL, true, 141),
+('1-14-001', 'Uang Muka Pembelian', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', false, '1-14-000', 'Uang muka untuk pembelian barang/jasa', true, 142),
+('1-14-002', 'PPN Masukan (Pajak Dibayar Dimuka)', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', false, '1-14-000', 'PPN yang dibayar saat pembelian', true, 143),
+('1-14-003', 'PPh 25 Dibayar Dimuka', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', false, '1-14-000', 'PPh Pasal 25 yang dibayar di muka', true, 144),
+('1-14-004', 'PPh 22 Dibayar Dimuka', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', false, '1-14-000', 'PPh Pasal 22 yang dibayar di muka', true, 145),
+('1-14-005', 'PPh 23 Dibayar Dimuka', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', false, '1-14-000', 'PPh Pasal 23 yang dibayar di muka', true, 146),
+('1-14-006', 'Beban Dibayar Dimuka - Sewa', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', false, '1-14-000', 'Sewa yang dibayar di muka', true, 147),
+('1-14-007', 'Beban Dibayar Dimuka - Asuransi', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', false, '1-14-000', 'Premi asuransi yang dibayar di muka', true, 148),
+('1-14-008', 'Beban Dibayar Dimuka - Lainnya', 'ASSET', 'ASET LANCAR', 'Aset Lancar Lainnya', 'DEBIT', false, '1-14-000', 'Beban lain yang dibayar di muka', true, 149),
+('1-20-000', 'Aset Tidak Lancar', 'ASSET', 'ASET TIDAK LANCAR', NULL, 'DEBIT', true, '1-00-000', NULL, true, 200),
+('1-21-000', 'Aset Tetap', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', true, '1-20-000', NULL, true, 211),
+('1-21-001', 'Tanah', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', false, '1-21-000', 'Tanah untuk lokasi klinik', true, 212),
+('1-21-002', 'Bangunan', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', false, '1-21-000', 'Gedung dan bangunan klinik', true, 213),
+('1-21-003', 'Peralatan Medis', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', false, '1-21-000', 'Peralatan medis untuk pelayanan kesehatan', true, 214),
+('1-21-004', 'Alat Laboratorium', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', false, '1-21-000', 'Peralatan untuk pemeriksaan laboratorium', true, 215),
+('1-21-005', 'Mebel dan Perlengkapan Kantor', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', false, '1-21-000', 'Furniture dan peralatan kantor', true, 216),
+('1-21-006', 'Kendaraan Operasional', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', false, '1-21-000', 'Kendaraan untuk operasional klinik', true, 217),
+('1-21-007', 'Komputer dan Sistem Informasi', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', false, '1-21-000', 'Perangkat komputer dan sistem IT', true, 218),
+('1-21-008', 'Renovasi Bangunan', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tetap', 'DEBIT', false, '1-21-000', 'Biaya renovasi yang dikapitalisasi', true, 219),
+('1-22-000', 'Akumulasi Penyusutan Aset Tetap', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', true, '1-20-000', 'Akumulasi penyusutan aset tetap (kontra aset)', true, 221),
+('1-22-001', 'Akumulasi Penyusutan Bangunan', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', false, '1-22-000', 'Akumulasi penyusutan gedung', true, 222),
+('1-22-002', 'Akumulasi Penyusutan Peralatan Medis', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', false, '1-22-000', 'Akumulasi penyusutan peralatan medis', true, 223),
+('1-22-003', 'Akumulasi Penyusutan Alat Laboratorium', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', false, '1-22-000', 'Akumulasi penyusutan alat laboratorium', true, 224),
+('1-22-004', 'Akumulasi Penyusutan Mebel & Perlengkapan', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', false, '1-22-000', 'Akumulasi penyusutan furniture', true, 225),
+('1-22-005', 'Akumulasi Penyusutan Kendaraan', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', false, '1-22-000', 'Akumulasi penyusutan kendaraan', true, 226),
+('1-22-006', 'Akumulasi Penyusutan Komputer & SI', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', false, '1-22-000', 'Akumulasi penyusutan komputer dan sistem informasi', true, 227),
+('1-22-007', 'Akumulasi Penyusutan Renovasi', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Penyusutan', 'CREDIT', false, '1-22-000', 'Akumulasi penyusutan renovasi', true, 228),
+('1-23-000', 'Aset Tidak Berwujud', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tidak Berwujud', 'DEBIT', true, '1-20-000', NULL, true, 231),
+('1-23-001', 'Lisensi Perangkat Lunak', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tidak Berwujud', 'DEBIT', false, '1-23-000', 'Lisensi software dan aplikasi', true, 232),
+('1-23-002', 'Izin Praktik Klinik (SIK/SIA)', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tidak Berwujud', 'DEBIT', false, '1-23-000', 'Surat izin klinik dan apotek', true, 233),
+('1-23-003', 'Hak Paten dan Merek', 'ASSET', 'ASET TIDAK LANCAR', 'Aset Tidak Berwujud', 'DEBIT', false, '1-23-000', 'Hak kekayaan intelektual', true, 234),
+('1-24-000', 'Akumulasi Amortisasi Aset Tidak Berwujud', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Amortisasi', 'CREDIT', true, '1-20-000', 'Akumulasi amortisasi (kontra aset)', true, 241),
+('1-24-001', 'Akumulasi Amortisasi Lisensi Software', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Amortisasi', 'CREDIT', false, '1-24-000', 'Akumulasi amortisasi lisensi', true, 242),
+('1-24-002', 'Akumulasi Amortisasi Izin Praktik', 'ASSET', 'ASET TIDAK LANCAR', 'Akumulasi Amortisasi', 'CREDIT', false, '1-24-000', 'Akumulasi amortisasi izin', true, 243),
+('1-25-000', 'Investasi Jangka Panjang', 'ASSET', 'ASET TIDAK LANCAR', 'Investasi', 'DEBIT', true, '1-20-000', NULL, true, 251),
+('1-25-001', 'Deposito Jangka Panjang', 'ASSET', 'ASET TIDAK LANCAR', 'Investasi', 'DEBIT', false, '1-25-000', 'Deposito dengan jangka waktu lebih dari 1 tahun', true, 252),
+('1-25-002', 'Investasi Saham', 'ASSET', 'ASET TIDAK LANCAR', 'Investasi', 'DEBIT', false, '1-25-000', 'Investasi dalam bentuk saham', true, 253),
+('2-00-000', 'LIABILITAS', 'LIABILITY', 'LIABILITAS', NULL, 'CREDIT', true, NULL, NULL, true, 300),
+('2-10-000', 'Liabilitas Jangka Pendek', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', NULL, 'CREDIT', true, '2-00-000', NULL, true, 310),
+('2-11-000', 'Utang Usaha', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Usaha', 'CREDIT', true, '2-10-000', NULL, true, 311),
+('2-11-001', 'Utang Pembelian Obat & BHP', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Usaha', 'CREDIT', false, '2-11-000', 'Utang pembelian barang farmasi', true, 312),
+('2-11-002', 'Utang Pembelian Alat Kesehatan', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Usaha', 'CREDIT', false, '2-11-000', 'Utang pembelian alat medis', true, 313),
+('2-11-003', 'Utang Pembelian Rumah Tangga', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Usaha', 'CREDIT', false, '2-11-000', 'Utang pembelian supplies kantor', true, 314),
+('2-11-004', 'Utang Lain-lain', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Usaha', 'CREDIT', false, '2-11-000', 'Utang usaha lainnya', true, 315),
+('2-12-000', 'Utang Gaji dan Benefit', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Gaji', 'CREDIT', true, '2-10-000', NULL, true, 321),
+('2-12-001', 'Utang Gaji Karyawan', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Gaji', 'CREDIT', false, '2-12-000', 'Utang gaji yang belum dibayarkan', true, 322),
+('2-12-002', 'Utang Tunjangan Karyawan', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Gaji', 'CREDIT', false, '2-12-000', 'Utang tunjangan karyawan', true, 323),
+('2-12-003', 'Utang Jasa Medis Dokter Umum', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Gaji', 'CREDIT', false, '2-12-000', 'Utang fee dokter umum', true, 324),
+('2-12-004', 'Utang Jasa Medis Dokter Spesialis', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Gaji', 'CREDIT', false, '2-12-000', 'Utang fee dokter spesialis', true, 325),
+('2-12-005', 'Utang Lembur', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Gaji', 'CREDIT', false, '2-12-000', 'Utang upah lembur', true, 326),
+('2-13-000', 'Utang Pajak', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', true, '2-10-000', NULL, true, 331),
+('2-13-001', 'Utang PPh Pasal 21 (Dokter)', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', false, '2-13-000', 'PPh 21 dokter yang belum disetor', true, 332),
+('2-13-002', 'Utang PPh Pasal 21 (Karyawan)', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', false, '2-13-000', 'PPh 21 karyawan yang belum disetor', true, 333),
+('2-13-003', 'Utang PPh Pasal 23', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', false, '2-13-000', 'PPh 23 yang belum disetor', true, 334),
+('2-13-004', 'Utang PPh Pasal 25', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', false, '2-13-000', 'PPh 25 yang belum disetor', true, 335),
+('2-13-005', 'Utang PPh Pasal 29 (Badan)', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Pajak', 'CREDIT', false, '2-13-000', 'PPh badan yang belum disetor', true, 336),
+('2-14-000', 'Utang PPN', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang PPN', 'CREDIT', true, '2-10-000', NULL, true, 341),
+('2-14-001', 'PPN Keluaran - Penjualan Obat', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang PPN', 'CREDIT', false, '2-14-000', 'PPN dari penjualan obat', true, 342),
+('2-14-002', 'PPN Keluaran - Jasa Medis', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang PPN', 'CREDIT', false, '2-14-000', 'PPN dari jasa medis (jika PKP)', true, 343),
+('2-15-000', 'Utang Jangka Pendek Lainnya', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', true, '2-10-000', NULL, true, 351),
+('2-15-001', 'Pendapatan Diterima Dimuka', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', false, '2-15-000', 'Uang muka dari pasien/pelanggan', true, 352),
+('2-15-002', 'Utang Jaminan Kesehatan (BPJS TK)', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', false, '2-15-000', 'Iuran BPJS Ketenagakerjaan', true, 353),
+('2-15-003', 'Utang Jaminan Kesehatan (BPJS Kes)', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', false, '2-15-000', 'Iuran BPJS Kesehatan', true, 354),
+('2-15-004', 'Utang Listrik', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', false, '2-15-000', 'Utang tagihan listrik', true, 355),
+('2-15-005', 'Utang Air', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', false, '2-15-000', 'Utang tagihan air', true, 356),
+('2-15-006', 'Utang Telepon dan Internet', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', false, '2-15-000', 'Utang telekomunikasi', true, 357),
+('2-15-007', 'Utang Sewa', 'LIABILITY', 'LIABILITAS JANGKA PENDEK', 'Utang Lainnya', 'CREDIT', false, '2-15-000', 'Utang sewa gedung/peralatan', true, 358),
+('2-20-000', 'Liabilitas Jangka Panjang', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', NULL, 'CREDIT', true, '2-00-000', NULL, true, 400),
+('2-21-000', 'Utang Bank Jangka Panjang', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', 'Utang Bank', 'CREDIT', true, '2-20-000', NULL, true, 411),
+('2-21-001', 'Utang Bank BRI - Investasi', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', 'Utang Bank', 'CREDIT', false, '2-21-000', 'Pinjaman investasi dari BRI', true, 412),
+('2-21-002', 'Utang Bank Mandiri - Modal Kerja', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', 'Utang Bank', 'CREDIT', false, '2-21-000', 'Pinjaman modal kerja dari Mandiri', true, 413),
+('2-22-000', 'Utang Leasing', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', 'Utang Leasing', 'CREDIT', true, '2-20-000', NULL, true, 421),
+('2-22-001', 'Utang Leasing Alat Medis', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', 'Utang Leasing', 'CREDIT', false, '2-22-000', 'Leasing peralatan medis', true, 422),
+('2-22-002', 'Utang Leasing Kendaraan', 'LIABILITY', 'LIABILITAS JANGKA PANJANG', 'Utang Leasing', 'CREDIT', false, '2-22-000', 'Leasing kendaraan operasional', true, 423),
+('3-00-000', 'EKUITAS', 'EQUITY', 'EKUITAS', NULL, 'CREDIT', true, NULL, NULL, true, 500),
+('3-11-000', 'Modal', 'EQUITY', 'EKUITAS', 'Modal', 'CREDIT', true, '3-00-000', NULL, true, 511),
+('3-11-001', 'Modal Disetor', 'EQUITY', 'EKUITAS', 'Modal', 'CREDIT', false, '3-11-000', 'Modal awal dari pemilik', true, 512),
+('3-11-002', 'Tambahan Modal Disetor', 'EQUITY', 'EKUITAS', 'Modal', 'CREDIT', false, '3-11-000', 'Penambahan modal dari pemilik', true, 513),
+('3-12-000', 'Laba Ditahan', 'EQUITY', 'EKUITAS', 'Laba Ditahan', 'CREDIT', true, '3-00-000', NULL, true, 521),
+('3-12-001', 'Laba Ditahan Tahun Lalu', 'EQUITY', 'EKUITAS', 'Laba Ditahan', 'CREDIT', false, '3-12-000', 'Akumulasi laba tahun-tahun sebelumnya', true, 522),
+('3-12-002', 'Laba/Rugi Tahun Berjalan', 'EQUITY', 'EKUITAS', 'Laba Ditahan', 'CREDIT', false, '3-12-000', 'Laba/rugi periode berjalan', true, 523),
+('3-13-000', 'Prive/Dividen', 'EQUITY', 'EKUITAS', 'Prive', 'DEBIT', true, '3-00-000', NULL, true, 531),
+('3-13-001', 'Dividen Dibayarkan', 'EQUITY', 'EKUITAS', 'Prive', 'DEBIT', false, '3-13-000', 'Pembagian dividen kepada pemilik', true, 532),
+('3-13-002', 'Prive Pemilik', 'EQUITY', 'EKUITAS', 'Prive', 'DEBIT', false, '3-13-000', 'Pengambilan pribadi pemilik', true, 533),
+('4-00-000', 'PENDAPATAN', 'REVENUE', 'PENDAPATAN', NULL, 'CREDIT', true, NULL, NULL, true, 600),
+('4-10-000', 'Pendapatan Operasional', 'REVENUE', 'PENDAPATAN OPERASIONAL', NULL, 'CREDIT', true, '4-00-000', NULL, true, 610),
+('4-11-000', 'Pendapatan Jasa Medis', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', true, '4-10-000', NULL, true, 611),
+('4-11-001', 'Pendapatan Konsultasi Dokter Umum', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', false, '4-11-000', 'Pendapatan pemeriksaan dokter umum', true, 612),
+('4-11-002', 'Pendapatan Konsultasi Dokter Spesialis', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', false, '4-11-000', 'Pendapatan pemeriksaan dokter spesialis', true, 613),
+('4-11-003', 'Pendapatan Tindakan Medis Minor', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', false, '4-11-000', 'Pendapatan tindakan medis ringan', true, 614),
+('4-11-004', 'Pendapatan Tindakan Medis Mayor', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', false, '4-11-000', 'Pendapatan tindakan medis berat', true, 615),
+('4-11-005', 'Pendapatan Tindakan EKG', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', false, '4-11-000', 'Pendapatan pemeriksaan EKG', true, 616),
+('4-11-006', 'Pendapatan Tindakan ECHO', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', false, '4-11-000', 'Pendapatan pemeriksaan ECHO', true, 617),
+('4-11-007', 'Pendapatan Imunisasi/Vaksinasi', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', false, '4-11-000', 'Pendapatan vaksinasi', true, 618),
+('4-11-008', 'Pendapatan Medical Check-Up', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Jasa Medis', 'CREDIT', false, '4-11-000', 'Pendapatan MCU', true, 619),
+('4-12-000', 'Pendapatan Laboratorium', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Laboratorium', 'CREDIT', true, '4-10-000', NULL, true, 621),
+('4-12-001', 'Pendapatan Pemeriksaan Darah', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Laboratorium', 'CREDIT', false, '4-12-000', 'Pendapatan tes darah lengkap', true, 622),
+('4-12-002', 'Pendapatan Pemeriksaan Urine', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Laboratorium', 'CREDIT', false, '4-12-000', 'Pendapatan urinalisa', true, 623),
+('4-12-003', 'Pendapatan Pemeriksaan Feses', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Laboratorium', 'CREDIT', false, '4-12-000', 'Pendapatan analisa feses', true, 624),
+('4-12-004', 'Pendapatan Pemeriksaan Kimia Darah', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Laboratorium', 'CREDIT', false, '4-12-000', 'Pendapatan kimia klinik', true, 625),
+('4-13-000', 'Pendapatan Farmasi', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Farmasi', 'CREDIT', true, '4-10-000', NULL, true, 631),
+('4-13-001', 'Pendapatan Penjualan Obat Etikal', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Farmasi', 'CREDIT', false, '4-13-000', 'Pendapatan obat dengan resep', true, 632),
+('4-13-002', 'Pendapatan Penjualan Obat OTC', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Farmasi', 'CREDIT', false, '4-13-000', 'Pendapatan obat bebas', true, 633),
+('4-13-003', 'Pendapatan Penjualan BHP Medis', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Farmasi', 'CREDIT', false, '4-13-000', 'Pendapatan alat kesehatan', true, 634),
+('4-13-004', 'Pendapatan Penjualan Alat Kesehatan', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Farmasi', 'CREDIT', false, '4-13-000', 'Pendapatan alkes non-BHP', true, 635),
+('4-14-000', 'Pendapatan Klinik Gigi', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Klinik Gigi', 'CREDIT', true, '4-10-000', NULL, true, 641),
+('4-14-001', 'Pendapatan Konsultasi Gigi', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Klinik Gigi', 'CREDIT', false, '4-14-000', 'Pendapatan pemeriksaan gigi', true, 642),
+('4-14-002', 'Pendapatan Tindakan Gigi', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Klinik Gigi', 'CREDIT', false, '4-14-000', 'Pendapatan cabut/tambal gigi', true, 643),
+('4-14-003', 'Pendapatan Scaling/Pemutihan', 'REVENUE', 'PENDAPATAN OPERASIONAL', 'Klinik Gigi', 'CREDIT', false, '4-14-000', 'Pendapatan perawatan gigi', true, 644),
+('4-90-000', 'Pendapatan Non-Operasional', 'REVENUE', 'PENDAPATAN NON-OPERASIONAL', NULL, 'CREDIT', true, '4-00-000', NULL, true, 690),
+('4-91-000', 'Pendapatan Lain-lain', 'REVENUE', 'PENDAPATAN NON-OPERASIONAL', 'Non-Operasional', 'CREDIT', true, '4-90-000', NULL, true, 691),
+('4-91-001', 'Pendapatan Bunga Bank', 'REVENUE', 'PENDAPATAN NON-OPERASIONAL', 'Non-Operasional', 'CREDIT', false, '4-91-000', 'Bunga dari deposito dan tabungan', true, 692),
+('4-91-002', 'Pendapatan Administrasi', 'REVENUE', 'PENDAPATAN NON-OPERASIONAL', 'Non-Operasional', 'CREDIT', false, '4-91-000', 'Pendapatan adm. surat keterangan', true, 693),
+('4-91-003', 'Keuntungan Penjualan Aset Tetap', 'REVENUE', 'PENDAPATAN NON-OPERASIONAL', 'Non-Operasional', 'CREDIT', false, '4-91-000', 'Surplus dari disposal aset', true, 694),
+('4-91-004', 'Pendapatan Hibah/Donasi', 'REVENUE', 'PENDAPATAN NON-OPERASIONAL', 'Non-Operasional', 'CREDIT', false, '4-91-000', 'Sumbangan dan hibah', true, 695),
+('4-91-005', 'Pendapatan Lain-lain', 'REVENUE', 'PENDAPATAN NON-OPERASIONAL', 'Non-Operasional', 'CREDIT', false, '4-91-000', 'Pendapatan di luar operasional utama', true, 696),
+('5-00-000', 'HARGA POKOK PENJUALAN', 'EXPENSE', 'HARGA POKOK', NULL, 'DEBIT', true, NULL, NULL, true, 700),
+('5-11-000', 'Harga Pokok Penjualan', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', true, '5-00-000', NULL, true, 711),
+('5-11-001', 'Harga Pokok Obat Paten', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', false, '5-11-000', 'HPP obat paten/branded', true, 712),
+('5-11-002', 'Harga Pokok Obat Generik', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', false, '5-11-000', 'HPP obat generik', true, 713),
+('5-11-003', 'Harga Pokok BHP', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', false, '5-11-000', 'HPP bahan habis pakai', true, 714),
+('5-11-004', 'Harga Pokok Rumah Tangga', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', false, '5-11-000', 'HPP supplies rumah tangga', true, 715),
+('5-11-005', 'Harga Pokok Vaksin', 'EXPENSE', 'HARGA POKOK', 'HPP', 'DEBIT', false, '5-11-000', 'HPP vaksin dan imunisasi', true, 716),
+('6-00-000', 'BEBAN OPERASIONAL', 'EXPENSE', 'BEBAN OPERASIONAL', NULL, 'DEBIT', true, NULL, NULL, true, 800),
+('6-11-000', 'Beban Sumber Daya Manusia', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', true, '6-00-000', NULL, true, 811),
+('6-11-001', 'Gaji Dokter Tetap', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Gaji dokter dengan status tetap', true, 812),
+('6-11-002', 'Gaji Perawat & Bidan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Gaji tenaga perawat', true, 813),
+('6-11-003', 'Gaji Apoteker & Asisten Apoteker', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Gaji tenaga farmasi', true, 814),
+('6-11-004', 'Gaji Staff Administrasi', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Gaji karyawan administrasi', true, 815),
+('6-11-005', 'Gaji Staff Lainnya', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Gaji karyawan lain (cleaning service dll)', true, 816),
+('6-11-006', 'Tunjangan Karyawan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Tunjangan transport/makan/lainnya', true, 817),
+('6-11-007', 'Lembur Karyawan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Upah lembur', true, 818),
+('6-11-008', 'Asuransi Kesehatan - Bagian Perusahaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Iuran BPJS Kes ditanggung klinik', true, 819),
+('6-11-009', 'Asuransi Tenaga Kerja - Bagian Perusahaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Iuran BPJS TK ditanggung klinik', true, 820),
+('6-11-010', 'Pelatihan dan Pengembangan SDM', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Biaya training karyawan', true, 821),
+('6-11-011', 'Rekrutmen Karyawan', 'EXPENSE', 'BEBAN OPERASIONAL', 'SDM', 'DEBIT', false, '6-11-000', 'Biaya rekrutmen', true, 822),
+('6-12-000', 'Beban Jasa Medis Dokter', 'EXPENSE', 'BEBAN OPERASIONAL', 'Jasa Medis', 'DEBIT', true, '6-00-000', NULL, true, 831),
+('6-12-001', 'Bagi Hasil Jasa Medis - Dokter Umum', 'EXPENSE', 'BEBAN OPERASIONAL', 'Jasa Medis', 'DEBIT', false, '6-12-000', 'Fee sharing dokter umum', true, 832),
+('6-12-002', 'Bagi Hasil Jasa Medis - Dokter Spesialis', 'EXPENSE', 'BEBAN OPERASIONAL', 'Jasa Medis', 'DEBIT', false, '6-12-000', 'Fee sharing dokter spesialis', true, 833),
+('6-12-003', 'Honorarium Dokter Tamu', 'EXPENSE', 'BEBAN OPERASIONAL', 'Jasa Medis', 'DEBIT', false, '6-12-000', 'Honor dokter tidak tetap', true, 834),
+('6-13-000', 'Beban Operasional Umum', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', true, '6-00-000', NULL, true, 841),
+('6-13-001', 'Alat Tulis Kantor (ATK)', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Supplies kantor', true, 842),
+('6-13-002', 'Bahan Cetakan dan Fotokopi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Biaya cetak dan copy', true, 843),
+('6-13-003', 'Listrik', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Tagihan listrik', true, 844),
+('6-13-004', 'Air', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Tagihan air PDAM', true, 845),
+('6-13-005', 'Telepon dan Internet', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Biaya telekomunikasi', true, 846),
+('6-13-006', 'Kebersihan dan Sanitasi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Supplies kebersihan', true, 847),
+('6-13-007', 'Keamanan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Jasa security', true, 848),
+('6-13-008', 'Laundry dan Binatu', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Cuci linen dan seragam', true, 849),
+('6-13-009', 'Parkir dan Transportasi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Biaya parkir dan transport', true, 850),
+('6-13-010', 'Konsumsi dan Jamuan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Makan minum tamu', true, 851),
+('6-13-011', 'Surat Kabar dan Majalah', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Langganan media massa', true, 852),
+('6-13-012', 'Paket dan Pengiriman', 'EXPENSE', 'BEBAN OPERASIONAL', 'Operasional', 'DEBIT', false, '6-13-000', 'Ongkos kirim', true, 853),
+('6-14-000', 'Beban Sewa', 'EXPENSE', 'BEBAN OPERASIONAL', 'Sewa', 'DEBIT', true, '6-00-000', NULL, true, 861),
+('6-14-001', 'Sewa Gedung/Bangunan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Sewa', 'DEBIT', false, '6-14-000', 'Sewa tempat usaha', true, 862),
+('6-14-002', 'Sewa Peralatan Medis', 'EXPENSE', 'BEBAN OPERASIONAL', 'Sewa', 'DEBIT', false, '6-14-000', 'Sewa alat medis', true, 863),
+('6-14-003', 'Sewa Kendaraan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Sewa', 'DEBIT', false, '6-14-000', 'Sewa mobil operasional', true, 864),
+('6-15-000', 'Beban Pemeliharaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', true, '6-00-000', NULL, true, 871),
+('6-15-001', 'Pemeliharaan Gedung', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', false, '6-15-000', 'Perbaikan dan perawatan gedung', true, 872),
+('6-15-002', 'Pemeliharaan Peralatan Medis', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', false, '6-15-000', 'Service alat medis', true, 873),
+('6-15-003', 'Pemeliharaan Alat Laboratorium', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', false, '6-15-000', 'Kalibrasi dan service lab', true, 874),
+('6-15-004', 'Pemeliharaan Kendaraan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', false, '6-15-000', 'Service dan BBM kendaraan', true, 875),
+('6-15-005', 'Pemeliharaan Komputer & IT', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemeliharaan', 'DEBIT', false, '6-15-000', 'Maintenance IT dan software', true, 876),
+('6-16-000', 'Beban Penyusutan dan Amortisasi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', true, '6-00-000', NULL, true, 881),
+('6-16-001', 'Beban Penyusutan Bangunan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', false, '6-16-000', 'Depresiasi gedung', true, 882),
+('6-16-002', 'Beban Penyusutan Peralatan Medis', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', false, '6-16-000', 'Depresiasi alat medis', true, 883),
+('6-16-003', 'Beban Penyusutan Alat Laboratorium', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', false, '6-16-000', 'Depresiasi alat lab', true, 884),
+('6-16-004', 'Beban Penyusutan Mebel & Perlengkapan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', false, '6-16-000', 'Depresiasi furniture', true, 885),
+('6-16-005', 'Beban Penyusutan Kendaraan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', false, '6-16-000', 'Depresiasi mobil', true, 886),
+('6-16-006', 'Beban Penyusutan Komputer & SI', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', false, '6-16-000', 'Depresiasi perangkat IT', true, 887),
+('6-16-007', 'Beban Amortisasi Lisensi Software', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', false, '6-16-000', 'Amortisasi software', true, 888),
+('6-16-008', 'Beban Amortisasi Izin Praktik', 'EXPENSE', 'BEBAN OPERASIONAL', 'Penyusutan', 'DEBIT', false, '6-16-000', 'Amortisasi SIK/SIA', true, 889),
+('6-17-000', 'Beban Pemasaran', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', true, '6-00-000', NULL, true, 891),
+('6-17-001', 'Iklan dan Promosi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', false, '6-17-000', 'Biaya marketing dan advertising', true, 892),
+('6-17-002', 'Event dan Sponsor', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', false, '6-17-000', 'Sponsorship dan acara', true, 893),
+('6-17-003', 'Materi Promosi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', false, '6-17-000', 'Brosur dan merchandising', true, 894),
+('6-18-000', 'Beban Kerugian Persediaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', true, '6-00-000', NULL, true, 901),
+('6-18-001', 'Kerugian Barang Rusak/Kadaluarsa', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', false, '6-18-000', 'Obat dan BHP expired', true, 902),
+('6-18-002', 'Selisih Stok Opname', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', false, '6-18-000', 'Selisih hasil stock opname', true, 903),
+('6-18-003', 'Kerugian Kehilangan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', false, '6-18-000', 'Barang hilang', true, 904),
+('6-19-000', 'Beban Administrasi & Umum', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', true, '6-00-000', NULL, true, 911),
+('6-19-001', 'Administrasi Bank', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', false, '6-19-000', 'Biaya admin bank', true, 912),
+('6-19-002', 'Meterai dan Benda Pos', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', false, '6-19-000', 'Materai dan perangko', true, 913),
+('6-19-003', 'Perizinan dan Legalitas', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', false, '6-19-000', 'Pengurusan izin dan surat', true, 914),
+('6-19-004', 'Jasa Profesional', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', false, '6-19-000', 'Konsultan hukum dan akuntansi', true, 915),
+('6-19-005', 'Asuransi Aset', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', false, '6-19-000', 'Premi asuransi gedung dan aset', true, 916),
+('6-19-006', 'Iuran dan Keanggotaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Administrasi', 'DEBIT', false, '6-19-000', 'Iuran organisasi profesi', true, 917),
+('6-91-000', 'Beban Lain-lain', 'EXPENSE', 'BEBAN OPERASIONAL', 'Lainnya', 'DEBIT', true, '6-00-000', NULL, true, 981),
+('6-91-001', 'Denda dan Sanksi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Lainnya', 'DEBIT', false, '6-91-000', 'Denda pajak dan lainnya', true, 982),
+('6-91-002', 'Sumbangan dan Donasi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Lainnya', 'DEBIT', false, '6-91-000', 'CSR dan charity', true, 983),
+('6-91-003', 'Kerugian Penjualan Aset Tetap', 'EXPENSE', 'BEBAN OPERASIONAL', 'Lainnya', 'DEBIT', false, '6-91-000', 'Rugi disposal aset', true, 984),
+('6-91-004', 'Beban Lain-lain', 'EXPENSE', 'BEBAN OPERASIONAL', 'Lainnya', 'DEBIT', false, '6-91-000', 'Beban di luar operasional normal', true, 985),
+('7-00-000', 'BEBAN NON-OPERASIONAL', 'EXPENSE', 'BEBAN NON-OPERASIONAL', NULL, 'DEBIT', true, NULL, NULL, true, 990),
+('7-11-000', 'Beban Keuangan', 'EXPENSE', 'BEBAN NON-OPERASIONAL', 'Keuangan', 'DEBIT', true, '7-00-000', NULL, true, 991),
+('7-11-001', 'Beban Bunga Pinjaman Bank', 'EXPENSE', 'BEBAN NON-OPERASIONAL', 'Keuangan', 'DEBIT', false, '7-11-000', 'Bunga kredit bank', true, 992),
+('7-11-002', 'Beban Bunga Leasing', 'EXPENSE', 'BEBAN NON-OPERASIONAL', 'Keuangan', 'DEBIT', false, '7-11-000', 'Bunga pembiayaan leasing', true, 993),
+('7-12-000', 'Beban Pajak', 'EXPENSE', 'BEBAN NON-OPERASIONAL', 'Pajak', 'DEBIT', true, '7-00-000', NULL, true, 995),
+('7-12-001', 'Beban PPh Pasal 25', 'EXPENSE', 'BEBAN NON-OPERASIONAL', 'Pajak', 'DEBIT', false, '7-12-000', 'PPh 25 badan', true, 996),
+('7-12-002', 'Beban PPh Pasal 29', 'EXPENSE', 'BEBAN NON-OPERASIONAL', 'Pajak', 'DEBIT', false, '7-12-000', 'PPh 29 kurang bayar', true, 997),
+('7-12-003', 'Beban Pajak Lainnya', 'EXPENSE', 'BEBAN NON-OPERASIONAL', 'Pajak', 'DEBIT', false, '7-12-000', 'Pajak daerah dan lainnya', true, 998)
+ON CONFLICT (account_code) DO UPDATE SET
+  account_name = EXCLUDED.account_name,
+  account_type = EXCLUDED.account_type,
+  account_group = EXCLUDED.account_group,
+  account_subgroup = EXCLUDED.account_subgroup,
+  natural_balance = EXCLUDED.natural_balance,
+  is_header = EXCLUDED.is_header,
+  parent_code = EXCLUDED.parent_code,
+  description = EXCLUDED.description,
+  is_active = EXCLUDED.is_active,
+  sort_order = EXCLUDED.sort_order;

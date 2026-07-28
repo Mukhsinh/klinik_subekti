@@ -32,7 +32,7 @@ export function exportAssetInventoryToExcel(assets, coa) {
   }))
 
   const ws = XLSX.utils.json_to_sheet(data)
-  
+
   // Set column widths
   const colWidths = [
     { wch: 12 }, // Kode Aset
@@ -60,7 +60,7 @@ export function exportAssetInventoryToExcel(assets, coa) {
   // Generate filename with timestamp
   const timestamp = new Date().toISOString().slice(0, 10)
   const filename = `Inventaris_Aset_${timestamp}.xlsx`
-  
+
   XLSX.writeFile(wb, filename)
 }
 
@@ -89,7 +89,7 @@ export function exportDepreciationToExcel(depreciations, assets) {
     })
 
   const ws = XLSX.utils.json_to_sheet(data)
-  
+
   const colWidths = [
     { wch: 12 }, // Periode
     { wch: 12 }, // Kode Aset
@@ -111,7 +111,7 @@ export function exportDepreciationToExcel(depreciations, assets) {
 
   const timestamp = new Date().toISOString().slice(0, 10)
   const filename = `Penyusutan_Aset_${timestamp}.xlsx`
-  
+
   XLSX.writeFile(wb, filename)
 }
 
@@ -139,7 +139,7 @@ export function exportMutationsToExcel(mutations, assets) {
   })
 
   const ws = XLSX.utils.json_to_sheet(data)
-  
+
   const colWidths = [
     { wch: 12 }, // Tanggal
     { wch: 12 }, // Kode Aset
@@ -162,7 +162,7 @@ export function exportMutationsToExcel(mutations, assets) {
 
   const timestamp = new Date().toISOString().slice(0, 10)
   const filename = `Mutasi_Aset_${timestamp}.xlsx`
-  
+
   XLSX.writeFile(wb, filename)
 }
 
@@ -232,7 +232,7 @@ export function exportAssetCardToExcel(asset, mutations, depreciations) {
     const mutData = mutations.map(m => ({
       'Tanggal': fmtDate(m.mutationDate),
       'Jenis Mutasi': m.mutationType,
-      'Detail': m.mutationType === 'TRANSFER' 
+      'Detail': m.mutationType === 'TRANSFER'
         ? `${m.fromLocation || '?'} → ${m.toLocation || '?'}`
         : m.description,
       'Nilai': m.disposalValue || m.amount || 0,
@@ -254,7 +254,7 @@ export function exportAssetCardToExcel(asset, mutations, depreciations) {
 
   const timestamp = new Date().toISOString().slice(0, 10)
   const filename = `Kartu_Aset_${asset.assetCode}_${timestamp}.xlsx`
-  
+
   XLSX.writeFile(wb, filename)
 }
 
@@ -269,7 +269,7 @@ export function generateAssetCardHTML(asset, mutations, depreciations) {
   const totalDepr = depreciations
     .filter(d => d.status === 'POSTED')
     .reduce((sum, d) => sum + d.depreciationAmount, 0)
-  
+
   const currentBookValue = asset.acquisitionCost - totalDepr
 
   return `
@@ -406,14 +406,14 @@ export function generateAssetCardHTML(asset, mutations, depreciations) {
           </thead>
           <tbody>
             ${depreciations
-              .filter(d => d.status === 'POSTED')
-              .sort((a, b) => {
-                if (a.periodYear !== b.periodYear) return b.periodYear - a.periodYear
-                return b.periodMonth - a.periodMonth
-              })
-              .map(d => `
+        .filter(d => d.status === 'POSTED')
+        .sort((a, b) => {
+          if (a.periodYear !== b.periodYear) return b.periodYear - a.periodYear
+          return b.periodMonth - a.periodMonth
+        })
+        .map(d => `
                 <tr>
-                  <td>${new Date(d.periodYear, d.periodMonth - 1).toLocaleString('id-ID', { month: 'long', year: 'numeric' })}</td>
+                  <td>${fmtMonthYear(new Date(d.periodYear, d.periodMonth - 1))}</td>
                   <td class="amount">${fmtIDR(d.openingBookValue)}</td>
                   <td class="amount" style="color: #d97706;">${fmtIDR(d.depreciationAmount)}</td>
                   <td class="amount" style="color: #7c3aed;">${fmtIDR(d.closingBookValue)}</td>
@@ -438,15 +438,15 @@ export function generateAssetCardHTML(asset, mutations, depreciations) {
           </thead>
           <tbody>
             ${mutations
-              .sort((a, b) => new Date(b.mutationDate) - new Date(a.mutationDate))
-              .map(m => `
+        .sort((a, b) => new Date(b.mutationDate) - new Date(a.mutationDate))
+        .map(m => `
                 <tr>
                   <td>${fmtDate(m.mutationDate)}</td>
                   <td><span class="badge badge-blue">${m.mutationType}</span></td>
-                  <td>${m.mutationType === 'TRANSFER' 
-                    ? `${m.fromLocation || '?'} → ${m.toLocation || '?'}`
-                    : m.description || '-'
-                  }</td>
+                  <td>${m.mutationType === 'TRANSFER'
+            ? `${m.fromLocation || '?'} → ${m.toLocation || '?'}`
+            : m.description || '-'
+          }</td>
                   <td class="amount">${fmtIDR(m.disposalValue || m.amount || 0)}</td>
                   <td>${m.referenceNumber || '-'}</td>
                 </tr>

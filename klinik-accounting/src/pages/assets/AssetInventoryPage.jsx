@@ -8,148 +8,110 @@ import { fmtIDR, fmtDate, todayISO } from '../../utils/format'
 import { exportAssetInventoryToExcel } from '../../utils/exportUtils'
 import toast from 'react-hot-toast'
 
-// Asset categories
+// Asset categories with COA-based prefix
 const ASSET_CATEGORIES = [
-  'Peralatan Medis',
-  'Perabot & Perlengkapan',
-  'Kendaraan',
-  'Bangunan',
-  'Komputer & Elektronik',
-  'Lainnya'
+  { label: 'Peralatan Medis', prefix: 'MED', coa: '1-14-001', depr: '6-21-001', accum: '1-15-001' },
+  { label: 'Perabot & Perlengkapan', prefix: 'FRN', coa: '1-14-002', depr: '6-21-002', accum: '1-15-002' },
+  { label: 'Kendaraan Dinas', prefix: 'VHC', coa: '1-14-003', depr: '6-21-003', accum: '1-15-003' },
+  { label: 'Bangunan & Prasarana', prefix: 'BLD', coa: '1-14-004', depr: '6-21-004', accum: '1-15-004' },
+  { label: 'Komputer & IT', prefix: 'COM', coa: '1-14-005', depr: '6-21-005', accum: '1-15-005' },
+  { label: 'Lainnya', prefix: 'OTH', coa: '1-14-006', depr: '6-21-006', accum: '1-15-006' },
 ]
+const CAT_MAP = Object.fromEntries(ASSET_CATEGORIES.map(c => [c.label, c]))
 
 // Conditions
 const CONDITIONS = ['BAIK', 'RUSAK', 'DALAM_PERBAIKAN']
-const CONDITION_LABELS = { BAIK: 'Baik', RUSAK: 'Rusak', DALAM_PERBAIKAN: 'Dalam Perbaikan' }
+const CONDITION_LABELS = { BAIK: 'Baik', RUSAK: 'Rusak', DALAM_PERBAIKAN: 'Dlm Perbaikan' }
 const CONDITION_COLORS = { BAIK: 'badge-green', RUSAK: 'badge-red', DALAM_PERBAIKAN: 'badge-yellow' }
 
-// COA Mapping per kategori
-const COA_MAPPING = {
-  'Peralatan Medis': {
-    asset: '1-14-001',
-    depreciation: '6-21-001',
-    accumulated: '1-15-001'
-  },
-  'Perabot & Perlengkapan': {
-    asset: '1-14-002',
-    depreciation: '6-21-002',
-    accumulated: '1-15-002'
-  },
-  'Kendaraan': {
-    asset: '1-14-003',
-    depreciation: '6-21-003',
-    accumulated: '1-15-003'
-  },
-  'Bangunan': {
-    asset: '1-14-004',
-    depreciation: '6-21-004',
-    accumulated: '1-15-004'
-  },
-  'Komputer & Elektronik': {
-    asset: '1-14-005',
-    depreciation: '6-21-005',
-    accumulated: '1-15-005'
-  },
-  'Lainnya': {
-    asset: '1-14-001',
-    depreciation: '6-21-001',
-    accumulated: '1-15-001'
-  }
-}
-
-// ─── Asset Form Component ─────────────────────────────────────
-function AssetForm({ initial, onSave, onClose, coa, nextCode }) {
-  const { generateAssetCode } = useStore()
+// ─── Asset Form Component ─────────────────────────────────
+function AssetForm({ initial, onSave, onClose, coa, fixedAssets }) {
   const base = initial || {}
+  const isEdit = !!base.id
 
+  // Generate next code by category prefix
+  const nextCodeForCategory = (catLabel) => {
+    const cat = CAT_MAP[catLabel]
+    if (!cat) return ''
+    const prefix = cat.prefix
+    const existing = fixedAssets
+      .filter(a => a.category === catLabel)
+      .map(a => { const m = (a.assetCode || '').match(/-0*(\d+)$/); return m ? parseInt(m[1]) : 0 })
+    const max = existing.length > 0 ? Math.max(...existing) : 0
+    return `${prefix}-${String(max + 1).padStart(4, '0')}`
+  }
+
+  const defaultCat = ASSET_CATEGORIES[0]
   const [form, setForm] = useState({
-    assetCode: base.assetCode || nextCode || '',
+    assetCode: base.assetCode || (isEdit ? '' : nextCodeForCategory(defaultCat.label)),
     assetName: base.assetName || '',
-    category: base.category || 'Peralatan Medis',
+    category: base.category || defaultCat.label,
     acquisitionCost: base.acquisitionCost || '',
     acquisitionDate: base.acquisitionDate || todayISO(),
     usefulLifeYears: base.usefulLifeYears || 5,
+    qty: base.qty || 1,
     location: base.location || '',
-    department: base.department || '',
     condition: base.condition || 'BAIK',
     description: base.description || '',
-    coaAssetCode: base.coaAssetCode || '1-14-001',
-    coaDepreciationCode: base.coaDepreciationCode || '6-21-001',
-    coaAccumulatedCode: base.coaAccumulatedCode || '1-15-001',
+    coaAssetCode: base.coaAssetCode || defaultCat.coa,
+    coaDepreciationCode: base.coaDepreciationCode || defaultCat.depr,
+    coaAccumulatedCode: base.coaAccumulatedCode || defaultCat.accum,
   })
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  // Auto-set COA & Asset Code based on category
-  const handleCategoryChange = (cat) => {
-    set('category', cat)
-    const mapping = COA_MAPPING[cat]
-    if (mapping) {
-      set('coaAssetCode', mapping.asset)
-      set('coaDepreciationCode', mapping.depreciation)
-      set('coaAccumulatedCode', mapping.accumulated)
+  // Auto-set COA based on category
+  const handleCategoryChange = (catLabel) => {
+    set('category', catLabel)
+    const cat = CAT_MAP[catLabel]
+    if (cat) {
+      set('coaAssetCode', cat.coa)
+      set('coaDepreciationCode', cat.depr)
+      set('coaAccumulatedCode', cat.accum)
     }
-    if (!initial) {
-      const code = generateAssetCode(cat)
-      set('assetCode', code)
-    }
+    if (!isEdit) set('assetCode', nextCodeForCategory(catLabel))
   }
 
   const submit = (e) => {
     e.preventDefault()
-    if (!form.assetCode.trim()) {
-      toast.error('Kode aset wajib diisi')
-      return
-    }
-    if (!form.assetName.trim()) {
-      toast.error('Nama aset wajib diisi')
-      return
-    }
-    if (!form.acquisitionCost || parseFloat(form.acquisitionCost) <= 0) {
-      toast.error('Harga perolehan harus > 0')
-      return
-    }
+    if (!form.assetName.trim()) { toast.error('Nama aset wajib diisi'); return }
+    if (!form.acquisitionCost || parseFloat(form.acquisitionCost) <= 0) { toast.error('Harga perolehan harus > 0'); return }
     onSave({
       ...form,
       acquisitionCost: parseFloat(form.acquisitionCost),
       usefulLifeYears: parseInt(form.usefulLifeYears),
+      qty: parseInt(form.qty) || 1,
     })
   }
 
   const monthlyDepr = form.acquisitionCost && form.usefulLifeYears
     ? parseFloat(form.acquisitionCost) / (parseInt(form.usefulLifeYears) * 12)
     : 0
-  const yearlyDepr = form.acquisitionCost && form.usefulLifeYears
-    ? parseFloat(form.acquisitionCost) / parseInt(form.usefulLifeYears)
-    : 0
 
   return (
     <form onSubmit={submit} className="space-y-4 max-h-[70vh] overflow-y-auto">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="form-label">Kode Aset *</label>
-          <input
-            className="form-input font-mono"
-            value={form.assetCode}
-            onChange={e => set('assetCode', e.target.value.toUpperCase())}
-            placeholder="MED-0001"
-            required
-          />
-        </div>
-        <div>
-          <label className="form-label">Kategori *</label>
-          <select
-            className="form-select"
-            value={form.category}
-            onChange={e => handleCategoryChange(e.target.value)}
-          >
-            {ASSET_CATEGORIES.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
+      {/* Kategori - di atas */}
+      <div>
+        <label className="form-label">Kategori Aset *</label>
+        <select className="form-select" value={form.category} onChange={e => handleCategoryChange(e.target.value)}>
+          {ASSET_CATEGORIES.map(c => (
+            <option key={c.label} value={c.label}>{c.label} — prefix: {c.prefix}-</option>
+          ))}
+        </select>
       </div>
 
+      {/* Kode otomatis banner */}
+      <div className="p-3 rounded-xl bg-purple-600 text-white flex items-center justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-purple-200">Kode Aset (Otomatis)</p>
+          <p className="text-xl font-black font-mono">{form.assetCode || (isEdit ? '—' : '…')}</p>
+        </div>
+        <span className="text-xs bg-white/20 px-2 py-1 rounded-lg font-mono">
+          {CAT_MAP[form.category]?.coa || '1-14-001'}
+        </span>
+      </div>
+
+      {/* Nama Aset */}
       <div>
         <label className="form-label">Nama Aset *</label>
         <input
@@ -161,7 +123,7 @@ function AssetForm({ initial, onSave, onClose, coa, nextCode }) {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div>
           <label className="form-label">Harga Perolehan (Rp) *</label>
           <input
@@ -173,7 +135,6 @@ function AssetForm({ initial, onSave, onClose, coa, nextCode }) {
             step={1000}
             required
           />
-          <p className="text-xs text-slate-400 mt-1">Harga perolehan = Saldo awal aset</p>
         </div>
         <div>
           <label className="form-label">Tanggal Perolehan *</label>
@@ -183,6 +144,16 @@ function AssetForm({ initial, onSave, onClose, coa, nextCode }) {
             value={form.acquisitionDate}
             onChange={e => set('acquisitionDate', e.target.value)}
             required
+          />
+        </div>
+        <div>
+          <label className="form-label">Qty / Jumlah Unit</label>
+          <input
+            type="number"
+            className="form-input"
+            value={form.qty}
+            onChange={e => set('qty', e.target.value)}
+            min={1}
           />
         </div>
       </div>
@@ -224,16 +195,6 @@ function AssetForm({ initial, onSave, onClose, coa, nextCode }) {
       </div>
 
       <div>
-        <label className="form-label">Departemen</label>
-        <input
-          className="form-input"
-          value={form.department}
-          onChange={e => set('department', e.target.value)}
-          placeholder="Departemen pengguna…"
-        />
-      </div>
-
-      <div>
         <label className="form-label">Keterangan</label>
         <textarea
           className="form-textarea"
@@ -244,22 +205,13 @@ function AssetForm({ initial, onSave, onClose, coa, nextCode }) {
         />
       </div>
 
-      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700">
-        <div className="flex items-start gap-2">
-          <TrendingDown className="w-4 h-4 mt-0.5 flex-shrink-0" />
-          <div>
-            <strong>Penyusutan Garis Lurus (Tanpa Nilai Residu):</strong><br />
-            Beban per bulan = <strong className="font-mono">{fmtIDR(monthlyDepr)}</strong><br />
-            Beban per tahun = <strong className="font-mono">{fmtIDR(yearlyDepr)}</strong>
-          </div>
+      <div className="bg-blue-600 text-white rounded-xl px-4 py-3 text-xs flex items-start gap-2">
+        <TrendingDown className="w-4 h-4 mt-0.5 flex-shrink-0" />
+        <div>
+          <strong>Penyusutan Garis Lurus:</strong><br />
+          Per bulan = <strong className="font-mono">{fmtIDR(monthlyDepr)}</strong><br />
+          Akun: Dr {form.coaDepreciationCode} — Cr {form.coaAccumulatedCode}
         </div>
-      </div>
-
-      <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-600">
-        <strong>Akun COA Terkait:</strong><br />
-        • Aset: {form.coaAssetCode}<br />
-        • Beban Penyusutan: {form.coaDepreciationCode}<br />
-        • Akumulasi Penyusutan: {form.coaAccumulatedCode}
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
@@ -305,12 +257,6 @@ export default function AssetInventoryPage() {
       .sort((a, b) => a.assetCode.localeCompare(b.assetCode)),
     [fixedAssets, categoryFilter, search]
   )
-
-  // Generate next code
-  const nextCode = useMemo(() => {
-    const category = categoryFilter === 'ALL' ? 'Peralatan Medis' : categoryFilter
-    return generateAssetCode(category)
-  }, [categoryFilter, generateAssetCode])
 
   // Summary calculations
   const totalValue = fixedAssets
@@ -446,29 +392,29 @@ export default function AssetInventoryPage() {
         </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards - Solid */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="card card-body bg-gradient-to-br from-blue-50 to-indigo-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Total Aset Aktif</p>
-          <p className="font-bold text-2xl text-indigo-700">
+        <div className="card card-body bg-blue-600 text-white border-0">
+          <p className="text-xs text-blue-100 mb-1">Total Aset Aktif</p>
+          <p className="font-bold text-2xl">
             {fixedAssets.filter(a => a.status === 'ACTIVE').length}
           </p>
-          <p className="text-xs text-slate-400 mt-1">unit aset tetap</p>
+          <p className="text-xs text-blue-200 mt-1">unit aset tetap</p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-emerald-50 to-teal-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Harga Perolehan</p>
-          <p className="font-bold text-lg text-emerald-700">{fmtIDR(totalAcquisition)}</p>
-          <p className="text-xs text-slate-400 mt-1">total investasi aset</p>
+        <div className="card card-body bg-emerald-600 text-white border-0">
+          <p className="text-xs text-emerald-100 mb-1">Harga Perolehan</p>
+          <p className="font-bold text-lg">{fmtIDR(totalAcquisition)}</p>
+          <p className="text-xs text-emerald-200 mt-1">total investasi aset</p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-amber-50 to-orange-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Akum. Penyusutan</p>
-          <p className="font-bold text-lg text-amber-700">{fmtIDR(totalDepreciation)}</p>
-          <p className="text-xs text-slate-400 mt-1">total penyusutan s/d hari ini</p>
+        <div className="card card-body bg-amber-500 text-white border-0">
+          <p className="text-xs text-amber-100 mb-1">Akum. Penyusutan</p>
+          <p className="font-bold text-lg">{fmtIDR(totalDepreciation)}</p>
+          <p className="text-xs text-amber-100 mt-1">s/d hari ini</p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-purple-50 to-pink-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Nilai Buku</p>
-          <p className="font-bold text-lg text-purple-700">{fmtIDR(totalValue)}</p>
-          <p className="text-xs text-slate-400 mt-1">nilai aset saat ini</p>
+        <div className="card card-body bg-purple-600 text-white border-0">
+          <p className="text-xs text-purple-100 mb-1">Nilai Buku</p>
+          <p className="font-bold text-lg">{fmtIDR(totalValue)}</p>
+          <p className="text-xs text-purple-200 mt-1">nilai aset saat ini</p>
         </div>
       </div>
 
@@ -485,16 +431,16 @@ export default function AssetInventoryPage() {
         </button>
         {ASSET_CATEGORIES.map(c => (
           <button
-            key={c}
-            onClick={() => setCategoryFilter(c)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${categoryFilter === c
+            key={c.label}
+            onClick={() => setCategoryFilter(c.label)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${categoryFilter === c.label
               ? 'bg-primary-600 text-white border-primary-600'
               : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
           >
-            {c}{' '}
+            [{c.prefix}] {c.label}{' '}
             <span className="ml-1 opacity-60">
-              {fixedAssets.filter(a => a.category === c && a.status === 'ACTIVE').length}
+              {fixedAssets.filter(a => a.category === c.label && a.status === 'ACTIVE').length}
             </span>
           </button>
         ))}
@@ -515,12 +461,13 @@ export default function AssetInventoryPage() {
           <table className="table-base">
             <thead>
               <tr>
-                <th style={{ width: 110 }}>Kode Aset</th>
+                <th style={{ width: 100 }}>Kode Aset</th>
                 <th>Nama Aset</th>
                 <th>Kategori</th>
+                <th style={{ width: 50 }} className="text-center">Qty</th>
                 <th>Lokasi</th>
                 <th className="text-right">Harga Perolehan</th>
-                <th className="text-right">Umur (Thn)</th>
+                <th>Tgl Perolehan</th>
                 <th className="text-right">Akum. Penyusutan</th>
                 <th className="text-right">Nilai Buku</th>
                 <th>Kondisi</th>
@@ -552,12 +499,15 @@ export default function AssetInventoryPage() {
                         {asset.assetCode}
                       </td>
                       <td className="font-medium">{asset.assetName}</td>
-                      <td className="text-sm text-slate-600">{asset.category}</td>
+                      <td>
+                        <span className="badge badge-blue">{asset.category}</span>
+                      </td>
+                      <td className="text-center font-bold text-slate-700">{asset.qty || 1}</td>
                       <td className="text-sm text-slate-500">{asset.location || '—'}</td>
                       <td className="text-right font-mono text-sm">
                         {fmtIDR(asset.acquisitionCost)}
                       </td>
-                      <td className="text-right text-sm">{asset.usefulLifeYears}</td>
+                      <td className="text-xs text-slate-500">{asset.acquisitionDate ? asset.acquisitionDate.slice(0, 10) : '—'}</td>
                       <td className="text-right font-mono text-sm text-amber-700">
                         {fmtIDR(asset.accumulatedDepreciation || 0)}
                         <div className="text-xs text-slate-400 mt-0.5">
@@ -568,7 +518,7 @@ export default function AssetInventoryPage() {
                         {fmtIDR(asset.bookValue || asset.acquisitionCost)}
                       </td>
                       <td>
-                        <span className={`badge ${CONDITION_COLORS[asset.condition]} text-xs`}>
+                        <span className={`badge ${CONDITION_COLORS[asset.condition]}`}>
                           {CONDITION_LABELS[asset.condition]}
                         </span>
                       </td>
@@ -637,7 +587,7 @@ export default function AssetInventoryPage() {
               setSelected(null)
             }}
             coa={coa}
-            nextCode={nextCode}
+            fixedAssets={fixedAssets}
           />
         </Modal>
       ) : modal === 'disposal' ? (

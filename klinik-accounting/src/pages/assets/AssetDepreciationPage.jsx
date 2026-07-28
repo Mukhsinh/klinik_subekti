@@ -133,8 +133,8 @@ function DepreciationForm({ onSave, onClose, assets, period }) {
               <label
                 key={asset.id}
                 className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${isSelected
-                    ? 'bg-primary-50 border-primary-300'
-                    : 'bg-white border-slate-200 hover:border-slate-300'
+                  ? 'bg-primary-50 border-primary-300'
+                  : 'bg-white border-slate-200 hover:border-slate-300'
                   }`}
               >
                 <input
@@ -370,28 +370,28 @@ export default function AssetDepreciationPage() {
         </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards with Bright Solid Theme */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="card card-body bg-gradient-to-br from-blue-50 to-indigo-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Total Penyusutan {yearFilter}</p>
-          <p className="font-bold text-lg text-indigo-700">{fmtIDR(stats.totalThisYear)}</p>
+        <div className="card card-body bg-blue-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-blue-100 uppercase tracking-wider font-semibold mb-1">Total Penyusutan {yearFilter}</p>
+          <p className="font-bold text-2xl font-mono text-white">{fmtIDR(stats.totalThisYear)}</p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-green-50 to-emerald-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Posted {yearFilter}</p>
-          <p className="font-bold text-2xl text-emerald-700">{stats.postedThisYear}</p>
-          <p className="text-xs text-slate-400 mt-1">periode</p>
+        <div className="card card-body bg-emerald-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-emerald-100 uppercase tracking-wider font-semibold mb-1">Posted {yearFilter}</p>
+          <p className="font-bold text-3xl font-mono text-white">{stats.postedThisYear}</p>
+          <p className="text-xs text-emerald-100 mt-1">periode</p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-yellow-50 to-amber-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Draft {yearFilter}</p>
-          <p className="font-bold text-2xl text-amber-700">{stats.draftThisYear}</p>
-          <p className="text-xs text-slate-400 mt-1">periode</p>
+        <div className="card card-body bg-amber-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-amber-100 uppercase tracking-wider font-semibold mb-1">Draft {yearFilter}</p>
+          <p className="font-bold text-3xl font-mono text-white">{stats.draftThisYear}</p>
+          <p className="text-xs text-amber-100 mt-1">periode</p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-purple-50 to-pink-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Aset Aktif</p>
-          <p className="font-bold text-2xl text-purple-700">
+        <div className="card card-body bg-purple-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-purple-100 uppercase tracking-wider font-semibold mb-1">Aset Aktif</p>
+          <p className="font-bold text-3xl font-mono text-white">
             {fixedAssets.filter(a => a.status === 'ACTIVE').length}
           </p>
-          <p className="text-xs text-slate-400 mt-1">unit aset</p>
+          <p className="text-xs text-purple-100 mt-1">unit aset</p>
         </div>
       </div>
 

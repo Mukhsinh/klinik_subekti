@@ -1,0 +1,249 @@
+account_code;account_name;account_type;account_group;account_subgroup;natural_balance;is_header;parent_code;description;is_active
+1;ASET;ASSET;ASET;;DEBIT;TRUE;;;TRUE
+01-Jan;Aset Lancar;ASSET;ASET LANCAR;;DEBIT;TRUE;;;TRUE
+01-Nov;Kas dan Bank;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;TRUE;;;TRUE
+1-11-001;Kas Kecil;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;TRUE;;;TRUE
+1-11-003;Bank BRI — Operasional;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;FALSE;;;TRUE
+1-11-006;Deposito Jangka Pendek;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;;;;
+01-Dec;Piutang Usaha;ASSET;ASET LANCAR;Piutang;DEBIT;TRUE;;;TRUE
+1-12-001;Piutang Klaim BPJS Kesehatan;ASSET;ASET LANCAR;Piutang;DEBIT;FALSE;;;TRUE
+1-12-002;Piutang Klaim Asuransi Swasta;ASSET;ASET LANCAR;Piutang;DEBIT;FALSE;;;TRUE
+1-12-003;Piutang Pasien Umum;ASSET;ASET LANCAR;Piutang;DEBIT;FALSE;;;TRUE
+1-12-004;Piutang Perusahaan Rekanan;ASSET;ASET LANCAR;Piutang;DEBIT;FALSE;;;TRUE
+;Uang Muka;;;;;;;;
+;Uang Muka Pembelian;ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;FALSE;;;TRUE
+;Beban Dibayar Dimuka;;;;;;;;
+;Beban Dibayar Dimuka;;;;;;;;
+;Penyisihan Piutang;;;;;;;;
+;Penyisihan Piutang Usaha;;;;KREDIT;;;;
+;Piutang Pajak;;;;;;;;
+1-14-002;PPN Masukan (Pajak Dibayar Dimuka);ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;FALSE;;;TRUE
+1-14-003;PPh 25 Dibayar Dimuka;ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;FALSE;;;TRUE
+Jan-13;Persediaan;ASSET;ASET LANCAR;Persediaan;DEBIT;TRUE;;;TRUE
+1-13-001;Persediaan Obat Paten;ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;;;TRUE
+1-13-002;Persediaan Obat Generik;ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;;;TRUE
+1-13-003;Persediaan BHP;ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;;;TRUE
+1-13-004;Persediaan Rumah Tangga;ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;;;TRUE
+1-13-005;Persediaan Vaksin;ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;;;TRUE
+;Investasi Jangka Panjang;;;;;;;;
+;Deposito Jangka Panjang;;;;;;;;
+Jan-14;Aset Lancar Lainnya;ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;TRUE;;;TRUE
+01-Feb;Aset Tidak Lancar;ASSET;ASET TIDAK LANCAR;;DEBIT;TRUE;;;TRUE
+Jan-21;Aset Tetap;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;TRUE;;;TRUE
+1-21-001;Tanah;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;;;TRUE
+1-21-002;Bangunan;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;;;TRUE
+1-21-003;Peralatan Medis;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;;;TRUE
+1-21-004;Alat Laboratorium;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;;;TRUE
+1-21-005;Mebel dan Perlengkapan Kantor;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;;;TRUE
+1-21-006;Kendaraan Operasional;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;;;TRUE
+1-21-007;Alat Elektronik;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;;;TRUE
+Jan-22;Akumulasi Penyusutan;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;TRUE;;;TRUE
+1-22-001;Akum. Penyusutan Bangunan;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;;;TRUE
+1-22-002;Akum. Penyusutan Peralatan Medis;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;;;TRUE
+1-22-003;Akum. Penyusutan Alat Laboratorium;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;;;TRUE
+1-22-004;Akum. Penyusutan Mebel & Perlengkapan;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;;;TRUE
+1-22-005;Akum. Penyusutan Kendaraan;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;;;TRUE
+1-22-006;Akum. Penyusutan Komputer & SI;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;;;TRUE
+;Aset Lainnya;;;;;;;;
+;Aset Tak Berwujud;;;;;;;;
+1-23-001;Lisensi Perangkat Lunak;ASSET;ASET TIDAK LANCAR;Aset Tidak Berwujud;DEBIT;FALSE;;;TRUE
+1-23-002;Izin Praktik Klinik (SIK/SIA);ASSET;ASET TIDAK LANCAR;Aset Tidak Berwujud;DEBIT;FALSE;;;TRUE
+1-23-003;Software/Aplikasi;;;;;;;;
+;Akumulasi Amortisasi Aset Tak Berwujud;;;;;;;;
+;Akumulasi Amortisasi Aset Tak Berwujud;;;;;;;;
+;Aset Lain-lain;;;;;;;;
+;Aset Rusak;;;;;;;;
+;Akumulasi Penyusutan Aset Lain-lain;;;;;;;;
+;Akumulasi Penyusutan Aset Lain-lain;;;;;;;;
+2;LIABILITAS;LIABILITY;LIABILITAS;;CREDIT;TRUE;;;TRUE
+02-Jan;Liabilitas Jangka Pendek;LIABILITY;LIABILITAS JANGKA PENDEK;;CREDIT;TRUE;;;TRUE
+;Utang Gaji dan tunjangan;;;;;;;;
+;Utang Gaji;;;;;;;;
+;Utang Tunjangan;;;;;;;;
+;Utang Jasa Medis Dokter;;;;;;;;
+;Utang Jasa Medis Dokter Umum;;;;;;;;
+;Utang Jasa Medis Dokter Spesialis;;;;;;;;
+;Utang Asuransi;;;;;;;;
+;Utang Jaminan Kesehatan;;;;;;;;
+;Utang Jaminan Ketenagakerjaan;;;;;;;;
+02-Nov;Utang Barang;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;TRUE;;;TRUE
+2-11-001;Utang Pembelian Obat & BHP;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;;;TRUE
+2-11-002;Utang Pembelian Rumah Tangga;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;;;TRUE
+;Utang Pembelian Rumah Tangga;;;;;;;;
+;Utang Pembelian Peralatan Medis;;;;;;;;
+;Utang Pembelian Alat Laboratorium;;;;;;;;
+;Utang Pembelian Mebel dan Peralatan Kantor;;;;;;;;
+;Utang Pembelian Kendaraan Operasional;;;;;;;;
+;Utang Pembelian Alat Elektronik;;;;;;;;
+;Utang Pembelian Aset Tak Berwujud;;;;;;;;
+;Utang Pembelian Lainnya;;;;;;;;
+;Utang Jasa;;;;;;;;
+;Utang Jasa Kebersihan;;;;;;;;
+;Utang Jasa Pemeriksaan Laboratorium;;;;;;;;
+;Utang Jasa Tenaga Masak;;;;;;;;
+;Utang Jasa Tenaga Keamanan;;;;;;;;
+;Utang Jasa Tenaga Teknisi Mekanik dan Listrik;;;;;;;;
+;Utang Jasa Audit/Surveillance;;;;;;;;
+;Utang Jasa Tenaga Informasi dan Teknologi;;;;;;;;
+;Utang Jasa pemasangan Instalasi Telepon Air, dan Listrik;;;;;;;;
+;Utang Jasa Penyelenggara Acara;;;;;;;;
+;Utang Jasa Kalibrasi;;;;;;;;
+;Utang Jasa Laundry;;;;;;;;
+;Utang Tagihan Air;;;;;;;;
+;Utang Tagihan Listrik;;;;;;;;
+;Utang Telepon dan Internet;;;;;;;;
+;Utang Tagihan Surat Kabar/Majalah/Koran;;;;;;;;
+;Utang Paket Pengiriman;;;;;;;;
+;Utang Lembur;;;;;;;;
+;Utang Asuransi Bangunan;;;;;;;;
+;Utang Medical Check Up;;;;;;;;
+;Utang Sewa Bangunan Tempat Kerja;;;;;;;;
+;Utang Sewa Peralatan Medis;;;;;;;;
+;Utang Sewa  Alat Laboratorium;;;;;;;;
+;Utang Sewa Mebel dan Perlengkapan Kantor;;;;;;;;
+;Utang Sewa Alat Elektronik;;;;;;;;
+;Utang Sewa Angkutan;;;;;;;;
+;Utang Pemeliharaan Bangunan Tempat Kerja;;;;;;;;
+;Utang Pemeliharaan Peralatan Medis;;;;;;;;
+;Utang Pemeliharaan  Alat Laboratorium;;;;;;;;
+;Utang Pemeliharaan Mebel dan Perlengkapan Kantor;;;;;;;;
+;Utang Pemeliharaan Alat Elektronik;;;;;;;;
+Feb-13;Utang Pajak;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Pajak;CREDIT;TRUE;;;TRUE
+2-13-001;Utang PPh Pasal 21 (Dokter);LIABILITY;LIABILITAS JANGKA PENDEK;Utang Pajak;CREDIT;FALSE;;;TRUE
+2-13-002;Utang PPh Pasal 21 (Karyawan);LIABILITY;LIABILITAS JANGKA PENDEK;Utang Pajak;CREDIT;FALSE;;;TRUE
+2-13-003;Utang PPh Pasal 23;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Pajak;CREDIT;FALSE;;;TRUE
+Feb-14;Utang PPN;LIABILITY;LIABILITAS JANGKA PENDEK;Utang PPN;CREDIT;TRUE;;;TRUE
+2-14-001;PPN Keluaran — Penjualan Obat;LIABILITY;LIABILITAS JANGKA PENDEK;Utang PPN;CREDIT;FALSE;;;TRUE
+Feb-15;Utang Lainnya;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Lainnya;CREDIT;TRUE;;;TRUE
+2-15-003;Pendapatan Diterima Dimuka;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Lainnya;CREDIT;FALSE;;;TRUE
+02-Feb;Liabilitas Jangka Panjang;LIABILITY;LIABILITAS JANGKA PANJANG;;CREDIT;TRUE;;;TRUE
+2-21-001;Utang Bank Jangka Panjang;LIABILITY;LIABILITAS JANGKA PANJANG;Utang Bank;CREDIT;FALSE;;;TRUE
+2-21-002;Utang Leasing Alat Medis;LIABILITY;LIABILITAS JANGKA PANJANG;Utang Leasing;CREDIT;FALSE;;;TRUE
+3;EKUITAS;EQUITY;EKUITAS;;CREDIT;TRUE;;;TRUE
+3-11-001;Modal Disetor;EQUITY;EKUITAS;Modal;CREDIT;FALSE;;;TRUE
+3-11-002;Tambahan Modal Disetor;EQUITY;EKUITAS;Modal;CREDIT;FALSE;;;TRUE
+3-12-001;Laba Ditahan;EQUITY;EKUITAS;Laba Ditahan;CREDIT;FALSE;;;TRUE
+3-12-002;Laba / Rugi Tahun Berjalan;EQUITY;EKUITAS;Laba Ditahan;CREDIT;FALSE;;;TRUE
+3-13-001;Dividen Dibayarkan;EQUITY;EKUITAS;Dividen;DEBIT;FALSE;;;TRUE
+3-14-001;Prive;EQUITY;EKUITAS;Prive;DEBIT;;;;
+4;PENDAPATAN;REVENUE;PENDAPATAN;;CREDIT;TRUE;;;TRUE
+04-Nov;Pendapatan Pelayanan Medis;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;TRUE;;;TRUE
+4-11-001;Pendapatan Konsultasi/Pemeriksaan Dokter Umum;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;;;TRUE
+4-11-002;Pendapatan Konsultasi Dokter Spesialis;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;;;TRUE
+4-11-003;Pendapatan Tindakan Medis Minor;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;;;TRUE
+4-11-004;Pendapatan Tindakan Medis Mayor;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;;;TRUE
+;Pendapatan Tindakan ECHO;;;;;;;;
+;Pendapatan Tindakan EKG;;;;;;;;
+04-Dec;Pendapatan Laboratorium;REVENUE;PENDAPATAN OPERASIONAL;Laboratorium;CREDIT;TRUE;;;TRUE
+4-12-001;Pendapatan Pemeriksaan Darah;REVENUE;PENDAPATAN OPERASIONAL;Laboratorium;CREDIT;FALSE;;;TRUE
+4-12-002;Pendapatan Pemeriksaan Urine;REVENUE;PENDAPATAN OPERASIONAL;Laboratorium;CREDIT;FALSE;;;TRUE
+Apr-13;Pendapatan Farmasi;REVENUE;PENDAPATAN OPERASIONAL;Farmasi;CREDIT;TRUE;;;TRUE
+4-13-001;Pendapatan Penjualan Obat Etikal;REVENUE;PENDAPATAN OPERASIONAL;Farmasi;CREDIT;FALSE;;;TRUE
+4-13-002;Pendapatan Penjualan Obat OTC;REVENUE;PENDAPATAN OPERASIONAL;Farmasi;CREDIT;FALSE;;;TRUE
+4-13-003;Pendapatan Penjualan BHP Medis;REVENUE;PENDAPATAN OPERASIONAL;Farmasi;CREDIT;FALSE;;;TRUE
+;Pendapatan Non Pelayanan;;;;;;;;
+;Pendapatan Administrasi;;;;;;;;
+;Pendapatan Penjualan Aset;;;;;;;;
+;Pendapatan Barang Bekas;;;;;;;;
+;Pendaptan Hibah;;;;;;;;
+;Pendapatan Hibah;;;;;;;;
+;Pendapatan Lain-Lain;;;;;;;;
+;Pendapatan Bunga;;;;;;;;
+4-91-001;Pendapatan Bunga Bank;REVENUE;PENDAPATAN NON-OPERASIONAL;Non-Operasional;CREDIT;FALSE;;;TRUE
+;Surplus Penjualan Aset;;;;;;;;
+;Surplus Penjualan Aset;;;;;;;;
+;Pendapatan Lain-lain;;;;;;;;
+4-91-002;Pendapatan Lain-Lain;REVENUE;PENDAPATAN NON-OPERASIONAL;Non-Operasional;CREDIT;FALSE;;;TRUE
+5;HARGA POKOK PENJUALAN;EXPENSE;HARGA POKOK;;DEBIT;TRUE;;;TRUE
+05-Nov;Harga Pokok Penjualan;EXPENSE;HARGA POKOK;HPP;DEBIT;TRUE;;;TRUE
+5-11-001;Harga Pokok Obat Paten;EXPENSE;HARGA POKOK;HPP;DEBIT;FALSE;;;TRUE
+5-11-002;Harga Pokok Obat Generik;EXPENSE;HARGA POKOK;HPP;DEBIT;FALSE;;;TRUE
+5-11-003;Harga Pokok BHP;EXPENSE;HARGA POKOK;HPP;DEBIT;FALSE;;;TRUE
+5-11-004;Harga Pokok Rumah Tangga;EXPENSE;HARGA POKOK;HPP;DEBIT;FALSE;;;TRUE
+6;BEBAN OPERASIONAL;EXPENSE;BEBAN OPERASIONAL;;DEBIT;TRUE;;;TRUE
+06-Nov;Beban Sumber Daya Manusia;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;TRUE;;;TRUE
+6-11-001;Gaji Dokter Tetap;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;;;TRUE
+6-11-002;Gaji Perawat & Bidan;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;;;TRUE
+6-11-003;Gaji Apoteker & Asisten Apoteker;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;;;TRUE
+6-11-004;Gaji Staff Administrasi;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;;;TRUE
+6-11-005;Tunjangan Karyawan;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;;;TRUE
+6-11-006;Asuransi Kesehatan — Bagian Perusahaan;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;;;TRUE
+6-11-007;Asuransi Tenaga Kerja — Bagian Perusahaan;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;;;TRUE
+06-Dec;Beban Jasa Medis Dokter;EXPENSE;BEBAN OPERASIONAL;Jasa Medis;DEBIT;TRUE;;;TRUE
+6-12-001;Bagi Hasil Jasa Medis — Dokter Umum;EXPENSE;BEBAN OPERASIONAL;Jasa Medis;DEBIT;FALSE;;;TRUE
+6-12-002;Bagi Hasil Jasa Medis — Dokter Spesialis;EXPENSE;BEBAN OPERASIONAL;Jasa Medis;DEBIT;FALSE;;;TRUE
+Jun-13;Beban Barang;EXPENSE;BEBAN OPERASIONAL;Operasional;DEBIT;TRUE;;;TRUE
+;Beban Obat Paten;;;;;;;;
+;Beban Obat Generik;;;;;;;;
+;Beban BHP;;;;;;;;
+;Beban Rumah Tangga;;;;;;;;
+;Beban Vaksin;;;;;;;;
+;Beban Alat Tulis Kantor;;;;;;;;
+;Beban Jasa;;;;;;;;
+;Beban Jasa Kebersihan;;;;;;;;
+;Beban Jasa Pemeriksaan Laboratorium;;;;;;;;
+;Beban Jasa Tenaga Masak;;;;;;;;
+;Beban Jasa Tenaga Keamanan;;;;;;;;
+;Beban Sopir;;;;;;;;
+;Beban Tenaga Ahli;;;;;;;;
+;Beban Jasa Tenaga Teknisi Mekanik dan Listrik;;;;;;;;
+;Beban untuk Sosial;;;;;;;;
+;Beban Souvenir;;;;;;;;
+;Beban Jasa Hiburan/Rekreasi;;;;;;;;
+;Beban Jasa Audit/Surveillance;;;;;;;;
+;Beban Notaris dan Legal;;;;;;;;
+;Beban Jasa Tenaga Informasi dan Teknologi;;;;;;;;
+;Beban Jasa pemasangan Instalasi Telepon Air, dan Listrik;;;;;;;;
+;Beban Jasa Penyelenggara Acara;;;;;;;;
+;Beban Jasa Kalibrasi;;;;;;;;
+;Beban Jasa Laundry;;;;;;;;
+;Beban Tagihan Air;;;;;;;;
+;Beban Tagihan Listrik;;;;;;;;
+;BebanTelepon dan Internet;;;;;;;;
+;BebanTagihan Surat Kabar/Majalah/Koran;;;;;;;;
+;Beban Paket Pengiriman;;;;;;;;
+;Beban Lembur;;;;;;;;
+;Beban Asuransi Bangunan;;;;;;;;
+;Beban Medical Check Up;;;;;;;;
+;Beban Sewa;;;;;;;;
+;Beban Sewa Bangunan Tempat Kerja;;;;;;;;
+;Beban Sewa Peralatan Medis;;;;;;;;
+;Beban Sewa  Alat Laboratorium;;;;;;;;
+;Beban Sewa Mebel dan Perlengkapan Kantor;;;;;;;;
+;Beban Sewa Alat Elektronik;;;;;;;;
+;Beban  Sewa Angkutan;;;;;;;;
+Jun-14;Beban Pemeliharaan;EXPENSE;BEBAN OPERASIONAL;Pemeliharaan;DEBIT;TRUE;;;TRUE
+6-14-001;Pemeliharaan Gedung;EXPENSE;BEBAN OPERASIONAL;Pemeliharaan;DEBIT;FALSE;;;TRUE
+;Beban Pemeliharaan Tanah;;;;;;;;
+;Beban Pemeliharaan Bangunan;;;;;;;;
+;Beban Pemeliharaan Peralatan Medis;;;;;;;;
+;Beban Pemeliharaan Alat Laboratorium;;;;;;;;
+;Beban Pemeliharaan Mebel dan Perlengkapan Kantor;;;;;;;;
+;Beban Pemeliharaan Kendaraan Operasional;;;;;;;;
+;Beban Pemeliharaan Alat Elektronik;;;;;;;;
+;Beban Pemeliharaan Aset Tak Berwujud;;;;;;;;
+;Beban Makan Minum;;;;;;;;
+;Beban Makan Minum Kantor;;;;;;;;
+;Beban Makan Minum Tamu;;;;;;;;
+;Beban Pakaian Dinas;;;;;;;;
+;Beban pakain Dinas;;;;;;;;
+;Beban Penyisihan Piutang;;;;;;;;
+;Beban Penyisihan Piutang;;;;;;;;
+Jun-15;Beban Penyusutan dan Amortisasi;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;TRUE;;;TRUE
+6-15-001;Beban Penyusutan Bangunan;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;;;TRUE
+6-15-002;Beban Penyusutan Peralatan Medis;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;;;TRUE
+6-15-003;Beban Penyusutan Alat Laboratorium;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;;;TRUE
+6-15-004;Beban Penyusutan Mebel & Perlengkapan;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;;;TRUE
+6-16-001;Beban Penyusutan Kendaraan;EXPENSE;BEBAN OPERASIONAL;Pemasaran;DEBIT;FALSE;;;TRUE
+;Beban Penyusutan Komputer & SI;;;;;;;;
+;Amortisasi Aset Tak berwujud;;;;;;;;
+Jun-17;Beban Kerugian Persediaan;EXPENSE;BEBAN OPERASIONAL;Kerugian;DEBIT;TRUE;;;TRUE
+6-17-002;Selisih Stok Opname;EXPENSE;BEBAN OPERASIONAL;Kerugian;DEBIT;FALSE;;;TRUE
+Jun-18;Beban Administrasi & Umum;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;TRUE;;;TRUE
+;Beban Bunga;;;;;;;;
+6-18-004;Beban Bunga Pinjaman;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;;;TRUE
+;Beban Pajak;;;;;;;;
+;Beban PPh 21 Badan;;;;;;;;
+6-18-005;Beban Pajak Lainnya;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;;;TRUE
+;Beban Lain-lain;;;;;;;;
+6-18-006;Beban Lain-Lain;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;;;TRUE

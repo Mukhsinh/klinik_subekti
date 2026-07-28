@@ -4,13 +4,13 @@ import Modal from '../ui/Modal'
 import { fmtIDR } from '../../utils/format'
 import toast from 'react-hot-toast'
 
-export default function AddPharmacyItemModal({ 
-  open, 
-  onClose, 
-  pharmacyItems, 
-  invBatches, 
+export default function AddPharmacyItemModal({
+  open,
+  onClose,
+  pharmacyItems,
+  invBatches,
   getItemStock,
-  onAdd 
+  onAdd
 }) {
   const [selectedItem, setSelectedItem] = useState(null)
   const [quantity, setQuantity] = useState(1)
@@ -18,19 +18,33 @@ export default function AddPharmacyItemModal({
 
   // Filter and prepare pharmacy options
   const availableItems = useMemo(() => {
-    return pharmacyItems
-      .filter(i => i.isActive !== false)
-      .filter(i => ['OBAT_PATEN', 'OBAT_GENERIK'].includes(i.category))
+    return (pharmacyItems || [])
+      .filter(i => i.isActive !== false && i.is_active !== false)
       .map(i => {
-        const stock = invBatches
+        const stock = (invBatches || [])
           .filter(b => b.itemId === i.id && b.quantityCurrent > 0)
           .reduce((s, b) => s + b.quantityCurrent, 0)
-        
+
+        const catRaw = i.category || i.itemCategory || i.item_category || ''
+        let categoryLabel = 'BHP / Item'
+        if (catRaw === 'OBAT_PATEN') categoryLabel = 'Paten'
+        else if (catRaw === 'OBAT_GENERIK') categoryLabel = 'Generik'
+        else if (catRaw === 'BHP' || catRaw === 'BHP_MEDIS') categoryLabel = 'BHP'
+        else if (catRaw === 'RUMAH_TANGGA' || catRaw === 'RT') categoryLabel = 'RT'
+
+        const code = i.itemCode || i.skuCode || i.item_code || i.sku_code || 'SKU'
+        const name = i.itemName || i.item_name || 'Item'
+        const price = i.sellingPrice || i.selling_price || 0
+
         return {
           ...i,
+          id: i.id,
+          itemCode: code,
+          itemName: name,
+          sellingPrice: price,
           stock,
-          categoryLabel: i.category === 'OBAT_PATEN' ? 'Paten' : 'Generik',
-          searchText: `${i.itemCode} ${i.itemName}`.toLowerCase()
+          categoryLabel,
+          searchText: `${code} ${name}`.toLowerCase()
         }
       })
       .filter(i => i.stock > 0) // Only show items with stock
@@ -101,8 +115,8 @@ export default function AddPharmacyItemModal({
             <X className="w-4 h-4" />
             Batal
           </button>
-          <button 
-            className="btn-primary" 
+          <button
+            className="btn-primary"
             onClick={handleAdd}
             disabled={!selectedItem || isOverStock}
           >
@@ -144,18 +158,16 @@ export default function AddPharmacyItemModal({
                     key={item.id}
                     type="button"
                     onClick={() => handleSelectItem(item)}
-                    className={`w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors ${
-                      selectedItem?.id === item.id ? 'bg-primary-50 border-l-4 border-primary-600' : ''
-                    }`}
+                    className={`w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors ${selectedItem?.id === item.id ? 'bg-primary-50 border-l-4 border-primary-600' : ''
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                            item.category === 'OBAT_PATEN' 
-                              ? 'bg-blue-100 text-blue-700' 
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded ${item.category === 'OBAT_PATEN'
+                              ? 'bg-blue-100 text-blue-700'
                               : 'bg-green-100 text-green-700'
-                          }`}>
+                            }`}>
                             {item.categoryLabel}
                           </span>
                           <span className="text-xs text-slate-500 font-mono">{item.itemCode}</span>
@@ -202,9 +214,8 @@ export default function AddPharmacyItemModal({
                 <label className="form-label">Jumlah *</label>
                 <input
                   type="number"
-                  className={`form-input text-center text-lg font-semibold ${
-                    isOverStock ? 'border-red-500 bg-red-50' : ''
-                  }`}
+                  className={`form-input text-center text-lg font-semibold ${isOverStock ? 'border-red-500 bg-red-50' : ''
+                    }`}
                   value={quantity}
                   onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
                   min={1}
@@ -213,9 +224,8 @@ export default function AddPharmacyItemModal({
               </div>
               <div>
                 <label className="form-label">Stok Tersedia</label>
-                <div className={`form-input bg-white text-center text-lg font-bold ${
-                  isOverStock ? 'text-red-600' : 'text-emerald-600'
-                }`}>
+                <div className={`form-input bg-white text-center text-lg font-bold ${isOverStock ? 'text-red-600' : 'text-emerald-600'
+                  }`}>
                   {selectedItem.stock} unit
                 </div>
               </div>
@@ -228,7 +238,7 @@ export default function AddPharmacyItemModal({
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-red-900">Stok tidak mencukupi!</p>
                   <p className="text-xs text-red-700 mt-1">
-                    Jumlah yang Anda minta ({quantity} unit) melebihi stok tersedia ({selectedItem.stock} unit). 
+                    Jumlah yang Anda minta ({quantity} unit) melebihi stok tersedia ({selectedItem.stock} unit).
                     Silakan kurangi jumlah atau pilih obat lain.
                   </p>
                 </div>

@@ -708,7 +708,7 @@ export async function fetchOpeningBalances(filters = {}) {
         account_code,
         account_name,
         account_type,
-        normal_balance
+        natural_balance
       ),
       clinic_entities:branch_id (
         id,
@@ -946,7 +946,7 @@ export async function deleteInventoryOpeningBalance(itemId) {
 
   if (batches && batches.length > 0) {
     const batchIds = batches.map(b => b.id)
-    
+
     // Delete ledger entries
     const { error: ledgerError } = await supabase
       .from('stock_ledger_cards')

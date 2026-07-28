@@ -20,7 +20,7 @@ export default function LoginPage() {
     const result = login(username.trim(), password)
     setLoading(false)
     if (result.ok) {
-      toast.success(`Selamat datang, ${result.user.name}!`)
+      toast.success('Login berhasil. Selamat bekerja!')
       navigate('/', { replace: true })
     } else {
       toast.error(result.error)

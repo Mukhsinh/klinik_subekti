@@ -98,37 +98,46 @@ export default function InventoryOpeningBalancePage() {
     return (
         <div className="space-y-5">
             {/* Header */}
-            <div className="flex items-start justify-between flex-wrap gap-3">
+            <div className="flex items-start justify-between flex-wrap gap-4">
                 <div>
                     <h1 className="page-title">Saldo Awal Persediaan (Inventory)</h1>
                     <p className="text-sm text-slate-400 mt-0.5">
                         Input saldo awal kuantitas dan harga pokok (HPP) untuk setiap item barang medis / farmasi.
                     </p>
                 </div>
-                <div className="flex gap-2">
-                    {refreshAll && (
-                        <button className="btn-secondary" onClick={refreshAll} title="Tarik data terbaru">
-                            <RefreshCw className="w-4 h-4" /> Refresh
-                        </button>
-                    )}
+                <div className="flex flex-wrap gap-2 items-center">
+                    <button className="btn-orange">
+                        <Package className="w-4 h-4" />Unduh Template Impor
+                    </button>
+                    <button className="btn-emerald">
+                        <Package className="w-4 h-4" />Impor Data
+                    </button>
                     <button
                         onClick={handleSave}
                         disabled={saving}
-                        className="btn-primary"
+                        className="btn-danger-red"
                     >
                         <Save className="w-4 h-4" /> {saving ? 'Menyimpan...' : 'Simpan Saldo Awal'}
                     </button>
+                    <button className="btn-royal-blue">
+                        <Package className="w-4 h-4" />Unduh Laporan
+                    </button>
+                    {refreshAll && (
+                        <button className="btn-square-refresh" onClick={refreshAll} title="Tarik data terbaru">
+                            <RefreshCw className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
             </div>
 
             {/* Summary card & Search */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="card card-body bg-slate-50 border-0 md:col-span-2 flex items-center justify-between">
+                <div className="card card-body bg-emerald-500 text-white border-0 shadow-sm md:col-span-2 flex items-center justify-between">
                     <div>
-                        <p className="text-xs text-slate-500 mb-1">Total Nilai Saldo Awal Persediaan</p>
-                        <p className="font-bold text-2xl text-primary-700">{fmtIDR(grandTotalValue)}</p>
+                        <p className="text-xs text-emerald-100 font-semibold uppercase tracking-wider mb-1">Total Nilai Saldo Awal Persediaan</p>
+                        <p className="font-extrabold text-3xl font-mono text-white">{fmtIDR(grandTotalValue)}</p>
                     </div>
-                    <div className="text-sm text-slate-400">
+                    <div className="text-sm text-emerald-100 font-semibold bg-emerald-600/50 px-3 py-1.5 rounded-lg">
                         {Object.values(editableBalances).filter(b => b.quantity > 0).length} item terisi saldo awal
                     </div>
                 </div>

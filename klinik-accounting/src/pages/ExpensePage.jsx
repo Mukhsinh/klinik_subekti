@@ -10,6 +10,7 @@ import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
 const EXPENSE_CATEGORIES = [
+  { label: 'Pembayaran Utang PBF / Supplier', coa: '2-11-001' },
   { label: 'Listrik', coa: '6-13-001' },
   { label: 'Air (PDAM)', coa: '6-13-002' },
   { label: 'Telepon & Internet', coa: '6-13-003' },
@@ -58,101 +59,127 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
 
   const submit = (e) => {
     e.preventDefault()
-    if (!form.description.trim()) { 
+    if (!form.description.trim()) {
       toast.error('Keterangan pengeluaran wajib diisi.')
-      return 
+      return
     }
-    if (!(parseFloat(form.grossAmount) > 0)) { 
+    if (!(parseFloat(form.grossAmount) > 0)) {
       toast.error('Nominal pengeluaran harus lebih dari 0.')
-      return 
+      return
     }
-    onSave({ 
-      ...form, 
-      grossAmount: gross, 
-      ppnAmount: ppn, 
-      pphAmount: pph, 
-      netAmount, 
-      coaCode: selectedCat.coa, 
-      branchId: activeBranchId, 
-      status: 'DRAFT' 
+    onSave({
+      ...form,
+      grossAmount: gross,
+      ppnAmount: ppn,
+      pphAmount: pph,
+      netAmount,
+      coaCode: selectedCat.coa,
+      branchId: activeBranchId,
+      status: 'DRAFT'
     })
   }
 
   return (
-    <form onSubmit={submit} className="space-y-4">
+    <form onSubmit={submit} className="space-y-5">
+      {/* Top Banner */}
+      <div className="p-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-md flex items-center justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-blue-200 font-bold">Form Transit Pengeluaran Kas/Bank</p>
+          <h3 className="text-lg font-extrabold">{form.expenseNumber}</h3>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-blue-200">Perkiraan COA Debet</p>
+          <p className="text-sm font-bold font-mono bg-blue-800/80 px-2.5 py-1 rounded-lg border border-blue-400">{selectedCat.coa}</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="form-label">No. Pengeluaran</label>
-          <input className="form-input font-mono bg-slate-50" value={form.expenseNumber} readOnly />
+          <label className="form-label">No. Transaksi</label>
+          <input className="form-input font-mono bg-slate-100 text-slate-800 font-bold" value={form.expenseNumber} readOnly />
         </div>
         <div>
-          <label className="form-label">Tanggal</label>
+          <label className="form-label">Tanggal Transaksi *</label>
           <input type="date" className="form-input" value={form.expenseDate} onChange={e => set('expenseDate', e.target.value)} required />
         </div>
       </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="form-label">Kategori Pengeluaran *</label>
+          <label className="form-label">Kategori Beban (COA) *</label>
           <SearchableSelect
             value={form.category}
             onChange={val => set('category', val)}
-            options={EXPENSE_CATEGORIES.map(c => ({ value: c.label, label: `${c.label} (${c.coa})` }))}
-            placeholder="— Pilih Kategori —"
+            options={EXPENSE_CATEGORIES.map(c => ({ value: c.label, label: `${c.label} [${c.coa}]` }))}
+            placeholder="— Pilih Kategori Beban —"
           />
         </div>
         <div>
-          <label className="form-label">Metode Pembayaran</label>
+          <label className="form-label">Metode Pembayaran *</label>
           <SearchableSelect
             value={form.paymentMethod}
             onChange={val => set('paymentMethod', val)}
             options={[
-              { value: 'KAS', label: 'Kas' },
-              { value: 'TRANSFER', label: 'Transfer Bank' },
-              { value: 'KARTU_KREDIT', label: 'Kartu Kredit' },
+              { value: 'KAS', label: 'Kas Kecil Klinik (1-11-001)' },
+              { value: 'TRANSFER', label: 'Transfer Bank / Rekening (1-11-003)' },
+              { value: 'KARTU_KREDIT', label: 'Kartu Kredit Operasional (2-11-005)' },
             ]}
-            placeholder="— Pilih Metode —"
+            placeholder="— Pilih Metode Pembayaran —"
           />
         </div>
       </div>
+
       <div>
-        <label className="form-label">Keterangan *</label>
-        <textarea className="form-textarea" rows={2} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Deskripsi pengeluaran…" required />
-      </div>
-      <div>
-        <label className="form-label">Nama Vendor / Penerima</label>
+        <label className="form-label">Vendor / Supplier Rekanan *</label>
         <SearchableSelect
           value={form.vendorName}
           onChange={val => set('vendorName', val)}
           options={vendorOptions}
-          placeholder="— Pilih Vendor / Penerima —"
+          placeholder="— Pilih Master Vendor (/settings/vendors) —"
         />
-      </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label className="form-label">Nilai Bruto (Rp) *</label>
-          <input type="number" className="form-input" value={form.grossAmount} onChange={e => set('grossAmount', e.target.value)} min={0} step={1000} required />
-        </div>
-        <div>
-          <label className="form-label">PPN (Rp)</label>
-          <input type="number" className="form-input" value={form.ppnAmount} onChange={e => set('ppnAmount', e.target.value)} min={0} step={1000} />
-        </div>
-        <div>
-          <label className="form-label">PPh Dipotong (Rp)</label>
-          <input type="number" className="form-input" value={form.pphAmount} onChange={e => set('pphAmount', e.target.value)} min={0} step={1000} />
-        </div>
-      </div>
-      <div className="flex justify-between items-center bg-slate-50 rounded-xl px-4 py-3 text-sm">
-        <span className="text-slate-600">Net Dibayarkan:</span>
-        <span className="font-mono font-bold text-slate-800">{fmtIDR(netAmount)}</span>
+        {vendorOptions.length === 0 && (
+          <p className="text-xs text-amber-600 mt-1">Belum ada vendor terdaftar di Master Vendor. Anda dapat menambahkannya di /settings/vendors.</p>
+        )}
       </div>
 
-      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 text-xs text-blue-700">
-        Jurnal otomatis: <strong>Debit {selectedCat.coa} {selectedCat.label}</strong> / <strong>Kredit {form.paymentMethod === 'KAS' ? '1-11-001 Kas Kecil' : '1-11-003 Bank BCA'}</strong>
+      <div>
+        <label className="form-label">Keterangan Transaksi *</label>
+        <textarea className="form-textarea" rows={2} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Tulis rincian atau peruntukan pengeluaran…" required />
       </div>
 
-      <div className="flex justify-end gap-2 pt-2">
+      {/* Rincian Nominal */}
+      <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Rincian Perhitungan Beban & Pajak</p>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="form-label">Nilai Bruto (Rp) *</label>
+            <input type="number" className="form-input font-mono font-bold text-slate-900" value={form.grossAmount} onChange={e => set('grossAmount', e.target.value)} min={0} step={1000} required placeholder="0" />
+          </div>
+          <div>
+            <label className="form-label">PPN Masukan (Rp)</label>
+            <input type="number" className="form-input font-mono" value={form.ppnAmount} onChange={e => set('ppnAmount', e.target.value)} min={0} step={1000} placeholder="0" />
+          </div>
+          <div>
+            <label className="form-label">PPh Dipotong (Rp)</label>
+            <input type="number" className="form-input font-mono" value={form.pphAmount} onChange={e => set('pphAmount', e.target.value)} min={0} step={1000} placeholder="0" />
+          </div>
+        </div>
+      </div>
+
+      {/* Total Net Banner */}
+      <div className="flex justify-between items-center bg-blue-600 text-white rounded-xl px-5 py-3.5 shadow-md">
+        <span className="text-sm font-semibold">Total Net Kas Terbayar:</span>
+        <span className="font-mono text-xl font-extrabold">{fmtIDR(netAmount)}</span>
+      </div>
+
+      <div className="p-3 bg-emerald-600 text-white rounded-xl text-xs flex items-center justify-between">
+        <span>ℹ Jurnal Otomatis PSAK:</span>
+        <span className="font-mono font-bold">DR: {selectedCat.coa} | CR: {form.paymentMethod === 'KAS' ? '1-11-001' : '1-11-003'}</span>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-2">
         <button type="button" className="btn-secondary" onClick={onClose}>Batal</button>
-        <button type="submit" className="btn-primary">Simpan Draft</button>
+        <button type="submit" className="btn-primary px-6">Simpan Draft Pengeluaran</button>
       </div>
     </form>
   )
@@ -187,13 +214,13 @@ export default function ExpensePage() {
     const debitAcc = catObj.coa
     const creditAcc = expense.paymentMethod === 'KAS' ? '1-11-001' : '1-11-003'
     const header = {
-      id: entryId, 
-      branchId: expense.branchId || activeBranchId, 
+      id: entryId,
+      branchId: expense.branchId || activeBranchId,
       entryNumber,
       transactionDate: expense.expenseDate,
       description: `Pengeluaran: ${expense.category} — ${expense.description}`,
-      entryType: 'EXPENSE', 
-      totalDebit: expense.grossAmount, 
+      entryType: 'EXPENSE',
+      totalDebit: expense.grossAmount,
       totalCredit: expense.grossAmount,
     }
     const jItems = [
@@ -297,15 +324,15 @@ export default function ExpensePage() {
         {selected && (
           <div className="space-y-3 text-sm">
             {[
-              ['No.', selected.expenseNumber], 
-              ['Tanggal', fmtDate(selected.expenseDate)], 
+              ['No.', selected.expenseNumber],
+              ['Tanggal', fmtDate(selected.expenseDate)],
               ['Kategori', selected.category],
-              ['Keterangan', selected.description], 
+              ['Keterangan', selected.description],
               ['Vendor', selected.vendorName || '—'],
               ['Metode', paymentMethodLabel(selected.paymentMethod)],
-              ['Nilai Bruto', fmtIDR(selected.grossAmount)], 
+              ['Nilai Bruto', fmtIDR(selected.grossAmount)],
               ['PPN', fmtIDR(selected.ppnAmount || 0)],
-              ['PPh Dipotong', fmtIDR(selected.pphAmount || 0)], 
+              ['PPh Dipotong', fmtIDR(selected.pphAmount || 0)],
               ['Net Dibayar', fmtIDR(selected.netAmount || selected.grossAmount)]
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between border-b border-slate-100 pb-2">

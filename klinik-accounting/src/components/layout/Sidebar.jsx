@@ -64,7 +64,6 @@ const NAV = [
     label: 'Pengaturan', icon: Settings, roles: ['admin', 'keuangan'], children: [
       { to: '/settings/app', icon: Settings, label: 'Pengaturan Aplikasi', roles: ['admin'] },
       { to: '/settings/users', icon: UserCog, label: 'Manajemen Pengguna', roles: ['admin'] },
-      { to: '/branches', icon: Building2, label: 'Cabang', roles: ['admin', 'keuangan'] },
       { to: '/settings/doctors', icon: Stethoscope, label: 'Manajemen Dokter', roles: ['admin'] },
       { to: '/settings/service-tariffs', icon: Receipt, label: 'Manajemen Tarif Layanan', roles: ['admin'] },
       { to: '/settings/vendors', icon: Building2, label: 'Manajemen Vendor', roles: ['admin'] },

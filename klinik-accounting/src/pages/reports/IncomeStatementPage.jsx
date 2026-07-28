@@ -24,8 +24,8 @@ function buildAccountBalances(coa, journalEntries, journalItems, dateFrom, dateT
     const d = parseFloat(item.debit || 0)
     const c = parseFloat(item.credit || 0)
     if (!balances[item.accountCode]) balances[item.accountCode] = 0
-    if (acc.naturalBalance === 'DEBIT')  balances[item.accountCode] += d - c
-    else                                  balances[item.accountCode] += c - d
+    if (acc.naturalBalance === 'DEBIT') balances[item.accountCode] += d - c
+    else balances[item.accountCode] += c - d
   })
   return balances
 }
@@ -46,12 +46,12 @@ function SectionRow({ label, value, indent = 0, isTotal = false, isGrandTotal = 
 export default function IncomeStatementPage() {
   const { coa, journalEntries, journalItems, branches, activeBranchId } = useStore()
   const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(monthEnd())
+  const [dateTo, setDateTo] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
 
   const balances = useMemo(() =>
     buildAccountBalances(coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter),
-  [coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter])
+    [coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter])
 
   const getBalance = (code) => balances[code] || 0
 
@@ -88,24 +88,24 @@ export default function IncomeStatementPage() {
   const totalOpEx = expGroups.reduce((s, g) => s + g.items.reduce((ss, i) => ss + i.amount, 0), 0)
   const netProfit = grossProfit - totalOpEx
   const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0
-  const netMargin   = totalRevenue > 0 ? (netProfit   / totalRevenue) * 100 : 0
+  const netMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
 
   const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
-  const branchName  = branches.find(b => b.id === branchFilter)?.entityName || 'Semua Cabang'
+  const branchName = branches.find(b => b.id === branchFilter)?.entityName || 'Semua Cabang'
 
   // For export
   const exportData = useMemo(() => {
     const rows = []
     rows.push({ accountCode: '', accountName: 'PENDAPATAN', isGroup: true, subtotal: totalRevenue })
     revGroups.forEach(g => {
-      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: g.items.reduce((s,i) => s+i.amount, 0) })
+      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: g.items.reduce((s, i) => s + i.amount, 0) })
       g.items.forEach(i => rows.push({ accountCode: i.accountCode, accountName: i.accountName, isGroup: false, amount: i.amount }))
     })
     rows.push({ accountCode: '', accountName: 'HARGA POKOK PENJUALAN', isGroup: true, subtotal: totalHPP })
     hppItems.forEach(i => rows.push({ accountCode: i.accountCode, accountName: i.accountName, isGroup: false, amount: i.amount }))
     rows.push({ accountCode: '', accountName: 'LABA KOTOR', isGroup: true, subtotal: grossProfit })
     expGroups.forEach(g => {
-      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: g.items.reduce((s,i) => s+i.amount, 0) })
+      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: g.items.reduce((s, i) => s + i.amount, 0) })
       g.items.forEach(i => rows.push({ accountCode: i.accountCode, accountName: i.accountName, isGroup: false, amount: i.amount }))
     })
     rows.push({ accountCode: '', accountName: 'LABA BERSIH', isGroup: true, subtotal: netProfit })
@@ -140,25 +140,25 @@ export default function IncomeStatementPage() {
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs with Bright Solid Theme */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card card-body bg-emerald-50 border-0">
-          <p className="text-xs text-slate-500 uppercase mb-1">Total Pendapatan</p>
-          <p className="font-mono font-bold text-emerald-700 text-lg">{fmtIDR(totalRevenue)}</p>
+        <div className="card card-body bg-emerald-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-emerald-100 uppercase tracking-wider font-semibold mb-1">Total Pendapatan</p>
+          <p className="font-mono font-extrabold text-white text-2xl">{fmtIDR(totalRevenue)}</p>
         </div>
-        <div className="card card-body bg-amber-50 border-0">
-          <p className="text-xs text-slate-500 uppercase mb-1">Laba Kotor</p>
-          <p className="font-mono font-bold text-amber-700 text-lg">{fmtIDR(grossProfit)}</p>
-          <p className="text-xs text-slate-400 mt-0.5">Margin: {fmtPct(grossMargin)}</p>
+        <div className="card card-body bg-amber-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-amber-100 uppercase tracking-wider font-semibold mb-1">Laba Kotor</p>
+          <p className="font-mono font-extrabold text-white text-2xl">{fmtIDR(grossProfit)}</p>
+          <p className="text-xs text-amber-100 mt-1 font-semibold">Margin: {fmtPct(grossMargin)}</p>
         </div>
-        <div className="card card-body bg-blue-50 border-0">
-          <p className="text-xs text-slate-500 uppercase mb-1">Total Beban Operasional</p>
-          <p className="font-mono font-bold text-blue-700 text-lg">{fmtIDR(totalOpEx)}</p>
+        <div className="card card-body bg-blue-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-blue-100 uppercase tracking-wider font-semibold mb-1">Total Beban Operasional</p>
+          <p className="font-mono font-extrabold text-white text-2xl">{fmtIDR(totalOpEx)}</p>
         </div>
-        <div className={`card card-body border-0 ${netProfit >= 0 ? 'bg-teal-50' : 'bg-red-50'}`}>
-          <p className="text-xs text-slate-500 uppercase mb-1">Laba Bersih</p>
-          <p className={`font-mono font-bold text-lg ${netProfit >= 0 ? 'text-teal-700' : 'text-red-700'}`}>{fmtIDR(netProfit)}</p>
-          <p className="text-xs text-slate-400 mt-0.5">Margin: {fmtPct(netMargin)}</p>
+        <div className={`card card-body border-0 shadow-sm text-white ${netProfit >= 0 ? 'bg-purple-500' : 'bg-rose-500'}`}>
+          <p className="text-xs text-purple-100 uppercase tracking-wider font-semibold mb-1">Laba Bersih</p>
+          <p className="font-mono font-extrabold text-white text-2xl">{fmtIDR(netProfit)}</p>
+          <p className="text-xs text-purple-100 mt-1 font-semibold">Margin: {fmtPct(netMargin)}</p>
         </div>
       </div>
 
@@ -179,7 +179,7 @@ export default function IncomeStatementPage() {
               {/* PENDAPATAN */}
               <SectionRow label="PENDAPATAN" value={null} isTotal />
               {revGroups.map(g => {
-                const sub = g.items.reduce((s,i) => s + i.amount, 0)
+                const sub = g.items.reduce((s, i) => s + i.amount, 0)
                 return (
                   <>
                     {g.items.map(i => <SectionRow key={i.accountCode} label={`${i.accountCode} — ${i.accountName}`} value={i.amount > 0 ? i.amount : null} indent={2} />)}
@@ -200,7 +200,7 @@ export default function IncomeStatementPage() {
               <tr><td colSpan={2} className="py-1" /></tr>
               <SectionRow label="BEBAN OPERASIONAL" value={null} isTotal />
               {expGroups.map(g => {
-                const sub = g.items.reduce((s,i) => s + i.amount, 0)
+                const sub = g.items.reduce((s, i) => s + i.amount, 0)
                 return (
                   <>
                     {g.items.filter(i => i.amount > 0).map(i => <SectionRow key={i.accountCode} label={`${i.accountCode} — ${i.accountName}`} value={i.amount} indent={2} />)}

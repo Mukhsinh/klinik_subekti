@@ -37,8 +37,8 @@ function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, next
         if (!(parseFloat(form.price) >= 0)) { toast.error('Tarif layanan harus bernilai 0 atau lebih.'); return }
         if (!form.serviceCategory) { toast.error('Kategori layanan wajib dipilih.'); return }
         if (!form.revenueAccountCode) { toast.error('Akun pendapatan wajib dipilih.'); return }
-        onSave({ 
-            ...form, 
+        onSave({
+            ...form,
             price: parseFloat(form.price),
             service_category: form.serviceCategory,
             revenue_account_code: form.revenueAccountCode
@@ -51,12 +51,12 @@ function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, next
                 <label className="form-label">Kode Layanan</label>
                 <input className="form-input font-mono bg-slate-50" value={form.code} readOnly />
             </div>
-            
+
             <div>
                 <label className="form-label">Kategori Layanan *</label>
-                <select 
-                    className="form-select" 
-                    value={form.serviceCategory} 
+                <select
+                    className="form-select"
+                    value={form.serviceCategory}
                     onChange={e => set('serviceCategory', e.target.value)}
                     required
                 >
@@ -74,7 +74,7 @@ function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, next
                 <input className="form-input" value={form.name} onChange={e => set('name', e.target.value)}
                     placeholder="Nama layanan medis…" required />
             </div>
-            
+
             <div>
                 <label className="form-label">Tarif Layanan (Rp) *</label>
                 <input type="number" className="form-input" value={form.price} onChange={e => set('price', e.target.value)}
@@ -111,11 +111,11 @@ export default function TarifLayananPage() {
     const [selected, setSelected] = useState(null)
 
     // Filter revenue accounts (type REVENUE)
-    const revenueAccounts = useMemo(() => 
+    const revenueAccounts = useMemo(() =>
         (coa || [])
             .filter(a => a.accountType === 'REVENUE' && a.isActive !== false && !a.isHeader)
-            .map(a => ({ 
-                value: a.accountCode, 
+            .map(a => ({
+                value: a.accountCode,
                 label: `${a.accountCode} — ${a.accountName}`
             }))
             .sort((a, b) => a.value.localeCompare(b.value)),
@@ -134,7 +134,7 @@ export default function TarifLayananPage() {
         const activeLength = (serviceTariffs || []).length
         return `SVC-${String(activeLength + 1).padStart(3, '0')}`
     }, [serviceTariffs])
-    
+
     const getCategoryLabel = (category) => {
         const cat = SERVICE_CATEGORIES.find(c => c.value === category)
         return cat ? cat.label : category
@@ -179,7 +179,7 @@ export default function TarifLayananPage() {
                         Tarif dan biaya administrasi layanan medis terintegrasi dengan loket kasir &amp; billing
                     </p>
                 </div>
-                <button className="btn-primary" onClick={() => { setSelected(null); setModal('add') }}>
+                <button className="btn-danger-red" onClick={() => { setSelected(null); setModal('add') }}>
                     <Plus className="w-4 h-4" />Tambah Layanan
                 </button>
             </div>
@@ -217,7 +217,7 @@ export default function TarifLayananPage() {
                                 <th className="text-right">Tarif</th>
                                 <th>Akun Pendapatan</th>
                                 <th className="text-center">Status</th>
-                                <th></th>
+                                <th className="text-center">Aksi</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -230,13 +230,13 @@ export default function TarifLayananPage() {
                                 </tr>
                             ) : filtered.map(s => (
                                 <tr key={s.id}>
-                                    <td className="font-mono text-xs text-primary-700 font-medium">{s.code}</td>
+                                    <td className="font-mono text-xs text-primary-700 font-bold">{s.code}</td>
                                     <td>
-                                        <span className="badge badge-blue text-xs">
+                                        <span className="badge badge-blue">
                                             {getCategoryLabel(s.serviceCategory || s.service_category)}
                                         </span>
                                     </td>
-                                    <td className="text-sm font-medium text-slate-700">{s.name}</td>
+                                    <td className="text-sm font-bold text-slate-700">{s.name}</td>
                                     <td className="text-right font-mono text-sm font-bold text-slate-800">{fmtIDR(s.price || 0)}</td>
                                     <td className="font-mono text-xs text-slate-600">
                                         {s.revenueAccountCode || s.revenue_account_code || '4-11-001'}
@@ -244,13 +244,13 @@ export default function TarifLayananPage() {
                                     <td className="text-center">
                                         <StatusBadge status={s.isActive !== false ? 'ACTIVE' : 'INACTIVE'} />
                                     </td>
-                                    <td>
-                                        <div className="flex items-center gap-1 justify-end">
-                                            <button className="btn-ghost p-1.5" onClick={() => { setSelected(s); setModal('edit') }} title="Edit">
+                                    <td className="text-center">
+                                        <div className="flex items-center gap-1.5 justify-center">
+                                            <button className="btn-action-edit" onClick={() => { setSelected(s); setModal('edit') }} title="Edit">
                                                 <Pencil className="w-3.5 h-3.5" />
                                             </button>
-                                            <button className="btn-ghost p-1.5 text-slate-500" onClick={() => handleToggleActive(s)} title={s.isActive !== false ? 'Nonaktifkan' : 'Aktifkan'}>
-                                                <PowerOff className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" />
+                                            <button className="btn-action-delete" onClick={() => handleToggleActive(s)} title={s.isActive !== false ? 'Nonaktifkan' : 'Aktifkan'}>
+                                                <PowerOff className="w-3.5 h-3.5" />
                                             </button>
                                         </div>
                                     </td>

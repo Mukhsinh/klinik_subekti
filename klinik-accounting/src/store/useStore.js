@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
+import { supabase } from '../lib/supabase'
 import {
   fetchBranches, upsertBranch,
   fetchCOA, upsertAccount, updateAccount as dbUpdateAccount,
@@ -17,7 +18,7 @@ import {
   fetchStockLedger, insertStockLedger,
   fetchBillings, insertBilling, insertBillingItems, fetchBillingItems,
   fetchExpenses, upsertExpense,
-  fetchDoctors,
+  fetchDoctors, upsertDoctor, deleteDoctor,
   insertAuditLog, fetchAuditLogs,
   insertDoctorFeeRecord, fetchDoctorFeeRecords,
   fetchFixedAssets, upsertFixedAsset, updateFixedAsset, deleteFixedAsset,
@@ -95,12 +96,11 @@ async function bootstrap() {
     try {
       // Log before fetching
       console.log('[Bootstrap] Step 1: Fetching branches from clinic_entities table...')
-      const branchesRaw = await fetchBranches()
+      const branchesRaw = await fetchBranches().catch(err => { console.warn('[Bootstrap] fetchBranches failed:', err.message); return [] })
       console.log('[Bootstrap] Branches fetched:', branchesRaw)
       console.log('[Bootstrap] Branches count:', branchesRaw?.length || 0)
-      console.log('[Bootstrap] Branches raw data:', JSON.stringify(branchesRaw, null, 2))
 
-      // Parallel fetch all other data
+      // Parallel fetch all other data safely
       console.log('[Bootstrap] Step 2: Fetching all other data in parallel...')
       const [
         coa, journals, pharmacyItems,
@@ -110,24 +110,24 @@ async function bootstrap() {
         doctorFeeRecords, auditLogs, users, appSettings,
         openingBalances,
       ] = await Promise.all([
-        fetchCOA(),
-        fetchJournalEntries(),
-        fetchPharmacyItems(),
-        fetchBatches(),
-        fetchBillings(),
-        fetchExpenses(),
-        fetchDoctors(),
-        fetchFixedAssets({ status: 'ACTIVE' }),
-        fetchAssetMutations(),
-        fetchAssetDepreciations({}),
-        fetchVendors(),
-        fetchServiceTariffs(),
-        fetchStockOutflows(),
-        fetchDoctorFeeRecords(null, null, 500), // Last 500 records
-        fetchAuditLogs(500), // Last 500 logs
-        fetchUsers(),
-        fetchAppSettings(),
-        fetchOpeningBalances(),
+        fetchCOA().catch(err => { console.warn('[Bootstrap] fetchCOA failed:', err.message); return [] }),
+        fetchJournalEntries().catch(err => { console.warn('[Bootstrap] fetchJournalEntries failed:', err.message); return [] }),
+        fetchPharmacyItems().catch(err => { console.warn('[Bootstrap] fetchPharmacyItems failed:', err.message); return [] }),
+        fetchBatches().catch(err => { console.warn('[Bootstrap] fetchBatches failed:', err.message); return [] }),
+        fetchBillings().catch(err => { console.warn('[Bootstrap] fetchBillings failed:', err.message); return [] }),
+        fetchExpenses().catch(err => { console.warn('[Bootstrap] fetchExpenses failed:', err.message); return [] }),
+        fetchDoctors().catch(err => { console.warn('[Bootstrap] fetchDoctors failed:', err.message); return [] }),
+        fetchFixedAssets({ status: 'ACTIVE' }).catch(err => { console.warn('[Bootstrap] fetchFixedAssets failed:', err.message); return [] }),
+        fetchAssetMutations().catch(err => { console.warn('[Bootstrap] fetchAssetMutations failed:', err.message); return [] }),
+        fetchAssetDepreciations({}).catch(err => { console.warn('[Bootstrap] fetchAssetDepreciations failed:', err.message); return [] }),
+        fetchVendors().catch(err => { console.warn('[Bootstrap] fetchVendors failed:', err.message); return [] }),
+        fetchServiceTariffs().catch(err => { console.warn('[Bootstrap] fetchServiceTariffs failed:', err.message); return [] }),
+        fetchStockOutflows().catch(err => { console.warn('[Bootstrap] fetchStockOutflows failed:', err.message); return [] }),
+        fetchDoctorFeeRecords(null, null, 500).catch(err => { console.warn('[Bootstrap] fetchDoctorFeeRecords failed:', err.message); return [] }),
+        fetchAuditLogs(500).catch(err => { console.warn('[Bootstrap] fetchAuditLogs failed:', err.message); return [] }),
+        fetchUsers().catch(err => { console.warn('[Bootstrap] fetchUsers failed:', err.message); return [] }),
+        fetchAppSettings().catch(err => { console.warn('[Bootstrap] fetchAppSettings failed:', err.message); return {} }),
+        fetchOpeningBalances().catch(err => { console.warn('[Bootstrap] fetchOpeningBalances failed:', err.message); return [] }),
       ])
 
       // IMPORTANT: Prioritize database data over local fallback
@@ -156,10 +156,10 @@ async function bootstrap() {
       const outflowIds = stockOutflows.map(o => o.id)
 
       const [jItems, bItems, stockRows, outflowItems] = await Promise.all([
-        entryIds.length ? fetchJournalItems(entryIds) : Promise.resolve([]),
-        billingIds.length ? fetchBillingItems(billingIds) : Promise.resolve([]),
-        fetchStockLedger(),
-        outflowIds.length ? fetchStockOutflowItems(outflowIds) : Promise.resolve([]),
+        entryIds.length ? fetchJournalItems(entryIds).catch(err => { console.warn('[Bootstrap] fetchJournalItems failed:', err.message); return [] }) : Promise.resolve([]),
+        billingIds.length ? fetchBillingItems(billingIds).catch(err => { console.warn('[Bootstrap] fetchBillingItems failed:', err.message); return [] }) : Promise.resolve([]),
+        fetchStockLedger().catch(err => { console.warn('[Bootstrap] fetchStockLedger failed:', err.message); return [] }),
+        outflowIds.length ? fetchStockOutflowItems(outflowIds).catch(err => { console.warn('[Bootstrap] fetchStockOutflowItems failed:', err.message); return [] }) : Promise.resolve([]),
       ])
 
       // Active branch persistence
@@ -240,6 +240,18 @@ export function useStore() {
 
   const s = getState()
 
+  // ── Audit log ─────────────────────────────────────────────
+  const logActivity = useCallback((action, module, detail = '') => {
+    const auth = (() => { try { return JSON.parse(localStorage.getItem('currentUser') || '{}') } catch { return {} } })()
+    const log = {
+      id: uuidv4(), userId: auth.id || 'system',
+      userName: auth.name || 'System', userRole: auth.role || 'system',
+      action, module, detail, ipAddress: '127.0.0.1',
+      createdAt: new Date().toISOString(),
+    }
+    insertAuditLog(log).catch(() => { })
+  }, [])
+
   // ── Refresh (re-fetch from Supabase) ──────────────────────
   const refreshAll = useCallback(async () => {
     console.log('[RefreshAll] Resetting bootstrap and reloading...')
@@ -290,6 +302,71 @@ export function useStore() {
     setState(prev => ({ ...prev, coa: prev.coa.map(a => a.accountCode === code ? { ...a, isActive: false } : a) }))
     try { await dbUpdateAccount(code, { isActive: false }) } catch (e) { console.error('[deactivateAccount]', e.message) }
   }, [])
+
+  const clearAllCOA = useCallback(async () => {
+    console.log('[clearAllCOA] Clearing all COA from database...')
+    try {
+      // Clear from database
+      const { error } = await supabase.from('chart_of_accounts').delete().neq('account_code', '')
+      if (error) throw error
+
+      // Clear from state
+      setState(prev => ({ ...prev, coa: [] }))
+      console.log('[clearAllCOA] All COA cleared successfully')
+    } catch (e) {
+      console.error('[clearAllCOA] Error:', e.message)
+      throw e
+    }
+  }, [])
+
+  const batchAddAccounts = useCallback(async (accounts) => {
+    console.log('[batchAddAccounts] Adding', accounts.length, 'accounts...')
+    try {
+      const accountsToAdd = []
+      const existingCodes = new Set(s.coa.map(a => a.accountCode))
+
+      for (const acc of accounts) {
+        if (!existingCodes.has(acc.accountCode)) {
+          accountsToAdd.push({
+            ...acc,
+            createdAt: new Date().toISOString()
+          })
+        }
+      }
+
+      if (accountsToAdd.length === 0) {
+        console.log('[batchAddAccounts] No new accounts to add')
+        return
+      }
+
+      // Add to database
+      const { error } = await supabase.from('chart_of_accounts').insert(
+        accountsToAdd.map(a => ({
+          account_code: a.accountCode,
+          account_name: a.accountName,
+          account_type: a.accountType,
+          account_group: a.accountGroup,
+          account_subgroup: a.accountSubgroup || null,
+          natural_balance: a.naturalBalance,
+          is_header: a.isHeader || false,
+          parent_code: a.parentCode || null,
+          description: a.description || null,
+          is_active: a.isActive !== false,
+          sort_order: a.sortOrder || 0,
+          created_at: a.createdAt
+        }))
+      )
+
+      if (error) throw error
+
+      // Update state
+      setState(prev => ({ ...prev, coa: [...prev.coa, ...accountsToAdd] }))
+      console.log('[batchAddAccounts] Successfully added', accountsToAdd.length, 'accounts')
+    } catch (e) {
+      console.error('[batchAddAccounts] Error:', e.message)
+      throw e
+    }
+  }, [s.coa])
 
   // ── Journal ───────────────────────────────────────────────
   const generateEntryNumber = useCallback((type = 'JU') => {
@@ -727,17 +804,69 @@ export function useStore() {
     try { return await insertDoctorFeeRecord(rec) } catch (e) { console.error('[saveDoctorFeeRecord]', e.message) }
   }, [])
 
-  // ── Audit log ─────────────────────────────────────────────
-  const logActivity = useCallback((action, module, detail = '') => {
-    const auth = (() => { try { return JSON.parse(localStorage.getItem('currentUser') || '{}') } catch { return {} } })()
-    const log = {
-      id: uuidv4(), userId: auth.id || 'system',
-      userName: auth.name || 'System', userRole: auth.role || 'system',
-      action, module, detail, ipAddress: '127.0.0.1',
-      createdAt: new Date().toISOString(),
+  // ── Doctor Management ─────────────────────────────────────
+  const addDoctor = useCallback(async (data) => {
+    const docId = data.id || uuidv4()
+    const doctor = {
+      ...data,
+      id: docId,
+      feePercentage: Number(data.feePercentage ?? data.fee_percentage ?? 30),
+      isActive: true,
+      createdAt: data.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     }
-    insertAuditLog(log).catch(() => { })
-  }, [])
+    setState(prev => ({ ...prev, doctors: [...prev.doctors.filter(d => d.id !== docId), doctor] }))
+    try {
+      const saved = await upsertDoctor(doctor)
+      setState(prev => ({ ...prev, doctors: prev.doctors.map(d => d.id === saved.id ? saved : d) }))
+      logActivity('ADD_DOCTOR', 'SETTINGS', `Added doctor ${saved.fullName || saved.name}`)
+      return saved
+    } catch (e) {
+      console.error('[addDoctor]', e.message)
+      setState(prev => ({ ...prev, doctors: prev.doctors.filter(d => d.id !== docId) }))
+      throw e
+    }
+  }, [logActivity])
+
+  const updateDoctor = useCallback(async (id, data) => {
+    const oldDoc = s.doctors.find(d => d.id === id)
+    const updated = {
+      ...oldDoc,
+      ...data,
+      id,
+      feePercentage: Number(data.feePercentage !== undefined ? data.feePercentage : (oldDoc?.feePercentage ?? 30)),
+      updatedAt: new Date().toISOString()
+    }
+    setState(prev => ({
+      ...prev,
+      doctors: prev.doctors.map(d => d.id === id ? updated : d)
+    }))
+    try {
+      const saved = await upsertDoctor(updated)
+      setState(prev => ({ ...prev, doctors: prev.doctors.map(d => d.id === saved.id ? saved : d) }))
+      logActivity('UPDATE_DOCTOR', 'SETTINGS', `Updated doctor ${saved.fullName || saved.name}`)
+      return saved
+    } catch (e) {
+      console.error('[updateDoctor]', e.message)
+      if (oldDoc) setState(prev => ({ ...prev, doctors: prev.doctors.map(d => d.id === id ? oldDoc : d) }))
+      throw e
+    }
+  }, [s.doctors, logActivity])
+
+  const removeDoctor = useCallback(async (id) => {
+    const oldDoc = s.doctors.find(d => d.id === id)
+    setState(prev => ({ ...prev, doctors: prev.doctors.map(d => d.id === id ? { ...d, isActive: false, is_active: false } : d) }))
+    try {
+      await deleteDoctor(id)
+      logActivity('DELETE_DOCTOR', 'SETTINGS', `Deactivated doctor ${oldDoc?.fullName || oldDoc?.name}`)
+    } catch (e) {
+      console.error('[removeDoctor]', e.message)
+      if (oldDoc) setState(prev => ({ ...prev, doctors: prev.doctors.map(d => d.id === id ? oldDoc : d) }))
+      throw e
+    }
+  }, [s.doctors, logActivity])
+
+
 
   // ── Fixed Assets Management ──────────────────────────────
   const generateAssetCode = useCallback((category = 'Peralatan Medis') => {
@@ -1506,13 +1635,13 @@ export function useStore() {
     refreshAll,
     setActiveBranch, getActiveBranch,
     addBranch, updateBranch,
-    addAccount, updateAccount: updateAccountFn, deactivateAccount,
+    addAccount, updateAccount: updateAccountFn, deactivateAccount, clearAllCOA, batchAddAccounts,
     generateEntryNumber, saveJournalDraft, postJournalEntry, reverseJournal,
     generateSku, generateItemCode,
     addPharmacyItem, updatePharmacyItem, receiveGRN, adjustStock, getItemStock, depleteInventoryFIFO, saveInventoryOpeningBalance,
     generateBillingNumber, saveBilling,
     generateExpenseNumber, saveExpense, postExpense,
-    saveDoctorFeeRecord,
+    saveDoctorFeeRecord, addDoctor, updateDoctor, removeDoctor,
     generateAssetCode, addAsset, updateAsset, deleteAsset,
     addAssetMutation, calculateDepreciation, saveDepreciation, postDepreciation,
     addVendor, updateVendor, addServiceTariff, updateServiceTariff,

@@ -256,23 +256,32 @@ export default function InventoryItemOpeningBalancePage() {
     return (
         <div className="space-y-5">
             {/* Header */}
-            <div className="flex items-start justify-between flex-wrap gap-3">
+            <div className="flex items-start justify-between flex-wrap gap-4">
                 <div>
                     <h1 className="page-title">Saldo Awal Item Inventory</h1>
                     <p className="text-sm text-slate-400 mt-0.5">
                         Input saldo awal kuantitas dan harga pokok per item barang yang tersambung ke kartu stok
                     </p>
                 </div>
-                <div className="flex gap-2">
-                    <button className="btn-secondary" onClick={loadData} title="Refresh data">
-                        <RefreshCw className="w-4 h-4" /> Refresh
+                <div className="flex flex-wrap gap-2 items-center">
+                    <button className="btn-orange">
+                        <Package className="w-4 h-4" />Unduh Template Impor
+                    </button>
+                    <button className="btn-emerald">
+                        <Package className="w-4 h-4" />Impor Data
                     </button>
                     <button
                         onClick={handleSave}
                         disabled={saving}
-                        className="btn-primary"
+                        className="btn-danger-red"
                     >
                         <Save className="w-4 h-4" /> {saving ? 'Menyimpan...' : 'Simpan Saldo Awal'}
+                    </button>
+                    <button className="btn-royal-blue">
+                        <Package className="w-4 h-4" />Unduh Laporan
+                    </button>
+                    <button className="btn-square-refresh" onClick={loadData} title="Refresh data">
+                        <RefreshCw className="w-4 h-4" />
                     </button>
                 </div>
             </div>
@@ -292,24 +301,24 @@ export default function InventoryItemOpeningBalancePage() {
             </div>
 
             {/* Summary card & Search */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="card card-body bg-gradient-to-br from-primary-50 to-primary-100 border-0 md:col-span-2 flex items-center justify-between">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
+                <div className="card p-3.5 bg-emerald-500 text-white border-0 shadow-sm md:col-span-2 flex items-center justify-between">
                     <div>
-                        <p className="text-xs text-primary-700 font-medium mb-1">Total Nilai Saldo Awal Persediaan</p>
-                        <p className="font-bold text-3xl text-primary-800">{fmtIDR(grandTotalValue)}</p>
+                        <p className="text-xs text-emerald-100 font-semibold uppercase tracking-wider mb-0.5">Total Nilai Saldo Awal Persediaan</p>
+                        <p className="font-extrabold text-2xl font-mono text-white leading-tight">{fmtIDR(grandTotalValue)}</p>
                     </div>
-                    <div className="text-sm text-primary-600 font-medium">
+                    <div className="text-xs text-white font-semibold bg-emerald-600/60 px-3 py-1.5 rounded-md">
                         {Object.values(editableBalances).filter(b => b.quantity > 0).length} item terisi
                     </div>
                 </div>
 
-                <div className="card card-body justify-center">
-                    <label className="text-xs font-semibold text-slate-500 mb-1.5 flex items-center gap-1">
-                        <Search className="w-3.5 h-3.5" /> Cari Item
+                <div className="card p-3.5 flex flex-col justify-center">
+                    <label className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">
+                        <Search className="w-3.5 h-3.5 text-slate-400" /> Cari Item
                     </label>
                     <input
                         type="text"
-                        className="form-input"
+                        className="form-input text-xs py-1.5"
                         placeholder="Cari kode, nama atau SKU..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}

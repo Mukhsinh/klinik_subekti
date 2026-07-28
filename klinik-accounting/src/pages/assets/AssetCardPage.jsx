@@ -9,7 +9,7 @@ import toast from 'react-hot-toast'
 // ─── Asset Card Detail Component ──────────────────────────────
 function AssetCardDetail({ asset, mutations, depreciations }) {
   // Sort mutations by date
-  const sortedMutations = [...mutations].sort((a, b) => 
+  const sortedMutations = [...mutations].sort((a, b) =>
     new Date(b.mutationDate) - new Date(a.mutationDate)
   )
 
@@ -157,7 +157,7 @@ function AssetCardDetail({ asset, mutations, depreciations }) {
                 {sortedDepreciations.map(d => (
                   <tr key={d.id}>
                     <td className="font-semibold">
-                      {new Date(d.periodYear, d.periodMonth - 1).toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
+                      {fmtMonthYear(new Date(d.periodYear, d.periodMonth - 1))}
                     </td>
                     <td className="text-right font-mono text-sm">{fmtIDR(d.openingBookValue)}</td>
                     <td className="text-right font-mono text-sm font-semibold text-amber-700">
@@ -204,7 +204,7 @@ function AssetCardDetail({ asset, mutations, depreciations }) {
                       <span className="badge badge-blue text-xs">{m.mutationType}</span>
                     </td>
                     <td className="text-sm text-slate-600">
-                      {m.mutationType === 'TRANSFER' 
+                      {m.mutationType === 'TRANSFER'
                         ? `${m.fromLocation || '?'} → ${m.toLocation || '?'}`
                         : m.description
                       }
@@ -314,30 +314,30 @@ export default function AssetCardPage() {
         )}
       </div>
 
-      {/* Stats */}
+      {/* Stats with Bright Solid Theme */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="card card-body bg-gradient-to-br from-blue-50 to-indigo-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Total Aset Aktif</p>
-          <p className="font-bold text-2xl text-indigo-700">
+        <div className="card card-body bg-blue-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-blue-100 uppercase tracking-wider font-semibold mb-1">Total Aset Aktif</p>
+          <p className="font-bold text-3xl font-mono text-white">
             {fixedAssets.filter(a => a.status === 'ACTIVE').length}
           </p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-purple-50 to-pink-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Lokasi Terdaftar</p>
-          <p className="font-bold text-2xl text-purple-700">{locations.length}</p>
+        <div className="card card-body bg-purple-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-purple-100 uppercase tracking-wider font-semibold mb-1">Lokasi Terdaftar</p>
+          <p className="font-bold text-3xl font-mono text-white">{locations.length}</p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-green-50 to-emerald-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Total Penyusutan</p>
-          <p className="font-bold text-sm text-emerald-700">
+        <div className="card card-body bg-emerald-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-emerald-100 uppercase tracking-wider font-semibold mb-1">Total Penyusutan</p>
+          <p className="font-bold text-xl font-mono text-white">
             {fmtIDR(assetDepreciations
               .filter(d => d.status === 'POSTED')
               .reduce((sum, d) => sum + d.depreciationAmount, 0)
             )}
           </p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-amber-50 to-orange-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Total Mutasi</p>
-          <p className="font-bold text-2xl text-amber-700">{assetMutations.length}</p>
+        <div className="card card-body bg-amber-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-amber-100 uppercase tracking-wider font-semibold mb-1">Total Mutasi</p>
+          <p className="font-bold text-3xl font-mono text-white">{assetMutations.length}</p>
         </div>
       </div>
 
@@ -380,9 +380,8 @@ export default function AssetCardPage() {
                     <button
                       key={asset.id}
                       onClick={() => setSelectedAssetId(asset.id)}
-                      className={`w-full text-left p-3 hover:bg-slate-50 transition-colors ${
-                        selectedAssetId === asset.id ? 'bg-primary-50 border-l-4 border-primary-600' : ''
-                      }`}
+                      className={`w-full text-left p-3 hover:bg-slate-50 transition-colors ${selectedAssetId === asset.id ? 'bg-primary-50 border-l-4 border-primary-600' : ''
+                        }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">

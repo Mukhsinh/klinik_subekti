@@ -13,7 +13,7 @@ import {
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
-const PAYMENT_METHODS = ['TUNAI', 'TRANSFER', 'QRIS']
+const PAYMENT_METHODS = ['TUNAI', 'TRANSFER', 'QRIS', 'BPJS', 'ASURANSI']
 const BPJS_RATIO = 0.80
 
 export default function BillingPage() {
@@ -55,27 +55,76 @@ export default function BillingPage() {
   }
 
   const billingNumber = useMemo(() => generateBillingNumber(), [billings])
-  const activeDoctors = useMemo(() => (doctors || []).filter(d => d.isActive !== false), [doctors])
-  const doctorOptions = useMemo(() => activeDoctors.map(d => ({ value: d.id, label: `${d.title ? d.title + ' ' : ''}${d.fullName}`.trim() })), [activeDoctors])
+  const activeDoctors = useMemo(() =>
+    (doctors || []).filter(d => d.isActive !== false && d.is_active !== false),
+    [doctors]
+  )
+  const doctorOptions = useMemo(() =>
+    activeDoctors.map(d => {
+      const dName = d.fullName || d.full_name || d.name || 'Dokter'
+      const title = d.title ? `${d.title} ` : ''
+      return {
+        value: d.id,
+        label: `${title}${dName}`.trim(),
+        sub: `SIP: ${d.sipNumber || d.sip_number || '—'} | Sp: ${d.specialization || d.specialty || 'Umum'}`
+      }
+    }),
+    [activeDoctors]
+  )
 
-  const activeServices = useMemo(() => (serviceTariffs || []).filter(s => s.isActive !== false && s.serviceCategory !== 'LABORATORIUM' && s.service_category !== 'LABORATORIUM'), [serviceTariffs])
-  const serviceOptions = useMemo(() => activeServices.map(s => ({ value: s.id, label: `${s.code} — ${s.name} (${fmtIDR(s.price)})` })), [activeServices])
+  const activeServices = useMemo(() =>
+    (serviceTariffs || []).filter(s => (s.isActive !== false && s.is_active !== false) && s.serviceCategory !== 'LABORATORIUM' && s.service_category !== 'LABORATORIUM'),
+    [serviceTariffs]
+  )
+  const serviceOptions = useMemo(() =>
+    activeServices.map(s => ({
+      value: s.id,
+      label: `${s.code || s.service_code || 'SVC'} — ${s.name} (${fmtIDR(s.price || s.tariff || 0)})`,
+      price: s.price || s.tariff || 0,
+      name: s.name,
+      revenueAccountCode: s.revenueAccountCode || s.revenue_account_code || '4-11-001'
+    })),
+    [activeServices]
+  )
 
-  const labServices = useMemo(() => (serviceTariffs || []).filter(s => s.isActive !== false && (s.serviceCategory === 'LABORATORIUM' || s.service_category === 'LABORATORIUM')), [serviceTariffs])
-  const labOptions = useMemo(() => labServices.map(s => ({ value: s.id, label: `${s.code} — ${s.name} (${fmtIDR(s.price)})` })), [labServices])
+  const labServices = useMemo(() =>
+    (serviceTariffs || []).filter(s => (s.isActive !== false && s.is_active !== false) && (s.serviceCategory === 'LABORATORIUM' || s.service_category === 'LABORATORIUM' || (s.name || '').toLowerCase().includes('lab'))),
+    [serviceTariffs]
+  )
+  const labOptions = useMemo(() =>
+    labServices.map(s => ({
+      value: s.id,
+      label: `${s.code || s.service_code || 'LAB'} — ${s.name} (${fmtIDR(s.price || s.tariff || 0)})`,
+      price: s.price || s.tariff || 0,
+      name: s.name,
+      revenueAccountCode: s.revenueAccountCode || s.revenue_account_code || '4-12-001'
+    })),
+    [labServices]
+  )
 
   const pharmacyOptions = useMemo(() =>
-    pharmacyItems
-      .filter(i => i.isActive !== false)
-      .filter(i => ['OBAT_PATEN', 'OBAT_GENERIK'].includes(i.category)) // Use 'category' not 'itemCategory'
-      .sort((a, b) => a.itemName.localeCompare(b.itemName))
+    (pharmacyItems || [])
+      .filter(i => i.isActive !== false && i.is_active !== false)
+      .sort((a, b) => (a.itemName || a.item_name || '').localeCompare(b.itemName || b.item_name || ''))
       .map(i => {
-        const stk = invBatches.filter(b => b.itemId === i.id && b.quantityCurrent > 0).reduce((s, b) => s + b.quantityCurrent, 0)
-        const category = i.category === 'OBAT_PATEN' ? '🔵 Paten' : '🟢 Generik'
+        const stk = (invBatches || []).filter(b => b.itemId === i.id && b.quantityCurrent > 0).reduce((s, b) => s + b.quantityCurrent, 0)
+        const catRaw = i.category || i.itemCategory || i.item_category || ''
+        let categoryLabel = '📦 Item'
+        if (catRaw === 'OBAT_PATEN') categoryLabel = '🔵 Paten'
+        else if (catRaw === 'OBAT_GENERIK') categoryLabel = '🟢 Generik'
+        else if (catRaw === 'BHP' || catRaw === 'BHP_MEDIS') categoryLabel = '🟡 BHP'
+        else if (catRaw === 'RUMAH_TANGGA' || catRaw === 'RT') categoryLabel = '🏠 RT'
+
+        const code = i.itemCode || i.skuCode || i.item_code || i.sku_code || 'SKU'
+        const name = i.itemName || i.item_name || 'Obat'
+        const price = i.sellingPrice || i.selling_price || 0
+
         return {
           value: i.id,
-          label: `${category} | ${i.itemCode || i.skuCode} — ${i.itemName} | Stok: ${stk}`,
-          stock: stk, // Add stock to option for validation
+          label: `${categoryLabel} | ${code} — ${name} | Stok: ${stk}`,
+          sub: `Harga: ${fmtIDR(price)}`,
+          stock: stk,
+          price,
           disabled: stk === 0
         }
       }),
@@ -223,7 +272,7 @@ export default function BillingPage() {
 
     const eNum = generateEntryNumber('BILLING')
     const journalItems = []
-    
+
     if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
       journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Kas Tunai — ${billingNumber}`, debit: grandTotal, credit: 0 })
     } else if (payMethod === 'BPJS') {
@@ -275,7 +324,7 @@ export default function BillingPage() {
 
     const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
     const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
-    
+
     await saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
     await saveBilling(billing, items)
     await postJournalEntry(eId, 'System-Billing')
@@ -300,7 +349,7 @@ export default function BillingPage() {
           <h1 className="page-title">Kasir &amp; Billing Pasien</h1>
           <p className="text-sm text-slate-400 mt-0.5">Checkout pasien — split BPJS — PPh 21 dokter otomatis</p>
         </div>
-        <button className="btn-primary" onClick={() => { resetForm(); setModal('new') }}>
+        <button className="btn-danger-red" onClick={() => { resetForm(); setModal('new') }}>
           <Plus className="w-4 h-4" />Billing Baru
         </button>
       </div>
@@ -327,7 +376,7 @@ export default function BillingPage() {
               <tr>
                 <th>No. Billing</th><th>Tanggal</th><th>Nama Pasien</th><th>Dokter</th>
                 <th>Metode</th><th className="text-right">Total</th>
-                <th className="text-right">Bagian Pasien</th><th>Status</th><th></th>
+                <th className="text-right">Bagian Pasien</th><th>Status</th><th className="text-center">Aksi</th>
               </tr>
             </thead>
             <tbody>
@@ -335,16 +384,16 @@ export default function BillingPage() {
                 <tr><td colSpan={9} className="text-center py-12 text-slate-400">Belum ada transaksi billing</td></tr>
               ) : filtered.map(b => (
                 <tr key={b.id}>
-                  <td className="font-mono text-xs text-primary-700">{b.billingNumber}</td>
+                  <td className="font-mono text-xs text-primary-700 font-bold">{b.billingNumber}</td>
                   <td className="text-sm">{fmtDate(b.visitDate)}</td>
-                  <td className="font-medium text-sm">{b.patientName}</td>
+                  <td className="font-bold text-sm text-slate-800">{b.patientName}</td>
                   <td className="text-sm text-slate-500">{b.doctorName || '—'}</td>
-                  <td><span className="badge badge-blue text-xs">{paymentMethodLabel(b.paymentMethod)}</span></td>
+                  <td><span className="badge badge-blue">{paymentMethodLabel(b.paymentMethod)}</span></td>
                   <td className="text-right font-mono text-sm font-bold">{fmtIDR(b.grandTotal)}</td>
                   <td className="text-right font-mono text-sm">{fmtIDR(b.patientPortion)}</td>
                   <td><StatusBadge status={b.status} /></td>
-                  <td>
-                    <button className="btn-ghost p-1.5" onClick={() => { setSelected(b); setModal('view') }}>
+                  <td className="text-center">
+                    <button className="btn-action-edit" onClick={() => { setSelected(b); setModal('view') }} title="Lihat Detail">
                       <Eye className="w-3.5 h-3.5" />
                     </button>
                   </td>

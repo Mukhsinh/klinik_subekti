@@ -12,20 +12,27 @@ function generateGRN(count) {
 }
 
 export default function GRNPage() {
-  const { pharmacyItems, invBatches, receiveGRN, coa, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber } = useStore()
+  const { pharmacyItems, invBatches, receiveGRN, coa, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber, vendors } = useStore()
 
   const [grnNumber] = useState(() => generateGRN(invBatches.length))
   const [grnDate, setGrnDate] = useState(todayISO())
   const [supplierName, setSupplierName] = useState('')
   const [invoiceRef, setInvoiceRef] = useState('')
-  const [lines, setLines] = useState([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', quantityReceived: '', notes: '' }])
+  const [lines, setLines] = useState([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
   const [submitting, setSubmitting] = useState(false)
+
+  const vendorOptions = useMemo(() =>
+    (vendors || [])
+      .filter(v => v.isActive !== false)
+      .map(v => ({ value: v.name, label: `${v.code} — ${v.name}` })),
+    [vendors]
+  )
 
   const itemOptions = useMemo(() =>
     pharmacyItems
       .filter(i => i.isActive)
       .sort((a, b) => a.itemName.localeCompare(b.itemName))
-      .map(i => ({ value: i.id, label: `${i.skuCode} — ${i.itemName}` })),
+      .map(i => ({ value: i.id, label: `${i.itemCode} — ${i.itemName}` })),
     [pharmacyItems]
   )
 
@@ -39,9 +46,23 @@ export default function GRNPage() {
     return Object.values(grns).sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt))
   }, [invBatches])
 
-  const addLine = () => setLines(ls => [...ls, { id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', quantityReceived: '', notes: '' }])
+  const addLine = () => setLines(ls => [...ls, { id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
   const removeLine = (id) => { if (lines.length > 1) setLines(ls => ls.filter(l => l.id !== id)) }
-  const setLine = (id, field, val) => setLines(ls => ls.map(l => l.id === id ? { ...l, [field]: val } : l))
+  const setLine = (id, field, val, batch = {}) => setLines(ls => ls.map(l => {
+    if (l.id !== id) return l
+    const updated = { ...l, [field]: val, ...batch }
+    // Auto-calculate selling price when HPP changes
+    if (field === 'unitCostPrice') {
+      const hpp = parseFloat(val) || 0
+      const currentSP = parseFloat(l.sellingPrice) || 0
+      // Only auto-update if sellingPrice hasn't been manually changed from previous auto
+      const prevAuto = Math.round((parseFloat(l.unitCostPrice) || 0) * 1.25)
+      if (currentSP === 0 || currentSP === prevAuto) {
+        updated.sellingPrice = Math.round(hpp * 1.25)
+      }
+    }
+    return updated
+  }))
 
   const totalValue = lines.reduce((s, l) => s + (parseFloat(l.unitCostPrice) || 0) * (parseInt(l.quantityReceived) || 0), 0)
 
@@ -76,11 +97,14 @@ export default function GRNPage() {
 
       const batchesData = validLines.map(l => {
         const item = pharmacyItems.find(i => i.id === l.itemId)
+        const hpp = parseFloat(l.unitCostPrice) || 0
+        const sp = parseFloat(l.sellingPrice) || Math.round(hpp * 1.25)
         return {
           itemId: l.itemId,
           batchNumber: l.batchNumber,
           expiryDate: l.expiryDate,
-          unitCostPrice: parseFloat(l.unitCostPrice),
+          unitCostPrice: hpp,
+          sellingPrice: sp,
           quantityReceived: parseInt(l.quantityReceived),
           quantityCurrent: parseInt(l.quantityReceived),
           grnReference: grnNumber,
@@ -105,11 +129,17 @@ export default function GRNPage() {
       }
 
       await saveJournalDraft(header, journalLines)
-      await receiveGRN({ grnNumber, supplierName, invoiceRef, grnDate }, batchesData)
+      await receiveGRN({ grnNumber, supplierName, invoiceRef, grnDate, totalValue, apStatus: 'UNPAID' }, batchesData)
       await postJournalEntry(entryId, 'System-GRN')
 
-      toast.success(`GRN ${grnNumber} berhasil diproses. Stok dan jurnal otomatis dicatat.`)
-      setLines([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', quantityReceived: '', notes: '' }])
+      // Update selling price on items table based on latest batch
+      for (const bd of batchesData) {
+        const { supabase: sb } = await import('../../lib/supabase')
+        await sb.from('pharmacy_items').update({ selling_price: bd.sellingPrice, updated_at: new Date().toISOString() }).eq('id', bd.itemId)
+      }
+
+      toast.success(`GRN ${grnNumber} berhasil diproses. Utang PBF (AP) dicatat UNPAID — status lunas saat dibayar di Pengeluaran.`)
+      setLines([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
     } finally {
       setSubmitting(false)
     }
@@ -136,17 +166,17 @@ export default function GRNPage() {
 
       {/* ── Summary Cards ─────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="card card-body bg-gradient-to-br from-blue-50 to-indigo-50 border-0">
-          <p className="text-xs text-slate-500 mb-1 font-medium">Item Terisi</p>
-          <p className="font-bold text-2xl text-indigo-700">{totalItems} <span className="text-sm font-normal text-slate-400">item</span></p>
+        <div className="card card-body bg-blue-600 text-white border-0">
+          <p className="text-xs text-blue-100 mb-1 font-medium">Item Terisi</p>
+          <p className="font-bold text-2xl">{totalItems} <span className="text-sm font-normal text-blue-200">item</span></p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-emerald-50 to-teal-50 border-0">
-          <p className="text-xs text-slate-500 mb-1 font-medium">Total Kuantitas</p>
-          <p className="font-bold text-2xl text-emerald-700">{totalQty} <span className="text-sm font-normal text-slate-400">unit</span></p>
+        <div className="card card-body bg-emerald-600 text-white border-0">
+          <p className="text-xs text-emerald-100 mb-1 font-medium">Total Kuantitas</p>
+          <p className="font-bold text-2xl">{totalQty} <span className="text-sm font-normal text-emerald-200">unit</span></p>
         </div>
-        <div className="card card-body bg-gradient-to-br from-amber-50 to-orange-50 border-0">
-          <p className="text-xs text-slate-500 mb-1 font-medium">Total Nilai GRN</p>
-          <p className="font-bold text-xl text-amber-700">{fmtIDR(totalValue)}</p>
+        <div className="card card-body bg-amber-500 text-white border-0">
+          <p className="text-xs text-amber-100 mb-1 font-medium">Total Nilai GRN (Utang PBF)</p>
+          <p className="font-bold text-xl">{fmtIDR(totalValue)}</p>
         </div>
       </div>
 
@@ -168,8 +198,13 @@ export default function GRNPage() {
               <input type="date" className="form-input" value={grnDate} onChange={e => setGrnDate(e.target.value)} required />
             </div>
             <div>
-              <label className="form-label">Nama Supplier / PBF</label>
-              <input className="form-input" value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="Nama PBF atau distributor…" />
+              <label className="form-label">Nama Supplier / PBF *</label>
+              <SearchableSelect
+                value={supplierName}
+                onChange={val => setSupplierName(val)}
+                options={vendorOptions}
+                placeholder="— Pilih Vendor / PBF —"
+              />
             </div>
             <div>
               <label className="form-label">No. Invoice Supplier</label>
@@ -188,22 +223,24 @@ export default function GRNPage() {
             <button type="button" className="btn-secondary py-1.5 text-xs" onClick={addLine}><Plus className="w-3.5 h-3.5" />Tambah Baris</button>
           </div>
           <div className="overflow-x-auto">
-            <table className="table-base" style={{ minWidth: 960 }}>
+            <table className="table-base" style={{ minWidth: 1100 }}>
               <thead>
                 <tr>
-                  <th style={{ width: '30%', minWidth: 240 }}>Item Farmasi / Medis</th>
-                  <th style={{ width: '12%', minWidth: 110 }}>No. Batch</th>
-                  <th style={{ width: '14%', minWidth: 130 }}>Tgl Kadaluarsa</th>
-                  <th style={{ width: '14%', minWidth: 120 }} className="text-right">HPP / Unit (Rp)</th>
-                  <th style={{ width: '9%', minWidth: 80 }} className="text-right">Qty</th>
-                  <th style={{ width: '16%', minWidth: 130 }} className="text-right">Sub-Total (Rp)</th>
-                  <th style={{ width: '5%', minWidth: 40 }}></th>
+                  <th style={{ width: '26%', minWidth: 220 }}>Item Farmasi / Medis</th>
+                  <th style={{ width: '10%', minWidth: 100 }}>No. Batch</th>
+                  <th style={{ width: '12%', minWidth: 120 }}>Tgl Kadaluarsa</th>
+                  <th style={{ width: '13%', minWidth: 120 }} className="text-right">HPP / Unit (Rp)</th>
+                  <th style={{ width: '13%', minWidth: 120 }} className="text-right">Harga Jual (Rp)</th>
+                  <th style={{ width: '10%', minWidth: 100 }} className="text-right">Qty (Satuan)</th>
+                  <th style={{ width: '13%', minWidth: 120 }} className="text-right">Sub-Total (Rp)</th>
+                  <th style={{ width: '3%', minWidth: 40 }}></th>
                 </tr>
               </thead>
               <tbody>
                 {lines.map((l, idx) => {
                   const warn = getExpiryWarning(l.expiryDate)
-                  const subTotal = (parseFloat(l.unitCostPrice) || 0) * (parseInt(l.quantityReceived) || 0)
+                  const hpp = parseFloat(l.unitCostPrice) || 0
+                  const subTotal = hpp * (parseInt(l.quantityReceived) || 0)
                   return (
                     <tr key={l.id} className="group">
                       <td className="py-2.5">
@@ -213,7 +250,7 @@ export default function GRNPage() {
                           options={itemOptions}
                           placeholder="— Pilih Item —"
                           hideValue={true}
-                          searchPlaceholder="Ketik nama obat..."
+                          searchPlaceholder="Ketik kode/nama..."
                         />
                       </td>
                       <td className="py-2.5">
@@ -227,10 +264,24 @@ export default function GRNPage() {
                         </div>
                       </td>
                       <td className="py-2.5">
-                        <input type="number" className="form-input text-xs py-2 text-right font-mono" value={l.unitCostPrice} onChange={e => setLine(l.id, 'unitCostPrice', e.target.value)} placeholder="0" min={0} step={1} />
+                        <input type="number" className="form-input text-xs py-2 text-right font-mono" value={l.unitCostPrice}
+                          onChange={e => setLine(l.id, 'unitCostPrice', e.target.value)}
+                          placeholder="0" min={0} step={1} />
                       </td>
                       <td className="py-2.5">
-                        <input type="number" className="form-input text-xs py-2 text-right font-mono font-semibold" value={l.quantityReceived} onChange={e => setLine(l.id, 'quantityReceived', e.target.value)} placeholder="0" min={1} />
+                        <div>
+                          <input type="number" className="form-input text-xs py-2 text-right font-mono text-amber-700 font-bold" value={l.sellingPrice}
+                            onChange={e => setLine(l.id, 'sellingPrice', e.target.value)}
+                            placeholder={l.unitCostPrice ? Math.round(parseFloat(l.unitCostPrice) * 1.25) : '0'} min={0} step={1} />
+                          {l.unitCostPrice && !l.sellingPrice && (
+                            <p className="text-[9px] text-amber-600 mt-0.5">Default: {fmtIDR(Math.round(parseFloat(l.unitCostPrice) * 1.25))}</p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2.5">
+                        <input type="number" className="form-input text-xs py-2 text-right font-mono font-bold text-blue-700" value={l.quantityReceived}
+                          onChange={e => setLine(l.id, 'quantityReceived', e.target.value)}
+                          placeholder="0 unit" min={1} style={{ minWidth: 90 }} />
                       </td>
                       <td className="text-right font-mono text-sm font-semibold py-2.5">
                         {subTotal > 0 ? (
@@ -251,9 +302,9 @@ export default function GRNPage() {
                 })}
               </tbody>
               <tfoot>
-                <tr className="bg-gradient-to-r from-slate-50 to-slate-100 font-semibold border-t-2 border-slate-200">
-                  <td colSpan={5} className="text-right pr-4 text-sm py-3">TOTAL NILAI GRN</td>
-                  <td className="text-right font-mono text-sm text-slate-800 py-3">{fmtIDR(totalValue)}</td>
+                <tr className="bg-slate-800 text-white font-semibold border-t-2 border-slate-600">
+                  <td colSpan={6} className="text-right pr-4 text-sm py-3">TOTAL NILAI GRN (Utang PBF)</td>
+                  <td className="text-right font-mono text-sm py-3">{fmtIDR(totalValue)}</td>
                   <td />
                 </tr>
               </tfoot>
@@ -261,11 +312,11 @@ export default function GRNPage() {
           </div>
 
           {/* Journal info banner */}
-          <div className="px-5 py-3 border-t border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50">
-            <p className="text-xs text-blue-700 flex items-start gap-1.5">
-              <span className="text-blue-500 mt-0.5 flex-shrink-0">ℹ</span>
+          <div className="px-5 py-3 border-t border-slate-100 bg-emerald-600">
+            <p className="text-xs text-white flex items-start gap-1.5">
+              <span className="mt-0.5 flex-shrink-0">ℹ</span>
               <span>
-                Jurnal otomatis akan dibuat: <strong>Debit Persediaan</strong> (sesuai kategori item) / <strong>Kredit Utang PBF 2-11-001</strong> — Total <strong>{fmtIDR(totalValue)}</strong>
+                Jurnal otomatis: <strong>Dr Persediaan</strong> / <strong>Cr Utang PBF 2-11-001</strong> — Total <strong>{fmtIDR(totalValue)}</strong> | Status AP: <strong>UNPAID</strong> → dapat dilunasi melalui Pengeluaran
               </span>
             </p>
           </div>
@@ -273,7 +324,7 @@ export default function GRNPage() {
 
         <div className="flex justify-end gap-3">
           <button type="button" className="btn-secondary px-5" onClick={() => {
-            setLines([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', quantityReceived: '', notes: '' }])
+            setLines([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
             setSupplierName(''); setInvoiceRef('')
           }}>
             Reset Form

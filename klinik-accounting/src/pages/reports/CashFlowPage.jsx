@@ -5,15 +5,15 @@ import { fmtIDR, fmtDate, monthStart, monthEnd } from '../../utils/format'
 
 // Simplified indirect method cash flow
 const OPERATING_CASH_CODES = [
-  '1-11-001','1-11-002','1-11-003','1-11-004','1-11-005', // Cash accounts
+  '1-11-001', '1-11-002', '1-11-003', '1-11-004', '1-11-005', // Cash accounts
 ]
-const INVESTING_CODES = ['1-21-001','1-21-002','1-21-003','1-21-004','1-21-005','1-21-006','1-21-007']
-const FINANCING_CODES = ['2-21-001','2-21-002','3-11-001','3-11-002','3-13-001']
+const INVESTING_CODES = ['1-21-001', '1-21-002', '1-21-003', '1-21-004', '1-21-005', '1-21-006', '1-21-007']
+const FINANCING_CODES = ['2-21-001', '2-21-002', '3-11-001', '3-11-002', '3-13-001']
 
 export default function CashFlowPage() {
   const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
   const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(monthEnd())
+  const [dateTo, setDateTo] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
 
   const postedItems = useMemo(() => {
@@ -47,7 +47,7 @@ export default function CashFlowPage() {
   })
 
   const totalRevenue = revenueItems.reduce((s, i) => s + parseFloat(i.credit || 0), 0)
-  const totalExpense = expenseItems.reduce((s, i) => s + parseFloat(i.debit  || 0), 0)
+  const totalExpense = expenseItems.reduce((s, i) => s + parseFloat(i.debit || 0), 0)
   const netProfit = totalRevenue - totalExpense
 
   // Non-cash adjustments: depreciation
@@ -73,9 +73,9 @@ export default function CashFlowPage() {
   const fiscalYear = new Date(dateFrom).getFullYear()
   const openingCashBalance = OPERATING_CASH_CODES.reduce((sum, code) => {
     const ob = openingBalances.find(
-      o => o.accountCode === code && 
-           o.fiscalYear === fiscalYear &&
-           (branchFilter === 'ALL' || o.branchId === branchFilter)
+      o => o.accountCode === code &&
+        o.fiscalYear === fiscalYear &&
+        (branchFilter === 'ALL' || o.branchId === branchFilter)
     )
     return sum + parseFloat(ob?.openingBalance || 0)
   }, 0)
@@ -121,19 +121,19 @@ export default function CashFlowPage() {
         </div>
       </div>
 
-      {/* Summary KPIs */}
+      {/* Summary KPIs with Bright Solid Theme */}
       <div className="grid grid-cols-3 gap-4">
-        <div className={`card card-body border-0 ${operatingCF >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-          <p className="text-xs text-slate-500 uppercase mb-1">Arus Kas Operasi</p>
-          <p className={`font-mono font-bold text-lg ${operatingCF >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtIDR(operatingCF)}</p>
+        <div className={`card card-body border-0 shadow-sm text-white ${operatingCF >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+          <p className="text-xs text-white/90 uppercase tracking-wider font-semibold mb-1">Arus Kas Operasi</p>
+          <p className="font-mono font-extrabold text-white text-2xl">{fmtIDR(operatingCF)}</p>
         </div>
-        <div className={`card card-body border-0 ${investingCF >= 0 ? 'bg-blue-50' : 'bg-amber-50'}`}>
-          <p className="text-xs text-slate-500 uppercase mb-1">Arus Kas Investasi</p>
-          <p className={`font-mono font-bold text-lg ${investingCF >= 0 ? 'text-blue-700' : 'text-amber-700'}`}>{fmtIDR(investingCF)}</p>
+        <div className={`card card-body border-0 shadow-sm text-white ${investingCF >= 0 ? 'bg-blue-500' : 'bg-amber-500'}`}>
+          <p className="text-xs text-white/90 uppercase tracking-wider font-semibold mb-1">Arus Kas Investasi</p>
+          <p className="font-mono font-extrabold text-white text-2xl">{fmtIDR(investingCF)}</p>
         </div>
-        <div className={`card card-body border-0 ${netCashFlow >= 0 ? 'bg-teal-50' : 'bg-red-50'}`}>
-          <p className="text-xs text-slate-500 uppercase mb-1">Kenaikan / Penurunan Kas Bersih</p>
-          <p className={`font-mono font-bold text-lg ${netCashFlow >= 0 ? 'text-teal-700' : 'text-red-700'}`}>{fmtIDR(netCashFlow)}</p>
+        <div className={`card card-body border-0 shadow-sm text-white ${netCashFlow >= 0 ? 'bg-purple-500' : 'bg-rose-500'}`}>
+          <p className="text-xs text-white/90 uppercase tracking-wider font-semibold mb-1">Kenaikan / Penurunan Kas Bersih</p>
+          <p className="font-mono font-extrabold text-white text-2xl">{fmtIDR(netCashFlow)}</p>
         </div>
       </div>
 
@@ -152,25 +152,25 @@ export default function CashFlowPage() {
             </thead>
             <tbody>
               <Row label="I. ARUS KAS DARI AKTIVITAS OPERASI" isSection />
-              <Row label="Laba Bersih Sebelum Pajak"           value={netProfit}           indent={1} />
+              <Row label="Laba Bersih Sebelum Pajak" value={netProfit} indent={1} />
               <Row label="Penyesuaian:" indent={1} />
-              <Row label="Penambahan Beban Penyusutan"         value={totalDepreciation}   indent={2} />
+              <Row label="Penambahan Beban Penyusutan" value={totalDepreciation} indent={2} />
               <Row label="Perubahan Modal Kerja:" indent={1} />
-              <Row label="(Kenaikan)/Penurunan Piutang Usaha"  value={-receivableChange}   indent={2} />
-              <Row label="(Kenaikan)/Penurunan Persediaan"     value={-inventoryChange}    indent={2} />
-              <Row label="Kenaikan/(Penurunan) Utang Usaha"    value={payableChange}       indent={2} />
-              <Row label="Kenaikan/(Penurunan) Utang Pajak"    value={taxPayableChange}    indent={2} />
-              <Row label="JUMLAH ARUS KAS OPERASI"             value={operatingCF}         isTotal />
+              <Row label="(Kenaikan)/Penurunan Piutang Usaha" value={-receivableChange} indent={2} />
+              <Row label="(Kenaikan)/Penurunan Persediaan" value={-inventoryChange} indent={2} />
+              <Row label="Kenaikan/(Penurunan) Utang Usaha" value={payableChange} indent={2} />
+              <Row label="Kenaikan/(Penurunan) Utang Pajak" value={taxPayableChange} indent={2} />
+              <Row label="JUMLAH ARUS KAS OPERASI" value={operatingCF} isTotal />
 
               <tr><td colSpan={2} className="py-2" /></tr>
               <Row label="II. ARUS KAS DARI AKTIVITAS INVESTASI" isSection />
-              <Row label="Perolehan Aset Tetap"                value={-investingCF}        indent={1} sign={-1} />
-              <Row label="JUMLAH ARUS KAS INVESTASI"           value={investingCF}         isTotal />
+              <Row label="Perolehan Aset Tetap" value={-investingCF} indent={1} sign={-1} />
+              <Row label="JUMLAH ARUS KAS INVESTASI" value={investingCF} isTotal />
 
               <tr><td colSpan={2} className="py-2" /></tr>
               <Row label="III. ARUS KAS DARI AKTIVITAS PENDANAAN" isSection />
-              <Row label="Penambahan/(Pembayaran) Utang Bank"  value={financingCF}         indent={1} />
-              <Row label="JUMLAH ARUS KAS PENDANAAN"           value={financingCF}         isTotal />
+              <Row label="Penambahan/(Pembayaran) Utang Bank" value={financingCF} indent={1} />
+              <Row label="JUMLAH ARUS KAS PENDANAAN" value={financingCF} isTotal />
             </tbody>
             <tfoot>
               <tr className={`${netCashFlow >= 0 ? 'bg-emerald-700' : 'bg-red-700'} text-white`}>
@@ -190,7 +190,7 @@ export default function CashFlowPage() {
         </div>
         <div className="card-body border-t border-slate-100">
           <p className="text-xs text-slate-400">
-            * Laporan arus kas menggunakan metode tidak langsung (indirect method) sesuai PSAK 2. 
+            * Laporan arus kas menggunakan metode tidak langsung (indirect method) sesuai PSAK 2.
             Angka berdasarkan entri jurnal yang telah diposting pada periode yang dipilih.
           </p>
         </div>

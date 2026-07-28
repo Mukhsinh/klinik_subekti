@@ -22,7 +22,6 @@ import BillingReportPage from './pages/reports/BillingReportPage'
 import ExpensePage from './pages/ExpensePage'
 import PPh21Page from './pages/tax/PPh21Page'
 import PPNPage from './pages/tax/PPNPage'
-import BranchesPage from './pages/BranchesPage'
 import AppSettingsPage from './pages/settings/AppSettingsPage'
 import UserManagementPage from './pages/settings/UserManagementPage'
 import AuditTrailPage from './pages/settings/AuditTrailPage'
@@ -92,7 +91,6 @@ export default function App() {
           <Route path="expenses" element={<ExpensePage />} />
           <Route path="tax-pph21" element={<PPh21Page />} />
           <Route path="tax-ppn" element={<PPNPage />} />
-          <Route path="branches" element={<BranchesPage />} />
           {/* Settings — admin only (access guard in AppLayout) */}
           <Route path="settings/app" element={<AppSettingsPage />} />
           <Route path="settings/users" element={<UserManagementPage />} />

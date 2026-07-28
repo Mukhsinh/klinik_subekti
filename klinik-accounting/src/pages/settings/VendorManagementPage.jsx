@@ -125,24 +125,24 @@ export default function VendorManagementPage() {
                         Daftar PBF distributor, supplier obat, dan rekanan pengeluaran beban klinik
                     </p>
                 </div>
-                <button className="btn-primary" onClick={() => { setSelected(null); setModal('add') }}>
+                <button className="btn-danger-red" onClick={() => { setSelected(null); setModal('add') }}>
                     <Plus className="w-4 h-4" />Tambah Vendor
                 </button>
             </div>
 
             {/* Summary Cards */}
             <div className="grid grid-cols-3 gap-4">
-                <div className="card card-body bg-blue-50 border-0">
-                    <p className="text-xs text-slate-500 mb-1">Total Vendor</p>
-                    <p className="font-bold text-2xl text-blue-700">{(vendors || []).length}</p>
+                <div className="card card-body bg-blue-500 text-white border-0 shadow-sm">
+                    <p className="text-xs text-blue-100 mb-1 font-semibold uppercase tracking-wider">Total Vendor</p>
+                    <p className="font-extrabold text-3xl font-mono text-white">{(vendors || []).length}</p>
                 </div>
-                <div className="card card-body bg-emerald-50 border-0">
-                    <p className="text-xs text-slate-500 mb-1">Vendor Aktif</p>
-                    <p className="font-bold text-2xl text-emerald-700">{(vendors || []).filter(v => v.isActive !== false).length}</p>
+                <div className="card card-body bg-emerald-500 text-white border-0 shadow-sm">
+                    <p className="text-xs text-emerald-100 mb-1 font-semibold uppercase tracking-wider">Vendor Aktif</p>
+                    <p className="font-extrabold text-3xl font-mono text-white">{(vendors || []).filter(v => v.isActive !== false).length}</p>
                 </div>
-                <div className="card card-body bg-purple-50 border-0">
-                    <p className="text-xs text-slate-500 mb-1">NPWP Terdaftar</p>
-                    <p className="font-bold text-2xl text-purple-700">{(vendors || []).filter(v => v.npwp && v.npwp.trim()).length}</p>
+                <div className="card card-body bg-purple-500 text-white border-0 shadow-sm">
+                    <p className="text-xs text-purple-100 mb-1 font-semibold uppercase tracking-wider">NPWP Terdaftar</p>
+                    <p className="font-extrabold text-3xl font-mono text-white">{(vendors || []).filter(v => v.npwp && v.npwp.trim()).length}</p>
                 </div>
             </div>
 
@@ -161,7 +161,7 @@ export default function VendorManagementPage() {
                                 <th>NPWP Vendor</th>
                                 <th>Alamat</th>
                                 <th className="text-center">Status</th>
-                                <th></th>
+                                <th className="text-center">Aksi</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -174,11 +174,11 @@ export default function VendorManagementPage() {
                                 </tr>
                             ) : filtered.map(v => (
                                 <tr key={v.id}>
-                                    <td className="font-mono text-xs text-primary-700 font-medium">{v.code}</td>
-                                    <td className="text-sm font-medium text-slate-700">{v.name}</td>
+                                    <td className="font-mono text-xs text-primary-700 font-bold">{v.code}</td>
+                                    <td className="text-sm font-bold text-slate-800">{v.name}</td>
                                     <td className="text-sm">
                                         {v.phone ? (
-                                            <div className="flex items-center gap-1 text-slate-600">
+                                            <div className="flex items-center gap-1 text-slate-700 font-medium">
                                                 <Phone className="w-3.5 h-3.5 text-slate-400" /> {v.phone}
                                             </div>
                                         ) : '—'}
@@ -188,13 +188,13 @@ export default function VendorManagementPage() {
                                     <td className="text-center">
                                         <StatusBadge status={v.isActive !== false ? 'ACTIVE' : 'INACTIVE'} />
                                     </td>
-                                    <td>
-                                        <div className="flex items-center gap-1 justify-end">
-                                            <button className="btn-ghost p-1.5" onClick={() => { setSelected(v); setModal('edit') }} title="Edit">
+                                    <td className="text-center">
+                                        <div className="flex items-center justify-center gap-1.5">
+                                            <button className="btn-action-edit" onClick={() => { setSelected(v); setModal('edit') }} title="Edit">
                                                 <Pencil className="w-3.5 h-3.5" />
                                             </button>
-                                            <button className="btn-ghost p-1.5 text-slate-500" onClick={() => handleToggleActive(v)} title={v.isActive !== false ? 'Nonaktifkan' : 'Aktifkan'}>
-                                                <PowerOff className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" />
+                                            <button className="btn-action-delete" onClick={() => handleToggleActive(v)} title={v.isActive !== false ? 'Nonaktifkan' : 'Aktifkan'}>
+                                                <PowerOff className="w-3.5 h-3.5" />
                                             </button>
                                         </div>
                                     </td>

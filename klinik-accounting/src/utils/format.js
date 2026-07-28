@@ -1,36 +1,39 @@
-// ─── Currency Formatting ─────────────────────────────────────
-const IDR = new Intl.NumberFormat('id-ID', {
-  style: 'currency', currency: 'IDR',
-  minimumFractionDigits: 0, maximumFractionDigits: 0,
-})
-const IDR2 = new Intl.NumberFormat('id-ID', {
-  style: 'currency', currency: 'IDR',
-  minimumFractionDigits: 2, maximumFractionDigits: 2,
-})
-const NUM = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-const NUM4 = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+// ─── Currency Formatting (Standard Accounting Comma Separator: 12,825,000) ───
+const NUM = new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+const NUM2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const NUM4 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
 
-export const fmtIDR   = (v) => IDR.format(Number(v) || 0)
-export const fmtIDR2  = (v) => IDR2.format(Number(v) || 0)
-export const fmtNum   = (v) => NUM.format(Number(v) || 0)
-export const fmtNum4  = (v) => NUM4.format(Number(v) || 0)
-export const fmtPct   = (v) => `${Number(v || 0).toFixed(2)}%`
+export const fmtNum = (v) => NUM.format(Number(v) || 0)
+export const fmtNum2 = (v) => NUM2.format(Number(v) || 0)
+export const fmtNum4 = (v) => NUM4.format(Number(v) || 0)
+
+export const fmtIDR = (v) => {
+  const n = Number(v) || 0
+  if (n < 0) return `-Rp ${NUM.format(Math.abs(n))}`
+  return `Rp ${NUM.format(n)}`
+}
+export const fmtIDR2 = (v) => {
+  const n = Number(v) || 0
+  if (n < 0) return `-Rp ${NUM2.format(Math.abs(n))}`
+  return `Rp ${NUM2.format(n)}`
+}
+export const fmtPct = (v) => `${Number(v || 0).toFixed(2)}%`
 
 // ─── Date Formatting ─────────────────────────────────────────
 export function fmtDate(d) {
   if (!d) return '—'
   const dt = typeof d === 'string' ? new Date(d) : d
-  return dt.toLocaleDateString('id-ID', { day:'2-digit', month:'short', year:'numeric' })
+  return dt.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 export function fmtDateTime(d) {
   if (!d) return '—'
   const dt = typeof d === 'string' ? new Date(d) : d
-  return dt.toLocaleString('id-ID', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+  return dt.toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 export function fmtMonthYear(d) {
   if (!d) return '—'
   const dt = typeof d === 'string' ? new Date(d) : d
-  return dt.toLocaleDateString('id-ID', { month:'long', year:'numeric' })
+  return dt.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
 }
 export function todayISO() {
   return new Date().toISOString().split('T')[0]
@@ -55,25 +58,25 @@ export function calcBalance(account, totalDebit, totalCredit) {
 }
 
 export function accountTypeLabel(t) {
-  return { ASSET:'Aset', LIABILITY:'Liabilitas', EQUITY:'Ekuitas', REVENUE:'Pendapatan', EXPENSE:'Beban' }[t] || t
+  return { ASSET: 'Aset', LIABILITY: 'Liabilitas', EQUITY: 'Ekuitas', REVENUE: 'Pendapatan', EXPENSE: 'Beban' }[t] || t
 }
 export function accountTypeBadge(t) {
   return {
-    ASSET:    'badge-blue',
-    LIABILITY:'badge-red',
-    EQUITY:   'badge-purple',
-    REVENUE:  'badge-green',
-    EXPENSE:  'badge-yellow',
+    ASSET: 'badge-blue',
+    LIABILITY: 'badge-red',
+    EQUITY: 'badge-purple',
+    REVENUE: 'badge-green',
+    EXPENSE: 'badge-yellow',
   }[t] || 'badge-gray'
 }
 export function entryStatusBadge(s) {
-  return { DRAFT:'badge-yellow', POSTED:'badge-green', REVERSED:'badge-red' }[s] || 'badge-gray'
+  return { DRAFT: 'badge-yellow', POSTED: 'badge-green', REVERSED: 'badge-red' }[s] || 'badge-gray'
 }
 export function paymentMethodLabel(m) {
   return {
-    TUNAI:'Tunai / Cash', QRIS:'QRIS / E-Wallet', TRANSFER:'Transfer Bank',
-    BPJS:'BPJS Kesehatan', ASURANSI:'Asuransi Swasta', MIXED:'Pembayaran Campuran',
-    KAS:'Kas', KARTU_KREDIT:'Kartu Kredit',
+    TUNAI: 'Tunai / Cash', QRIS: 'QRIS / E-Wallet', TRANSFER: 'Transfer Bank',
+    BPJS: 'BPJS Kesehatan', ASURANSI: 'Asuransi Swasta', MIXED: 'Pembayaran Campuran',
+    KAS: 'Kas', KARTU_KREDIT: 'Kartu Kredit',
   }[m] || m
 }
 
@@ -83,10 +86,10 @@ export function calcPPh21Doctor(grossAmount, cumulativeGrossYTD = 0) {
   const totalDPP = cumulativeGrossYTD + dpp
 
   let rate
-  if (totalDPP <= 60_000_000)       rate = 0.05
-  else if (totalDPP <= 250_000_000)  rate = 0.15
-  else if (totalDPP <= 500_000_000)  rate = 0.25
-  else                               rate = 0.30
+  if (totalDPP <= 60_000_000) rate = 0.05
+  else if (totalDPP <= 250_000_000) rate = 0.15
+  else if (totalDPP <= 500_000_000) rate = 0.25
+  else rate = 0.30
 
   const pph21 = dpp * rate
   return {

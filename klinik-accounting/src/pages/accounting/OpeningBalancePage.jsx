@@ -5,14 +5,15 @@
  */
 import { useState, useEffect, useMemo } from 'react'
 import { useStore } from '../../store/useStore'
-import { Search, Save, AlertCircle, CheckCircle, BookOpen, Calendar, Building2 } from 'lucide-react'
+import { Search, Save, AlertCircle, CheckCircle, BookOpen, Calendar, RotateCw } from 'lucide-react'
 import Alert from '../../components/ui/Alert'
+import { fmtIDR } from '../../utils/format'
 
 export default function OpeningBalancePage() {
-  const { 
-    coa, 
-    branches, 
-    activeBranchId, 
+  const {
+    coa,
+    branches,
+    activeBranchId,
     openingBalances,
     saveOpeningBalances,
     refreshOpeningBalances,
@@ -20,7 +21,7 @@ export default function OpeningBalancePage() {
   } = useStore()
 
   const currentYear = new Date().getFullYear()
-  
+
   // Form state
   const [fiscalYear, setFiscalYear] = useState(currentYear)
   const [openingDate, setOpeningDate] = useState(`${currentYear}-01-01`)
@@ -55,9 +56,9 @@ export default function OpeningBalancePage() {
   // Filter COA by search term
   const filteredCOA = useMemo(() => {
     if (!searchTerm.trim()) return coa.filter(a => a.isActive !== false)
-    
+
     const term = searchTerm.toLowerCase()
-    return coa.filter(a => 
+    return coa.filter(a =>
       a.isActive !== false && (
         a.accountCode?.toLowerCase().includes(term) ||
         a.accountName?.toLowerCase().includes(term) ||
@@ -134,9 +135,9 @@ export default function OpeningBalancePage() {
       .filter(([_, data]) => parseFloat(data.openingBalance || 0) !== 0)
       .map(([accountCode, data]) => {
         const existing = openingBalances.find(
-          ob => ob.accountCode === accountCode && 
-                ob.branchId === selectedBranchId && 
-                ob.fiscalYear === fiscalYear
+          ob => ob.accountCode === accountCode &&
+            ob.branchId === selectedBranchId &&
+            ob.fiscalYear === fiscalYear
         )
 
         return {
@@ -170,15 +171,15 @@ export default function OpeningBalancePage() {
 
     try {
       const result = await saveOpeningBalances(dataToSave)
-      
+
       if (result.ok) {
-        setMessage({ 
-          type: 'success', 
-          text: `✓ Berhasil menyimpan ${dataToSave.length} saldo awal untuk tahun fiskal ${fiscalYear}.` 
+        setMessage({
+          type: 'success',
+          text: `✓ Berhasil menyimpan ${dataToSave.length} saldo awal untuk tahun fiskal ${fiscalYear}.`
         })
-        logActivity('SAVE_OPENING_BALANCES', 'ACCOUNTING', 
+        logActivity('SAVE_OPENING_BALANCES', 'ACCOUNTING',
           `Saved ${dataToSave.length} opening balances for fiscal year ${fiscalYear}`)
-        
+
         // Refresh data
         await refreshOpeningBalances({ branchId: selectedBranchId, fiscalYear })
       } else {
@@ -193,22 +194,55 @@ export default function OpeningBalancePage() {
   }
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-          <BookOpen className="w-8 h-8 text-blue-600" />
-          Saldo Awal (Opening Balance)
-        </h1>
-        <p className="text-gray-600 mt-1">
-          Input saldo awal untuk setiap akun COA. Saldo ini akan digunakan sebagai dasar perhitungan buku besar dan laporan keuangan.
-        </p>
+    <div className="space-y-5">
+      {/* Header & Action Bar */}
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="page-title">Saldo Awal (Opening Balance)</h1>
+          <p className="text-sm text-slate-400 mt-0.5">
+            Input saldo awal untuk setiap akun COA sebagai dasar perhitungan buku besar &amp; laporan keuangan.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          <button className="btn-orange">
+            <BookOpen className="w-4 h-4" />Unduh Template Impor
+          </button>
+          <button className="btn-emerald">
+            <CheckCircle className="w-4 h-4" />Impor Data
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="btn-danger-red"
+          >
+            {saving ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Menyimpan...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />Simpan Saldo Awal
+              </>
+            )}
+          </button>
+          <button className="btn-royal-blue">
+            <BookOpen className="w-4 h-4" />Unduh Laporan
+          </button>
+          <button
+            className="btn-square-refresh"
+            onClick={() => refreshOpeningBalances({ branchId: selectedBranchId || activeBranchId, fiscalYear })}
+            title="Refresh Data"
+          >
+            <RotateCw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Alert Message */}
       {message && (
-        <Alert 
-          type={message.type} 
+        <Alert
+          type={message.type}
           className="mb-4"
           onClose={() => setMessage(null)}
         >
@@ -216,34 +250,37 @@ export default function OpeningBalancePage() {
         </Alert>
       )}
 
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Branch Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-              <Building2 className="w-4 h-4" />
-              Cabang
-            </label>
-            <select
-              value={selectedBranchId || ''}
-              onChange={(e) => setSelectedBranchId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">-- Pilih Cabang --</option>
-              {branches.map(b => (
-                <option key={b.id} value={b.id}>
-                  {b.branchCode} - {b.branchName}
-                </option>
-              ))}
-            </select>
-          </div>
+      {/* Summary Cards with Bright Solid Theme */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="card card-body bg-emerald-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-emerald-100 font-semibold uppercase tracking-wider mb-1">Total Debit</p>
+          <p className="font-extrabold text-3xl font-mono text-white">
+            {fmtIDR(totals.totalDebit)}
+          </p>
+        </div>
+        <div className="card card-body bg-blue-500 text-white border-0 shadow-sm">
+          <p className="text-xs text-blue-100 font-semibold uppercase tracking-wider mb-1">Total Kredit</p>
+          <p className="font-extrabold text-3xl font-mono text-white">
+            {fmtIDR(totals.totalCredit)}
+          </p>
+        </div>
+        <div className={`card card-body text-white border-0 shadow-sm ${Math.abs(totals.difference) < 0.01 ? 'bg-purple-500' : 'bg-amber-500'}`}>
+          <p className="text-xs text-purple-100 font-semibold uppercase tracking-wider mb-1">
+            Selisih {Math.abs(totals.difference) < 0.01 ? '(Balance ✓)' : '(Unbalanced)'}
+          </p>
+          <p className="font-extrabold text-3xl font-mono text-white">
+            {fmtIDR(Math.abs(totals.difference))}
+          </p>
+        </div>
+      </div>
 
+      {/* Filters bar without Branch */}
+      <div className="card card-body">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Fiscal Year */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-              <Calendar className="w-4 h-4" />
-              Tahun Fiskal
+            <label className="form-label flex items-center gap-1">
+              <Calendar className="w-3.5 h-3.5 text-slate-500" /> Tahun Fiskal
             </label>
             <input
               type="number"
@@ -251,96 +288,49 @@ export default function OpeningBalancePage() {
               onChange={(e) => setFiscalYear(parseInt(e.target.value) || currentYear)}
               min="2020"
               max="2100"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="form-input"
             />
           </div>
 
           {/* Opening Date */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tanggal Efektif
-            </label>
+            <label className="form-label">Tanggal Efektif</label>
             <input
               type="date"
               value={openingDate}
               onChange={(e) => setOpeningDate(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="form-input"
             />
           </div>
 
           {/* Search */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-              <Search className="w-4 h-4" />
-              Cari Akun
+            <label className="form-label flex items-center gap-1">
+              <Search className="w-3.5 h-3.5 text-slate-500" /> Cari Akun
             </label>
             <input
               type="text"
               placeholder="Kode atau nama akun..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="form-input"
             />
           </div>
         </div>
       </div>
 
-      {/* Balance Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="text-sm text-green-700 font-medium">Total Debit</div>
-          <div className="text-2xl font-bold text-green-800 mt-1">
-            Rp {totals.totalDebit.toLocaleString('id-ID')}
-          </div>
-        </div>
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="text-sm text-blue-700 font-medium">Total Kredit</div>
-          <div className="text-2xl font-bold text-blue-800 mt-1">
-            Rp {totals.totalCredit.toLocaleString('id-ID')}
-          </div>
-        </div>
-        <div className={`border rounded-lg p-4 ${
-          Math.abs(totals.difference) < 0.01 
-            ? 'bg-green-50 border-green-200' 
-            : 'bg-yellow-50 border-yellow-200'
-        }`}>
-          <div className={`text-sm font-medium ${
-            Math.abs(totals.difference) < 0.01 ? 'text-green-700' : 'text-yellow-700'
-          }`}>
-            Selisih {Math.abs(totals.difference) < 0.01 ? '(Balance ✓)' : '(Unbalanced)'}
-          </div>
-          <div className={`text-2xl font-bold mt-1 ${
-            Math.abs(totals.difference) < 0.01 ? 'text-green-800' : 'text-yellow-800'
-          }`}>
-            Rp {Math.abs(totals.difference).toLocaleString('id-ID')}
-          </div>
-        </div>
-      </div>
-
       {/* COA Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto" style={{ maxHeight: 'calc(100vh - 420px)', minHeight: '500px' }}>
-          <table className="w-full">
-            <thead className="bg-gray-50 sticky top-0 z-10">
+      <div className="card">
+        <div className="overflow-x-auto">
+          <table className="table-base">
+            <thead>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b">
-                  Kode Akun
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b">
-                  Nama Akun
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b">
-                  Tipe
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase tracking-wider border-b">
-                  Normal Balance
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider border-b">
-                  Saldo Awal (Rp)
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b">
-                  Keterangan
-                </th>
+                <th style={{ width: 130 }}>Kode Akun</th>
+                <th>Nama Akun</th>
+                <th>Tipe</th>
+                <th className="text-center">Normal Balance</th>
+                <th className="text-right" style={{ width: 220 }}>Saldo Awal (Rp)</th>
+                <th>Keterangan</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -352,11 +342,11 @@ export default function OpeningBalancePage() {
                       {accountType}
                     </td>
                   </tr>
-                  
+
                   {/* Group Accounts */}
                   {accounts.map((account) => {
                     const balance = editableBalances[account.accountCode]
-                    
+
                     return (
                       <tr key={account.accountCode} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-sm font-mono text-gray-900">
@@ -371,11 +361,10 @@ export default function OpeningBalancePage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-sm text-center">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            account.normalBalance === 'DEBIT' 
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-blue-100 text-blue-700'
-                          }`}>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${account.normalBalance === 'DEBIT'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-blue-100 text-blue-700'
+                            }`}>
                             {account.normalBalance}
                           </span>
                         </td>
@@ -413,7 +402,7 @@ export default function OpeningBalancePage() {
         <div className="text-sm text-gray-600">
           {Object.keys(editableBalances).filter(k => editableBalances[k].openingBalance !== 0).length} akun terisi
         </div>
-        
+
         <button
           onClick={handleSave}
           disabled={saving || !selectedBranchId}
