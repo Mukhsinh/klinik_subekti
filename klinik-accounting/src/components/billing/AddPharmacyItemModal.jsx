@@ -26,9 +26,9 @@ export default function AddPharmacyItemModal({
           .reduce((s, b) => s + b.quantityCurrent, 0)
 
         const catRaw = i.category || i.itemCategory || i.item_category || ''
-        let categoryLabel = 'BHP / Item'
-        if (catRaw === 'OBAT_PATEN') categoryLabel = 'Paten'
-        else if (catRaw === 'OBAT_GENERIK') categoryLabel = 'Generik'
+        let categoryLabel = 'BHP'
+        if (catRaw === 'OBAT_PATEN' || catRaw === 'BRANDED') categoryLabel = 'BRANDED'
+        else if (catRaw === 'OBAT_GENERIK' || catRaw === 'GENERIK') categoryLabel = 'GENERIK'
         else if (catRaw === 'BHP' || catRaw === 'BHP_MEDIS') categoryLabel = 'BHP'
         else if (catRaw === 'RUMAH_TANGGA' || catRaw === 'RT') categoryLabel = 'RT'
 
@@ -165,8 +165,8 @@ export default function AddPharmacyItemModal({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className={`text-xs font-medium px-2 py-0.5 rounded ${item.category === 'OBAT_PATEN'
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-green-100 text-green-700'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-green-100 text-green-700'
                             }`}>
                             {item.categoryLabel}
                           </span>

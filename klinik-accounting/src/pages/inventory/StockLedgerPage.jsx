@@ -285,20 +285,20 @@ export default function StockLedgerPage() {
                 Total: <strong>{filteredRecap.length}</strong> item
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="table-base">
+            <div className="w-full">
+              <table className="w-full text-left border-collapse table-auto">
                 <thead>
-                  <tr>
-                    <th>Kode / SKU</th>
-                    <th>Nama Item</th>
-                    <th>Satuan</th>
-                    <th className="text-right">Saldo Awal</th>
-                    <th className="text-right">Penerimaan (+)</th>
-                    <th className="text-right">Pengeluaran (-)</th>
-                    <th className="text-right">Saldo Akhir</th>
+                  <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                    <th className="py-2.5 px-2.5" style={{ width: '130px' }}>Kode / SKU</th>
+                    <th className="py-2.5 px-2.5" style={{ minWidth: '180px' }}>Nama Item</th>
+                    <th className="py-2.5 px-2.5" style={{ width: '70px' }}>Satuan</th>
+                    <th className="py-2.5 px-2.5 text-right" style={{ width: '100px' }}>Saldo Awal</th>
+                    <th className="py-2.5 px-2.5 text-right" style={{ width: '110px' }}>Penerimaan (+)</th>
+                    <th className="py-2.5 px-2.5 text-right" style={{ width: '110px' }}>Pengeluaran (-)</th>
+                    <th className="py-2.5 px-2.5 text-right" style={{ width: '100px' }}>Saldo Akhir</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-200 bg-white text-[11px]">
                   {filteredRecap.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="text-center py-8 text-slate-400">Tidak ada data rekapitulasi</td>
@@ -306,20 +306,20 @@ export default function StockLedgerPage() {
                   ) : (
                     filteredRecap.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50">
-                        <td className="font-mono text-xs text-slate-500">{r.itemCode || r.skuCode || '—'}</td>
-                        <td>
+                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-500 whitespace-nowrap">{r.itemCode || r.skuCode || '—'}</td>
+                        <td className="py-2 px-2.5">
                           <button
-                            className="text-left font-semibold text-primary-600 hover:text-primary-800 hover:underline"
+                            className="text-left font-bold text-primary-600 hover:text-primary-800 hover:underline leading-tight"
                             onClick={() => setSelectedItem(r.id)}
                           >
                             {r.itemName}
                           </button>
                         </td>
-                        <td className="text-slate-500 text-sm">{r.baseUnit}</td>
-                        <td className="text-right font-mono text-sm text-slate-600">{r.saldoAwal}</td>
-                        <td className="text-right font-mono text-sm text-emerald-700 font-medium">+{r.penerimaan}</td>
-                        <td className="text-right font-mono text-sm text-red-600 font-medium">-{r.pengeluaran}</td>
-                        <td className="text-right font-mono text-sm font-bold text-slate-900">{r.saldoAkhir}</td>
+                        <td className="py-2 px-2.5 text-slate-500 text-[11px] whitespace-nowrap">{r.baseUnit}</td>
+                        <td className="py-2 px-2.5 text-right font-mono text-[11px] text-slate-600 whitespace-nowrap">{r.saldoAwal}</td>
+                        <td className="py-2 px-2.5 text-right font-mono text-[11px] text-emerald-700 font-medium whitespace-nowrap">+{r.penerimaan}</td>
+                        <td className="py-2 px-2.5 text-right font-mono text-[11px] text-red-600 font-medium whitespace-nowrap">-{r.pengeluaran}</td>
+                        <td className="py-2 px-2.5 text-right font-mono text-[11px] font-bold text-slate-900 whitespace-nowrap">{r.saldoAkhir}</td>
                       </tr>
                     ))
                   )}

@@ -3,22 +3,66 @@ import { Plus, Pencil, Package, AlertTriangle, Download, Upload, FileDown, Refre
 import { supabase } from '../../lib/supabase'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
-import { StatusBadge } from '../../components/ui/Badge'
-import { fmtIDR } from '../../utils/format'
-import { exportStockExcel } from '../../utils/exportExcel'
 import Alert from '../../components/ui/Alert'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 import * as XLSX from 'xlsx'
 
-const CATEGORIES = ['OBAT_PATEN', 'OBAT_GENERIK', 'BHP', 'RUMAH_TANGGA']
-const CAT_LABELS = { OBAT_PATEN: 'Obat Paten', OBAT_GENERIK: 'Obat Generik', BHP: 'BHP (Bahan Habis Pakai)', RUMAH_TANGGA: 'Rumah Tangga' }
-const CAT_COLORS = { OBAT_PATEN: 'badge-blue', OBAT_GENERIK: 'badge-green', BHP: 'badge-purple', RUMAH_TANGGA: 'badge-yellow' }
-const CAT_INV_COA = { OBAT_PATEN: '1-13-001', OBAT_GENERIK: '1-13-002', BHP: '1-13-003', RUMAH_TANGGA: '1-13-004' }
-const CAT_HPP_COA = { OBAT_PATEN: '5-11-001', OBAT_GENERIK: '5-11-002', BHP: '5-11-003', RUMAH_TANGGA: '5-11-004' }
+const CATEGORIES = ['BRANDED', 'GENERIK', 'BHP']
+const CAT_LABELS = {
+  BRANDED: 'BRANDED',
+  GENERIK: 'GENERIK',
+  'PEMAKAIAN BHP': 'BHP',
+  BHP: 'BHP',
+  OBAT_PATEN: 'BRANDED',
+  OBAT_GENERIK: 'GENERIK',
+  RUMAH_TANGGA: 'Rumah Tangga'
+}
+const CAT_COLORS = {
+  BRANDED: 'badge-blue',
+  GENERIK: 'badge-green',
+  'PEMAKAIAN BHP': 'badge-purple',
+  BHP: 'badge-purple',
+  OBAT_PATEN: 'badge-blue',
+  OBAT_GENERIK: 'badge-green',
+  RUMAH_TANGGA: 'badge-yellow'
+}
+const CAT_INV_COA = {
+  BRANDED: '1-13-001',
+  GENERIK: '1-13-002',
+  'PEMAKAIAN BHP': '1-13-003',
+  BHP: '1-13-003',
+  OBAT_PATEN: '1-13-001',
+  OBAT_GENERIK: '1-13-002',
+  RUMAH_TANGGA: '1-13-004'
+}
+const CAT_HPP_COA = {
+  BRANDED: '5-11-001',
+  GENERIK: '5-11-002',
+  'PEMAKAIAN BHP': '5-11-003',
+  BHP: '5-11-003',
+  OBAT_PATEN: '5-11-001',
+  OBAT_GENERIK: '5-11-002',
+  RUMAH_TANGGA: '5-11-004'
+}
 // Prefix for auto-generated codes
-const CAT_PREFIX = { OBAT_PATEN: 'PAT', OBAT_GENERIK: 'GEN', BHP: 'BHP', RUMAH_TANGGA: 'RT' }
-const UNIT_OPTIONS = ['Tablet', 'Pcs', 'Vial', 'Botol', 'Set', 'Rim', 'Buku', 'Lembar', 'Bandel']
+const CAT_PREFIX = {
+  BRANDED: 'PAT',
+  GENERIK: 'GEN',
+  'PEMAKAIAN BHP': 'BHP',
+  BHP: 'BHP',
+  OBAT_PATEN: 'PAT',
+  OBAT_GENERIK: 'GEN',
+  RUMAH_TANGGA: 'RT'
+}
+
+const BENTUK_OPTIONS = [
+  'TABLET', 'KAPLET', 'KAPSUL', 'SUSPENSI', 'SYIRUP', 'DRY SYIRUP',
+  'INJEKSI', 'TETES MATA', 'SALEP MATA', 'ALKES', 'GEL', 'CAIRAN', 'INFUS',
+  'TABLET KUNYAH', 'Pcs'
+]
+
+const GOLONGAN_OPTIONS = ['UMUM', 'NARKOTIKA PSIKOTROPIKA']
 
 // ─── Item Form ───────────────────────────────────────────────
 function ItemForm({ initial = {}, onSave, onClose, coa, nextCodeByCategory }) {
@@ -27,10 +71,13 @@ function ItemForm({ initial = {}, onSave, onClose, coa, nextCodeByCategory }) {
   const isEdit = !!(initial && initial.id)
 
   const [form, setForm] = useState({
-    itemCode: initial.itemCode || (nextCodeByCategory ? nextCodeByCategory('OBAT_PATEN') : ''),
+    itemCode: initial.itemCode || (nextCodeByCategory ? nextCodeByCategory('BRANDED') : ''),
     itemName: initial.itemName || '',
-    category: initial.category || 'OBAT_PATEN',
-    baseUnit: initial.baseUnit || 'Tablet',
+    bentuk: initial.bentuk || 'TABLET',
+    golongan: initial.golongan || 'UMUM',
+    kelasTerapi: initial.kelasTerapi || '',
+    kandungan: initial.kandungan || '',
+    category: initial.category || 'BRANDED',
     minSafetyStock: initial.minSafetyStock ?? 50,
     reorderPoint: initial.reorderPoint ?? 100,
     coaInventoryCode: initial.coaInventoryCode || '1-13-001',
@@ -47,62 +94,74 @@ function ItemForm({ initial = {}, onSave, onClose, coa, nextCodeByCategory }) {
 
   const submit = (e) => {
     e.preventDefault()
-    if (!form.itemName.trim()) { toast.error('Nama item wajib diisi.'); return }
+    if (!form.itemName.trim()) { toast.error('Nama sediaan farmasi wajib diisi.'); return }
     onSave(form)
   }
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      {/* Kategori & Kode (kategori di atas, kode otomatis di bawah) */}
-      <div>
-        <label className="form-label">Kategori Barang *</label>
-        <select className="form-select" value={form.category} onChange={e => handleCategoryChange(e.target.value)}>
-          {CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABELS[c]} — prefix: {CAT_PREFIX[c]}-</option>)}
-        </select>
-      </div>
-
-      <div className="p-3 rounded-xl bg-blue-600 text-white flex items-center justify-between">
+      {/* Kategori & Kode */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-blue-200">Kode Barang (Otomatis)</p>
-          <p className="text-xl font-black font-mono">{form.itemCode || '—'}</p>
+          <label className="form-label">Kategori Barang *</label>
+          <select className="form-select" value={form.category} onChange={e => handleCategoryChange(e.target.value)}>
+            {CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABELS[c]} ({CAT_PREFIX[c]}-)</option>)}
+          </select>
         </div>
-        <span className="text-xs bg-white/20 px-2 py-1 rounded-lg font-mono">
-          Prefix: {CAT_PREFIX[form.category]}-
-        </span>
+
+        <div className="p-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between shadow-sm">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-blue-100">Kode Master Inventory</p>
+            <p className="text-xl font-black font-mono">{form.itemCode || '—'}</p>
+          </div>
+          <span className="text-xs bg-white/20 px-2 py-1 rounded-lg font-mono">
+            Prefix: {CAT_PREFIX[form.category]}-
+          </span>
+        </div>
       </div>
 
-      {/* Nama */}
+      {/* Nama Sediaan Farmasi */}
       <div>
-        <label className="form-label">Nama Item *</label>
+        <label className="form-label">Nama Sediaan Farmasi *</label>
         <input className="form-input" value={form.itemName}
           onChange={e => set('itemName', e.target.value)}
-          placeholder="Nama lengkap obat / alat medis…" required />
+          placeholder="Contoh: SANMOL 500 MG TAB, ANALSIK KAP…" required />
       </div>
 
-      {/* Satuan */}
-      <div>
-        <label className="form-label">Satuan Dasar *</label>
-        <select className="form-select" value={form.baseUnit} onChange={e => set('baseUnit', e.target.value)}>
-          {UNIT_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
-        </select>
-      </div>
-
-      {/* Stok */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Bentuk & Golongan */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label className="form-label">Stok Minimum (Safety Stock)</label>
-          <input type="number" className="form-input" value={form.minSafetyStock}
-            onChange={e => set('minSafetyStock', parseInt(e.target.value) || 0)} min={0} />
+          <label className="form-label">Bentuk Sediaan *</label>
+          <select className="form-select" value={form.bentuk} onChange={e => set('bentuk', e.target.value)}>
+            {BENTUK_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+          </select>
         </div>
         <div>
-          <label className="form-label">Titik Reorder (Reorder Point)</label>
-          <input type="number" className="form-input" value={form.reorderPoint}
-            onChange={e => set('reorderPoint', parseInt(e.target.value) || 0)} min={0} />
+          <label className="form-label">Golongan *</label>
+          <select className="form-select" value={form.golongan} onChange={e => set('golongan', e.target.value)}>
+            {GOLONGAN_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Kelas Terapi & Kandungan */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="form-label">Kelas Terapi</label>
+          <input className="form-input" value={form.kelasTerapi}
+            onChange={e => set('kelasTerapi', e.target.value)}
+            placeholder="Contoh: ANALGESIK, ANTI ALERGI, SUPLEMEN…" />
+        </div>
+        <div>
+          <label className="form-label">Kandungan / Zat Aktif</label>
+          <input className="form-input" value={form.kandungan}
+            onChange={e => set('kandungan', e.target.value)}
+            placeholder="Contoh: PARASETAMOL 500 MG, METAMIZOLE…" />
         </div>
       </div>
 
       {/* COA */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="form-label">Akun Persediaan (COA)</label>
           <select className="form-select" value={form.coaInventoryCode}
@@ -119,14 +178,9 @@ function ItemForm({ initial = {}, onSave, onClose, coa, nextCodeByCategory }) {
         </div>
       </div>
 
-      {/* Info */}
-      <div className="bg-emerald-600 text-white rounded-xl px-4 py-2.5 text-xs">
-        ℹ Jurnal GRN otomatis: <strong>Dr {form.coaInventoryCode}</strong> (Persediaan) — <strong>Cr 2-11-001</strong> (Utang PBF) | Harga Jual akan diisi di penerimaan GRN (125% HPP default)
-      </div>
-
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" className="btn-secondary" onClick={onClose}>Batal</button>
-        <button type="submit" className="btn-primary">Simpan Item</button>
+        <button type="submit" className="btn-primary">Simpan Master Inventory</button>
       </div>
     </form>
   )
@@ -136,7 +190,6 @@ function ItemForm({ initial = {}, onSave, onClose, coa, nextCodeByCategory }) {
 export default function InventoryPage() {
   const [coa, setCoa] = useState([])
   const [pharmacyItems, setPharmacyItems] = useState([])
-  const [invBatches, setInvBatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [catFilter, setCatFilter] = useState('ALL')
@@ -147,7 +200,6 @@ export default function InventoryPage() {
   const [importErrs, setImportErrs] = useState([])
   const fileRef = useRef(null)
 
-  // Load data dari Supabase
   useEffect(() => {
     loadData()
   }, [])
@@ -167,17 +219,9 @@ export default function InventoryPage() {
       const { data: itemsData, error: itemsError } = await supabase
         .from('pharmacy_items')
         .select('*')
-        .order('item_name')
+        .order('item_code')
 
       if (itemsError) throw itemsError
-
-      // Fetch batches
-      const { data: batchesData, error: batchesError } = await supabase
-        .from('inventory_batches')
-        .select('*')
-        .order('expiry_date')
-
-      if (batchesError) throw batchesError
 
       // Normalize COA
       const normalizedCoa = (coaData || []).map(account => ({
@@ -194,49 +238,28 @@ export default function InventoryPage() {
         sortOrder: account.sort_order
       }))
 
-      // Normalize pharmacy items
+      // Normalize pharmacy items according to Master Inventory template structure
       const normalizedItems = (itemsData || []).map(item => ({
         id: item.id,
-        itemCode: item.item_code,
-        skuCode: item.sku_code,
-        itemName: item.item_name,
-        genericName: item.generic_name,
-        category: item.category,
-        baseUnit: item.base_unit,
-        minSafetyStock: item.min_safety_stock,
-        reorderPoint: item.reorder_point,
-        coaInventoryCode: item.coa_inventory_code,
-        coaCOGSCode: item.coa_cogs_code,
-        sellingPrice: item.selling_price,
-        isActive: item.is_active,
-        isPrescription: item.is_prescription
-      }))
-
-      // Normalize batches
-      const normalizedBatches = (batchesData || []).map(batch => ({
-        id: batch.id,
-        itemId: batch.item_id,
-        batchNumber: batch.batch_number,
-        expiryDate: batch.expiry_date,
-        manufactureDate: batch.manufacture_date,
-        unitCostPrice: batch.unit_cost_price,
-        quantityReceived: batch.quantity_received,
-        quantityCurrent: batch.quantity_current,
-        grnReference: batch.grn_reference,
-        supplierName: batch.supplier_name,
-        journalEntryId: batch.journal_entry_id,
-        receivedAt: batch.received_at
+        itemCode: item.item_code || item.sku_code || '',
+        skuCode: item.sku_code || item.item_code || '',
+        itemName: item.item_name || '',
+        bentuk: item.bentuk || item.base_unit || 'Pcs',
+        golongan: item.golongan || 'UMUM',
+        kelasTerapi: item.kelas_terapi || '—',
+        kandungan: item.kandungan || '—',
+        category: item.category || 'GENERIK',
+        baseUnit: item.base_unit || item.bentuk || 'Pcs',
+        minSafetyStock: item.min_safety_stock ?? 50,
+        reorderPoint: item.reorder_point ?? 100,
+        coaInventoryCode: item.coa_inventory_code || '1-13-001',
+        coaCOGSCode: item.coa_cogs_code || '5-11-001',
+        sellingPrice: item.selling_price || 0,
+        isActive: item.is_active !== false
       }))
 
       setCoa(normalizedCoa)
       setPharmacyItems(normalizedItems)
-      setInvBatches(normalizedBatches)
-
-      console.log('[InventoryPage] Data loaded:', {
-        coa: normalizedCoa.length,
-        items: normalizedItems.length,
-        batches: normalizedBatches.length
-      })
     } catch (error) {
       console.error('[InventoryPage] Error loading data:', error)
       toast.error(`Gagal memuat data: ${error.message}`)
@@ -246,9 +269,8 @@ export default function InventoryPage() {
   }
 
   // ── Derived ──────────────────────────────────────────────
-  // Generate next code by category — ensures non-duplicate
   const nextCodeByCategory = useMemo(() => (cat) => {
-    const prefix = CAT_PREFIX[cat] || 'ITM'
+    const prefix = CAT_PREFIX[cat] || 'GEN'
     const existing = pharmacyItems
       .filter(p => p.category === cat)
       .map(p => {
@@ -265,27 +287,19 @@ export default function InventoryPage() {
       .filter(i => !search ||
         i.itemName.toLowerCase().includes(search.toLowerCase()) ||
         (i.itemCode || '').toLowerCase().includes(search.toLowerCase()) ||
-        (i.skuCode || '').toLowerCase().includes(search.toLowerCase()))
+        (i.bentuk || '').toLowerCase().includes(search.toLowerCase()) ||
+        (i.golongan || '').toLowerCase().includes(search.toLowerCase()) ||
+        (i.kelasTerapi || '').toLowerCase().includes(search.toLowerCase()) ||
+        (i.kandungan || '').toLowerCase().includes(search.toLowerCase()))
       .sort((a, b) => (a.itemCode || '').localeCompare(b.itemCode || '')),
     [pharmacyItems, catFilter, search])
-
-  const getStock = (itemId) =>
-    invBatches.filter(b => b.itemId === itemId && b.quantityCurrent > 0).reduce((s, b) => s + b.quantityCurrent, 0)
-
-  const isExpiringSoon = (itemId) => {
-    const limit = new Date(); limit.setDate(limit.getDate() + 180)
-    return invBatches.some(b => b.itemId === itemId && b.quantityCurrent > 0 && new Date(b.expiryDate) <= limit)
-  }
-
-  const criticalCount = pharmacyItems.filter(i => getStock(i.id) <= (i.minSafetyStock || 50)).length
 
   // ── Save handler ────────────────────────────────────────
   const handleSave = async (data) => {
     if (modal === 'add') {
-      // Auto-generate non-duplicate code
       let itemCode = data.itemCode
       while (pharmacyItems.find(p => p.itemCode === itemCode)) {
-        const prefix = CAT_PREFIX[data.category] || 'ITM'
+        const prefix = CAT_PREFIX[data.category] || 'GEN'
         const existing = pharmacyItems
           .filter(p => p.category === data.category)
           .map(p => { const m = (p.itemCode || '').match(/-0*(\d+)$/); return m ? parseInt(m[1]) : 0 })
@@ -297,18 +311,20 @@ export default function InventoryPage() {
         const newItem = {
           id: uuidv4(),
           item_code: itemCode,
-          sku_code: itemCode, // SKU equals item code
+          sku_code: itemCode,
           item_name: data.itemName,
-          generic_name: data.genericName || null,
+          bentuk: data.bentuk,
+          golongan: data.golongan,
+          kelas_terapi: data.kelasTerapi,
+          kandungan: data.kandungan,
           category: data.category,
-          base_unit: data.baseUnit,
-          min_safety_stock: data.minSafetyStock,
-          reorder_point: data.reorderPoint,
+          base_unit: data.bentuk || 'Pcs',
+          min_safety_stock: data.minSafetyStock || 50,
+          reorder_point: data.reorderPoint || 100,
           coa_inventory_code: data.coaInventoryCode,
           coa_cogs_code: data.coaCOGSCode,
-          selling_price: 0, // selling price determined at GRN
+          selling_price: 0,
           is_active: true,
-          is_prescription: data.isPrescription || false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }
@@ -319,7 +335,7 @@ export default function InventoryPage() {
 
         if (error) throw error
 
-        toast.success(`Item ${data.itemName} (${itemCode}) berhasil ditambahkan.`)
+        toast.success(`Master inventory ${data.itemName} (${itemCode}) berhasil ditambahkan.`)
         await loadData()
       } catch (error) {
         toast.error(`Gagal menambahkan item: ${error.message}`)
@@ -331,21 +347,21 @@ export default function InventoryPage() {
           .from('pharmacy_items')
           .update({
             item_name: data.itemName,
-            generic_name: data.genericName || null,
+            bentuk: data.bentuk,
+            golongan: data.golongan,
+            kelas_terapi: data.kelasTerapi,
+            kandungan: data.kandungan,
             category: data.category,
-            base_unit: data.baseUnit,
-            min_safety_stock: data.minSafetyStock,
-            reorder_point: data.reorderPoint,
+            base_unit: data.bentuk || 'Pcs',
             coa_inventory_code: data.coaInventoryCode,
             coa_cogs_code: data.coaCOGSCode,
-            is_prescription: data.isPrescription || false,
             updated_at: new Date().toISOString()
           })
           .eq('id', selected.id)
 
         if (error) throw error
 
-        toast.success('Item berhasil diperbarui.')
+        toast.success('Master inventory berhasil diperbarui.')
         await loadData()
       } catch (error) {
         toast.error(`Gagal memperbarui item: ${error.message}`)
@@ -358,32 +374,15 @@ export default function InventoryPage() {
   // ── Download template ────────────────────────────────────
   const downloadTemplate = () => {
     const ws = XLSX.utils.json_to_sheet([
-      { 'Kode Barang': 'PAT-0001', 'Kode SKU': 'SKU-00001', 'Nama Item': 'Amoxicillin 500mg Dexa Medica', 'Kategori': 'OBAT_PATEN', 'Satuan': 'Kapsul', 'Stok Minimum': 50, 'Reorder Point': 100, 'Harga Jual': 8000 },
-      { 'Kode Barang': 'GEN-0001', 'Kode SKU': 'SKU-00002', 'Nama Item': 'Amoxicillin 500mg Generik', 'Kategori': 'OBAT_GENERIK', 'Satuan': 'Kapsul', 'Stok Minimum': 100, 'Reorder Point': 200, 'Harga Jual': 3000 },
-      { 'Kode Barang': 'BHP-0001', 'Kode SKU': 'SKU-00003', 'Nama Item': 'Kasa Steril 10x10cm', 'Kategori': 'BHP', 'Satuan': 'Lembar', 'Stok Minimum': 200, 'Reorder Point': 500, 'Harga Jual': 1500 },
-      { 'Kode Barang': 'RT-0001', 'Kode SKU': 'SKU-00004', 'Nama Item': 'Sabun Cuci Tangan Lifebuoy', 'Kategori': 'RUMAH_TANGGA', 'Satuan': 'Botol', 'Stok Minimum': 20, 'Reorder Point': 50, 'Harga Jual': 12000 },
+      { 'KODE': 'PAT-0001', 'NAMA SEDIAAN FARMASI': 'SANMOL 500 MG TAB', 'BENTUK': 'TABLET', 'GOLONGAN': 'UMUM', 'KELAS TERAPI': 'ANALGESIK', 'KANDUNGAN': 'PARASETAMOL 500 MG', 'KATEGORI': 'BRANDED' },
+      { 'KODE': 'GEN-0001', 'NAMA SEDIAAN FARMASI': 'LORATADIN 10 MG TAB', 'BENTUK': 'TABLET', 'GOLONGAN': 'UMUM', 'KELAS TERAPI': 'ANTI ALERGI', 'KANDUNGAN': 'LORATADIN 10 MG', 'KATEGORI': 'GENERIK' },
+      { 'KODE': 'BHP-0001', 'NAMA SEDIAAN FARMASI': 'MASKER BEDAH EARLOP ONEMED', 'BENTUK': 'ALKES', 'GOLONGAN': 'UMUM', 'KELAS TERAPI': 'ALKES', 'KANDUNGAN': '', 'KATEGORI': 'PEMAKAIAN BHP' },
     ])
-    ws['!cols'] = [16, 15, 40, 18, 12, 15, 15, 15].map(w => ({ wch: w }))
-    const info = XLSX.utils.aoa_to_sheet([
-      ['TEMPLATE IMPORT MASTER ITEM FARMASI & MEDIS - Klinik Medis Antigravity'], [''],
-      ['Petunjuk:'],
-      ['1. Jangan ubah baris header (baris pertama)'],
-      ['2. Kode Barang harus unik — format: XXX-NNNN (mis. PAT-0001 untuk Obat Paten)'],
-      ['3. Kategori: OBAT_PATEN | OBAT_GENERIK | BHP | RUMAH_TANGGA'],
-      ['4. Harga Jual: angka Rupiah tanpa pemisah ribuan'],
-      ['5. COA persediaan & HPP ditetapkan otomatis berdasarkan Kategori'],
-      [''],
-      ['Mapping COA:'],
-      ['- Obat Paten:    Persediaan 1-13-001, HPP 5-11-001'],
-      ['- Obat Generik:  Persediaan 1-13-002, HPP 5-11-002'],
-      ['- BHP:           Persediaan 1-13-003, HPP 5-11-003'],
-      ['- Rumah Tangga:  Persediaan 1-13-004, HPP 5-11-004'],
-    ])
+    ws['!cols'] = [14, 38, 16, 24, 20, 36, 18].map(w => ({ wch: w }))
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Template Import')
-    XLSX.utils.book_append_sheet(wb, info, 'Petunjuk')
-    XLSX.writeFile(wb, 'Template_Import_MasterBarang.xlsx')
-    toast.success('Template berhasil diunduh.')
+    XLSX.utils.book_append_sheet(wb, ws, 'Master Inventory')
+    XLSX.writeFile(wb, 'Master_Inventory_Template.xlsx')
+    toast.success('Template Master Inventory berhasil diunduh.')
   }
 
   // ── Parse import file ────────────────────────────────────
@@ -394,34 +393,69 @@ export default function InventoryPage() {
     reader.onload = (ev) => {
       try {
         const wb = XLSX.read(ev.target.result, { type: 'binary' })
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+        const sheet = wb.Sheets[wb.SheetNames[0]]
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' })
         const errs = []
+
+        const counters = {
+          BRANDED: 0,
+          GENERIK: 0,
+          'PEMAKAIAN BHP': 0
+        }
+
+        pharmacyItems.forEach(p => {
+          const cat = p.category
+          const m = (p.itemCode || '').match(/-0*(\d+)$/)
+          if (m && counters[cat] !== undefined) {
+            const num = parseInt(m[1])
+            if (num > counters[cat]) counters[cat] = num
+          }
+        })
+
         const parsed = rows.map((row, i) => {
-          const cat = String(row['Kategori'] || '').toUpperCase().trim()
-          const code = String(row['Kode Barang'] || '').trim().toUpperCase()
-          const name = String(row['Nama Item'] || '').trim()
-          if (!name) errs.push(`Baris ${i + 2}: Nama Item kosong.`)
-          if (!code) errs.push(`Baris ${i + 2}: Kode Barang kosong.`)
-          if (!CATEGORIES.includes(cat)) errs.push(`Baris ${i + 2}: Kategori "${cat}" tidak valid.`)
+          const nama = String(row['NAMA SEDIAAN FARMASI'] || row['NAMA ITEM'] || row['Nama Item'] || '').trim()
+          const bentuk = String(row['BENTUK'] || row['Satuan'] || 'TABLET').trim()
+          const golongan = String(row['GOLONGAN'] || 'UMUM').trim()
+          const kelasTerapi = String(row['KELAS TERAPI'] || '').trim()
+          const kandungan = String(row['KANDUNGAN'] || '').trim()
+
+          let catRaw = String(row['KATEGORI'] || row['Kategori'] || '').toUpperCase().trim()
+          let category = 'GENERIK'
+          if (catRaw === 'BRANDED' || catRaw === 'PATEN' || catRaw === 'OBAT_PATEN') category = 'BRANDED'
+          else if (catRaw === 'BHP' || catRaw === 'PEMAKAIAN BHP' || catRaw === 'PEMAKAIAN_BHP') category = 'PEMAKAIAN BHP'
+          else category = 'GENERIK'
+
+          let code = String(row['KODE'] || row['Kode Barang'] || '').trim().toUpperCase()
+          if (!code) {
+            counters[category] = (counters[category] || 0) + 1;
+            const prefix = CAT_PREFIX[category] || 'GEN';
+            code = `${prefix}-${String(counters[category]).padStart(4, '0')}`;
+          }
+
+          if (!nama) errs.push(`Baris ${i + 2}: NAMA SEDIAAN FARMASI kosong.`)
+
           return {
             itemCode: code,
-            skuCode: String(row['Kode SKU'] || '').trim() || `SKU-${String(pharmacyItems.length + i + 1).padStart(5, '0')}`,
-            itemName: name,
-            genericName: String(row['Nama Generik'] || ''),
-            category: cat || 'OBAT_GENERIK',
-            baseUnit: String(row['Satuan'] || 'Pcs'),
-            minSafetyStock: parseInt(row['Stok Minimum']) || 50,
-            reorderPoint: parseInt(row['Reorder Point']) || 100,
-            sellingPrice: parseFloat(row['Harga Jual']) || 0,
-            coaInventoryCode: CAT_INV_COA[cat] || '1-13-002',
-            coaCOGSCode: CAT_HPP_COA[cat] || '5-11-002',
+            skuCode: code,
+            itemName: nama,
+            bentuk,
+            golongan,
+            kelasTerapi,
+            kandungan,
+            category,
+            baseUnit: bentuk,
+            minSafetyStock: 50,
+            reorderPoint: 100,
+            coaInventoryCode: CAT_INV_COA[category] || '1-13-002',
+            coaCOGSCode: CAT_HPP_COA[category] || '5-11-002'
           }
-        }).filter(r => r.itemName && r.itemCode)
+        }).filter(r => r.itemName)
+
         setImportRows(parsed)
         setImportErrs(errs)
         setImportModal(true)
       } catch (_) {
-        toast.error('Gagal membaca file. Pastikan format sesuai template.')
+        toast.error('Gagal membaca file. Pastikan format sesuai Master inventory.csv.')
       }
     }
     reader.readAsBinaryString(file)
@@ -445,16 +479,18 @@ export default function InventoryPage() {
           item_code: item.itemCode,
           sku_code: item.skuCode,
           item_name: item.itemName,
-          generic_name: item.genericName || null,
+          bentuk: item.bentuk,
+          golongan: item.golongan,
+          kelas_terapi: item.kelasTerapi,
+          kandungan: item.kandungan,
           category: item.category,
-          base_unit: item.baseUnit,
+          base_unit: item.bentuk || 'Pcs',
           min_safety_stock: item.minSafetyStock,
           reorder_point: item.reorderPoint,
           coa_inventory_code: item.coaInventoryCode,
           coa_cogs_code: item.coaCOGSCode,
-          selling_price: item.sellingPrice,
+          selling_price: 0,
           is_active: true,
-          is_prescription: item.isPrescription || false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }
@@ -471,7 +507,7 @@ export default function InventoryPage() {
         added++
       }
 
-      toast.success(`Import selesai: ${added} item ditambahkan, ${skipped} dilewati (kode sudah ada).`)
+      toast.success(`Import selesai: ${added} master inventory ditambahkan, ${skipped} dilewati.`)
       await loadData()
     } catch (error) {
       toast.error(`Gagal import: ${error.message}`)
@@ -488,7 +524,7 @@ export default function InventoryPage() {
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
           <RefreshCw className="w-8 h-8 animate-spin mx-auto text-primary-600 mb-3" />
-          <p className="text-slate-500">Memuat data inventory...</p>
+          <p className="text-slate-500">Memuat data Master Inventory...</p>
         </div>
       </div>
     )
@@ -499,15 +535,14 @@ export default function InventoryPage() {
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="page-title">Master Item Farmasi &amp; Medis</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Manajemen inventory obat, BHP, alat medis — terintegrasi Supabase</p>
+          <h1 className="page-title">Master Inventory Farmasi &amp; Medis</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Daftar master obat, BHP, dan alat medis terintegrasi sistem</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button className="btn-orange" onClick={downloadTemplate}><FileDown className="w-4 h-4" />Unduh Template Impor</button>
-          <button className="btn-emerald" onClick={() => fileRef.current?.click()}><Upload className="w-4 h-4" />Impor Data</button>
+          <button className="btn-orange" onClick={downloadTemplate}><FileDown className="w-4 h-4" />Unduh Template Master</button>
+          <button className="btn-emerald" onClick={() => fileRef.current?.click()}><Upload className="w-4 h-4" />Impor Master CSV/Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileChange} className="hidden" />
-          <button className="btn-danger-red" onClick={() => { setSelected(null); setModal('add') }}><Plus className="w-4 h-4" />Tambah Barang Farmasi</button>
-          <button className="btn-royal-blue" onClick={() => exportStockExcel(pharmacyItems, invBatches)}><Download className="w-4 h-4" />Unduh Laporan</button>
+          <button className="btn-danger-red" onClick={() => { setSelected(null); setModal('add') }}><Plus className="w-4 h-4" />Tambah Master Item</button>
           <button className="btn-square-refresh" onClick={loadData} title="Refresh"><RefreshCw className="w-4 h-4" /></button>
         </div>
       </div>
@@ -524,72 +559,56 @@ export default function InventoryPage() {
             {CAT_LABELS[c]} <span className="ml-1 opacity-60">{pharmacyItems.filter(i => i.category === c).length}</span>
           </button>
         ))}
-        {criticalCount > 0 && (
-          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-700 border border-red-200 flex items-center gap-1">
-            <AlertTriangle className="w-3.5 h-3.5" />{criticalCount} item stok kritis
-          </span>
-        )}
       </div>
 
       {/* Table */}
-      <div className="card">
-        <div className="card-header">
-          <SearchInput value={search} onChange={setSearch} placeholder="Cari kode, nama item, SKU…" className="w-80" />
-          <span className="text-sm text-slate-400 ml-auto">{filtered.length} item</span>
+      <div className="card shadow-sm border border-slate-200 rounded-xl overflow-hidden">
+        <div className="card-header bg-slate-50 border-b border-slate-200 p-4 flex items-center justify-between flex-wrap gap-3">
+          <SearchInput value={search} onChange={setSearch} placeholder="Cari kode, nama sediaan, bentuk, kandungan..." className="w-80" />
+          <span className="text-sm font-semibold text-slate-500">{filtered.length} item</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="table-base">
+        <div className="w-full">
+          <table className="w-full text-left border-collapse table-auto">
             <thead>
-              <tr>
-                <th style={{ width: 110 }}>Kode Barang</th>
-                <th style={{ width: 100 }}>SKU</th>
-                <th>Nama Item</th>
-                <th>Generik</th>
-                <th>Kategori</th>
-                <th className="text-right">Stok</th>
-                <th className="text-right">Min. Stok</th>
-                <th className="text-right">Harga Jual</th>
-                <th>Status</th>
-                <th style={{ width: 60 }} className="text-center">Aksi</th>
+              <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                <th className="py-2.5 px-2.5" style={{ width: '90px' }}>Kode</th>
+                <th className="py-2.5 px-2.5" style={{ minWidth: '180px' }}>Nama Sediaan Farmasi</th>
+                <th className="py-2.5 px-2.5" style={{ width: '85px' }}>Bentuk</th>
+                <th className="py-2.5 px-2.5" style={{ width: '110px' }}>Golongan</th>
+                <th className="py-2.5 px-2.5" style={{ minWidth: '120px' }}>Kelas Terapi</th>
+                <th className="py-2.5 px-2.5" style={{ minWidth: '130px' }}>Kandungan</th>
+                <th className="py-2.5 px-2.5" style={{ width: '85px' }}>Kategori</th>
+                <th style={{ width: '50px' }} className="py-2.5 px-2 text-center">Aksi</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-200 bg-white text-[11px]">
               {filtered.length === 0 ? (
-                <tr><td colSpan={10} className="text-center py-14 text-slate-400">
-                  <Package className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                  <p>{search ? 'Item tidak ditemukan' : 'Belum ada item — tambah manual atau import Excel'}</p>
-                </td></tr>
-              ) : filtered.map(item => {
-                const stock = getStock(item.id)
-                const critical = stock <= (item.minSafetyStock || 50)
-                const expiring = isExpiringSoon(item.id)
-                return (
-                  <tr key={item.id}>
-                    <td className="font-mono text-xs text-primary-700 font-bold">{item.itemCode || '—'}</td>
-                    <td className="font-mono text-xs text-slate-500">{item.skuCode || '—'}</td>
-                    <td>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-sm font-bold">{item.itemName}</span>
-                        {item.isPrescription && <span className="badge badge-red">Rx</span>}
-                        {expiring && <span className="badge badge-yellow">⚠ Hampir ED</span>}
-                      </div>
-                    </td>
-                    <td className="text-xs text-slate-500">{item.genericName || '—'}</td>
-                    <td><span className={`badge ${CAT_COLORS[item.category]}`}>{CAT_LABELS[item.category]}</span></td>
-                    <td className={`text-right font-mono text-sm font-bold ${critical ? 'text-red-600' : 'text-slate-800'}`}>
-                      {stock} <span className="font-normal text-slate-400 text-xs">{item.baseUnit}</span>
-                    </td>
-                    <td className="text-right text-sm text-slate-500">{item.minSafetyStock || 50}</td>
-                    <td className="text-right font-mono text-sm font-bold">{fmtIDR(item.sellingPrice || 0)}</td>
-                    <td><StatusBadge status={critical ? 'KRITIS' : 'AMAN'} /></td>
-                    <td className="text-center">
-                      <button className="btn-action-edit" onClick={() => { setSelected(item); setModal('edit') }} title="Edit">
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
+                <tr>
+                  <td colSpan={8} className="text-center py-12 text-slate-400">
+                    <Package className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                    <p className="text-xs">{search ? 'Item tidak ditemukan' : 'Belum ada data Master Inventory'}</p>
+                  </td>
+                </tr>
+              ) : filtered.map(item => (
+                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="py-2 px-2.5 font-mono text-[11px] text-primary-700 font-bold whitespace-nowrap">{item.itemCode || '—'}</td>
+                  <td className="py-2 px-2.5 font-bold text-slate-900 leading-tight">{item.itemName}</td>
+                  <td className="py-2 px-2.5 text-[11px] font-medium text-slate-700 whitespace-nowrap">{item.bentuk}</td>
+                  <td className="py-2 px-2.5 text-[11px] font-medium text-slate-600 whitespace-nowrap">{item.golongan}</td>
+                  <td className="py-2 px-2.5 text-[11px] text-slate-600">{item.kelasTerapi}</td>
+                  <td className="py-2 px-2.5 text-[11px] text-slate-600" title={item.kandungan}>{item.kandungan || '—'}</td>
+                  <td className="py-2 px-2.5 whitespace-nowrap">
+                    <span className={`badge text-[10px] px-2 py-0.5 ${CAT_COLORS[item.category] || 'badge-gray'}`}>
+                      {CAT_LABELS[item.category] || item.category}
+                    </span>
+                  </td>
+                  <td className="py-2 px-2 text-center whitespace-nowrap">
+                    <button className="btn-action-edit p-1" onClick={() => { setSelected(item); setModal('edit') }} title="Edit">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -597,7 +616,7 @@ export default function InventoryPage() {
 
       {/* Add / Edit Modal */}
       <Modal open={!!modal && modal !== 'import'} onClose={() => setModal(null)}
-        title={modal === 'add' ? 'Tambah Item Baru' : `Edit Item — ${selected?.itemCode}`}
+        title={modal === 'add' ? 'Tambah Master Inventory Baru' : `Edit Master Inventory — ${selected?.itemCode}`}
         size="lg">
         <ItemForm
           initial={modal === 'edit' ? selected : {}}
@@ -611,13 +630,13 @@ export default function InventoryPage() {
       {/* Import Preview Modal */}
       <Modal open={importModal}
         onClose={() => { setImportModal(false); setImportRows([]); setImportErrs([]) }}
-        title="Preview Import Master Barang"
+        title="Preview Import Master Inventory"
         size="xl"
         footer={
           <>
             <button className="btn-secondary" onClick={() => { setImportModal(false); setImportRows([]); setImportErrs([]) }}>Batal</button>
             <button className="btn-primary" disabled={importErrs.length > 0 || importRows.length === 0} onClick={executeImport}>
-              <Upload className="w-4 h-4" />Import {importRows.length} Item
+              <Upload className="w-4 h-4" />Import {importRows.length} Master Inventory
             </button>
           </>
         }
@@ -628,16 +647,15 @@ export default function InventoryPage() {
               message={importErrs.join(' | ')} />
           )}
           {importErrs.length === 0 && importRows.length > 0 && (
-            <Alert type="success" message={`${importRows.length} item siap diimpor. Periksa data di bawah.`} />
+            <Alert type="success" message={`${importRows.length} item master inventory siap diimpor.`} />
           )}
           <div className="overflow-x-auto max-h-96">
             <table className="table-base">
               <thead className="sticky top-0 bg-white z-10">
                 <tr>
-                  <th>#</th><th>Kode Barang</th><th>Kode SKU</th>
-                  <th>Nama Item</th><th>Kategori</th>
-                  <th className="text-right">Min. Stok</th>
-                  <th className="text-right">Harga Jual</th><th>Resep</th>
+                  <th>#</th><th>Kode Barang</th>
+                  <th>Nama Sediaan Farmasi</th><th>Bentuk</th><th>Golongan</th><th>Kelas Terapi</th>
+                  <th>Kandungan</th><th>Kategori</th>
                 </tr>
               </thead>
               <tbody>
@@ -645,12 +663,12 @@ export default function InventoryPage() {
                   <tr key={i}>
                     <td className="text-xs text-slate-400">{i + 1}</td>
                     <td className="font-mono text-xs font-semibold text-primary-700">{item.itemCode}</td>
-                    <td className="font-mono text-xs text-slate-500">{item.skuCode}</td>
                     <td className="text-sm font-medium">{item.itemName}</td>
+                    <td className="text-xs">{item.bentuk}</td>
+                    <td className="text-xs">{item.golongan}</td>
+                    <td className="text-xs">{item.kelasTerapi}</td>
+                    <td className="text-xs">{item.kandungan}</td>
                     <td><span className={`badge text-xs ${CAT_COLORS[item.category] || 'badge-gray'}`}>{CAT_LABELS[item.category] || item.category}</span></td>
-                    <td className="text-right text-sm">{item.minSafetyStock}</td>
-                    <td className="text-right font-mono text-sm">{fmtIDR(item.sellingPrice)}</td>
-                    <td className="text-center">{item.isPrescription ? <span className="badge badge-red text-xs">Rx</span> : '—'}</td>
                   </tr>
                 ))}
               </tbody>

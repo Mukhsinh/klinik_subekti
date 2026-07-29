@@ -29,7 +29,7 @@ export default function StockOutflowPage() {
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
-  
+
   // Form states
   const [outflowDate, setOutflowDate] = useState(todayISO())
   const [outflowType, setOutflowType] = useState('INTERNAL_USE')
@@ -44,10 +44,10 @@ export default function StockOutflowPage() {
       .sort((a, b) => a.itemName.localeCompare(b.itemName))
       .map(i => {
         const stk = getItemStock(i.id)
-        return { 
-          value: i.id, 
-          label: `${i.itemCode || i.skuCode} — ${i.itemName} (Stok: ${stk})`, 
-          disabled: stk === 0 
+        return {
+          value: i.id,
+          label: `${i.itemCode || i.skuCode} — ${i.itemName} (Stok: ${stk})`,
+          disabled: stk === 0
         }
       }),
     [pharmacyItems, invBatches, getItemStock]
@@ -56,10 +56,10 @@ export default function StockOutflowPage() {
   // Get all outflows (will be implemented in useStore)
   const stockOutflows = useStore(state => state.stockOutflows || [])
   const stockOutflowItems = useStore(state => state.stockOutflowItems || [])
-  
+
   const outflows = stockOutflows
   const outflowItems = stockOutflowItems
-  
+
   // Debug: Log data
   console.log('[StockOutflowPage] Total stock outflows:', outflows.length)
   console.log('[StockOutflowPage] Total outflow items:', outflowItems.length)
@@ -69,7 +69,7 @@ export default function StockOutflowPage() {
     if (!Array.isArray(stockLedger) || !Array.isArray(pharmacyItems) || !Array.isArray(billings)) {
       return []
     }
-    
+
     return stockLedger
       .filter(s => s.transactionType === 'BILLING' && s.quantityOut > 0)
       .map(s => {
@@ -91,14 +91,14 @@ export default function StockOutflowPage() {
   }, [stockLedger, pharmacyItems, billings])
 
   const addItem = () => {
-    setItems(prev => [...prev, { 
-      id: uuidv4(), 
-      itemId: '', 
-      itemName: '', 
-      quantity: 1, 
-      unitCost: 0, 
+    setItems(prev => [...prev, {
+      id: uuidv4(),
+      itemId: '',
+      itemName: '',
+      quantity: 1,
+      unitCost: 0,
       totalCost: 0,
-      notes: '' 
+      notes: ''
     }])
   }
 
@@ -109,9 +109,9 @@ export default function StockOutflowPage() {
   const updateItem = (id, field, value) => {
     setItems(prev => prev.map(item => {
       if (item.id !== id) return item
-      
+
       const updated = { ...item, [field]: value }
-      
+
       if (field === 'itemId') {
         const pharmacyItem = pharmacyItems.find(p => p.id === value)
         if (pharmacyItem) {
@@ -125,11 +125,11 @@ export default function StockOutflowPage() {
           }
         }
       }
-      
+
       if (field === 'quantity' || field === 'unitCost') {
         updated.totalCost = (parseFloat(updated.quantity) || 0) * (parseFloat(updated.unitCost) || 0)
       }
-      
+
       return updated
     }))
   }
@@ -184,20 +184,20 @@ export default function StockOutflowPage() {
   const filtered = useMemo(() => {
     // Ensure outflows is always an array
     const outflowsArray = Array.isArray(outflows) ? outflows : []
-    
+
     let result = outflowsArray
-    
+
     if (statusFilter !== 'ALL') {
       result = result.filter(o => o.status === statusFilter)
     }
-    
+
     if (search) {
-      result = result.filter(o => 
+      result = result.filter(o =>
         o.outflowNumber?.toLowerCase().includes(search.toLowerCase()) ||
         o.description?.toLowerCase().includes(search.toLowerCase())
       )
     }
-    
+
     // Safe sort with null check for createdAt
     return result.sort((a, b) => {
       const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0)
@@ -232,7 +232,7 @@ export default function StockOutflowPage() {
             <p className="text-xs text-blue-700 mt-1">
               • Pengeluaran dari <strong>transaksi billing kasir</strong> akan tampil otomatis di bagian "Riwayat Pengeluaran dari Billing"
               <br />
-              • Gunakan form pengeluaran manual untuk mencatat pengeluaran yang <strong>tidak terkait billing</strong> 
+              • Gunakan form pengeluaran manual untuk mencatat pengeluaran yang <strong>tidak terkait billing</strong>
               (pemakaian internal, donasi, sampel, dll)
             </p>
           </div>
@@ -244,18 +244,16 @@ export default function StockOutflowPage() {
         <div className="border-b border-slate-200">
           <div className="flex gap-1 px-4">
             <button
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                modal !== 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${modal !== 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
               onClick={() => setModal(null)}
             >
               <Package className="w-4 h-4 inline mr-2" />
               Pengeluaran Manual
             </button>
             <button
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                modal === 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${modal === 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
               onClick={() => setModal('billing')}
             >
               <TrendingDown className="w-4 h-4 inline mr-2" />
@@ -269,15 +267,15 @@ export default function StockOutflowPage() {
           <>
             <div className="card-body border-b border-slate-100">
               <div className="flex flex-wrap gap-3 items-center">
-                <SearchInput 
-                  value={search} 
-                  onChange={setSearch} 
-                  placeholder="Cari nomor atau deskripsi..." 
-                  className="w-64" 
+                <SearchInput
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Cari nomor atau deskripsi..."
+                  className="w-64"
                 />
-                <select 
-                  className="form-select w-40" 
-                  value={statusFilter} 
+                <select
+                  className="form-select w-40"
+                  value={statusFilter}
                   onChange={e => setStatusFilter(e.target.value)}
                 >
                   <option value="ALL">Semua Status</option>
@@ -288,20 +286,20 @@ export default function StockOutflowPage() {
                 <span className="ml-auto text-sm text-slate-400">{filtered.length} pengeluaran</span>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="table-base">
+            <div className="w-full">
+              <table className="w-full text-left border-collapse table-auto">
                 <thead>
-                  <tr>
-                    <th>No. Pengeluaran</th>
-                    <th>Tanggal</th>
-                    <th>Tipe</th>
-                    <th>Deskripsi</th>
-                    <th className="text-right">Total Nilai</th>
-                    <th>Status</th>
-                    <th></th>
+                  <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                    <th className="py-2.5 px-2.5" style={{ width: '140px' }}>No. Pengeluaran</th>
+                    <th className="py-2.5 px-2.5" style={{ width: '100px' }}>Tanggal</th>
+                    <th className="py-2.5 px-2.5" style={{ width: '120px' }}>Tipe</th>
+                    <th className="py-2.5 px-2.5" style={{ minWidth: '180px' }}>Deskripsi</th>
+                    <th className="py-2.5 px-2.5 text-right" style={{ width: '120px' }}>Total Nilai</th>
+                    <th className="py-2.5 px-2.5" style={{ width: '90px' }}>Status</th>
+                    <th style={{ width: '40px' }} className="py-2.5 px-1 text-center"></th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-200 bg-white text-[11px]">
                   {filtered.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="text-center py-12 text-slate-400">
@@ -310,20 +308,20 @@ export default function StockOutflowPage() {
                     </tr>
                   ) : (
                     filtered.map(o => (
-                      <tr key={o.id}>
-                        <td className="font-mono text-xs text-primary-700">{o.outflowNumber}</td>
-                        <td className="text-sm">{fmtDate(o.outflowDate)}</td>
-                        <td>
-                          <span className="badge badge-purple text-xs">
+                      <tr key={o.id} className="hover:bg-slate-50">
+                        <td className="py-2 px-2.5 font-mono text-[11px] text-primary-700 font-bold whitespace-nowrap">{o.outflowNumber}</td>
+                        <td className="py-2 px-2.5 text-[11px] whitespace-nowrap">{fmtDate(o.outflowDate)}</td>
+                        <td className="py-2 px-2.5 whitespace-nowrap">
+                          <span className="badge badge-purple text-[10px] px-2 py-0.5">
                             {OUTFLOW_TYPES.find(t => t.value === o.outflowType)?.label || o.outflowType}
                           </span>
                         </td>
-                        <td className="text-sm max-w-xs truncate">{o.description}</td>
-                        <td className="text-right font-mono text-sm font-bold">{fmtIDR(o.totalValue)}</td>
-                        <td><StatusBadge status={o.status} /></td>
-                        <td>
-                          <button 
-                            className="btn-ghost p-1.5" 
+                        <td className="py-2 px-2.5 text-[11px] text-slate-700">{o.description}</td>
+                        <td className="py-2 px-2.5 text-right font-mono text-[11px] font-bold whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
+                        <td className="py-2 px-2.5 whitespace-nowrap"><StatusBadge status={o.status} /></td>
+                        <td className="py-2 px-1 text-center whitespace-nowrap">
+                          <button
+                            className="btn-ghost p-1"
                             onClick={() => { setSelected(o); setModal('view') }}
                           >
                             <Eye className="w-3.5 h-3.5" />
@@ -340,20 +338,20 @@ export default function StockOutflowPage() {
 
         {/* Billing Outflows Tab */}
         {modal === 'billing' && (
-          <div className="overflow-x-auto">
-            <table className="table-base">
+          <div className="w-full">
+            <table className="w-full text-left border-collapse table-auto">
               <thead>
-                <tr>
-                  <th>Tanggal</th>
-                  <th>No. Billing</th>
-                  <th>Nama Pasien</th>
-                  <th>Item</th>
-                  <th className="text-right">Qty</th>
-                  <th className="text-right">Harga Pokok</th>
-                  <th className="text-right">Total Nilai</th>
+                <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                  <th className="py-2.5 px-2.5" style={{ width: '100px' }}>Tanggal</th>
+                  <th className="py-2.5 px-2.5" style={{ width: '130px' }}>No. Billing</th>
+                  <th className="py-2.5 px-2.5" style={{ minWidth: '130px' }}>Nama Pasien</th>
+                  <th className="py-2.5 px-2.5" style={{ minWidth: '160px' }}>Item</th>
+                  <th className="py-2.5 px-2.5 text-right" style={{ width: '60px' }}>Qty</th>
+                  <th className="py-2.5 px-2.5 text-right" style={{ width: '110px' }}>Harga Pokok</th>
+                  <th className="py-2.5 px-2.5 text-right" style={{ width: '120px' }}>Total Nilai</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-200 bg-white text-[11px]">
                 {billingOutflows.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="text-center py-12 text-slate-400">
@@ -362,23 +360,23 @@ export default function StockOutflowPage() {
                   </tr>
                 ) : (
                   billingOutflows.map(o => (
-                    <tr key={o.id}>
-                      <td className="text-sm">{fmtDate(o.date)}</td>
-                      <td className="font-mono text-xs text-primary-700">{o.referenceNumber}</td>
-                      <td className="text-sm font-medium">{o.patientName}</td>
-                      <td className="text-sm">{o.itemName}</td>
-                      <td className="text-right text-sm">{o.quantity}</td>
-                      <td className="text-right font-mono text-sm">{fmtIDR(o.unitCost)}</td>
-                      <td className="text-right font-mono text-sm font-bold">{fmtIDR(o.totalValue)}</td>
+                    <tr key={o.id} className="hover:bg-slate-50">
+                      <td className="py-2 px-2.5 text-[11px] whitespace-nowrap">{fmtDate(o.date)}</td>
+                      <td className="py-2 px-2.5 font-mono text-[11px] text-primary-700 font-bold whitespace-nowrap">{o.referenceNumber}</td>
+                      <td className="py-2 px-2.5 text-[11px] font-medium text-slate-800">{o.patientName}</td>
+                      <td className="py-2 px-2.5 text-[11px] text-slate-700">{o.itemName}</td>
+                      <td className="py-2 px-2.5 text-right text-[11px] whitespace-nowrap">{o.quantity}</td>
+                      <td className="py-2 px-2.5 text-right font-mono text-[11px] whitespace-nowrap">{fmtIDR(o.unitCost)}</td>
+                      <td className="py-2 px-2.5 text-right font-mono text-[11px] font-bold text-slate-800 whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
                     </tr>
                   ))
                 )}
               </tbody>
               {billingOutflows.length > 0 && (
                 <tfoot>
-                  <tr className="bg-slate-50 font-semibold">
-                    <td colSpan={6} className="text-right pr-4">TOTAL NILAI HPP</td>
-                    <td className="text-right font-mono text-primary-700">
+                  <tr className="bg-slate-50 text-[11px] font-semibold">
+                    <td colSpan={6} className="py-2.5 px-2.5 text-right pr-4">TOTAL NILAI HPP</td>
+                    <td className="py-2.5 px-2.5 text-right font-mono text-primary-700 font-bold">
                       {fmtIDR(billingOutflows.reduce((sum, o) => sum + o.totalValue, 0))}
                     </td>
                   </tr>
@@ -409,18 +407,18 @@ export default function StockOutflowPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="form-label">Tanggal Pengeluaran *</label>
-              <input 
-                type="date" 
-                className="form-input" 
-                value={outflowDate} 
-                onChange={e => setOutflowDate(e.target.value)} 
+              <input
+                type="date"
+                className="form-input"
+                value={outflowDate}
+                onChange={e => setOutflowDate(e.target.value)}
               />
             </div>
             <div>
               <label className="form-label">Tipe Pengeluaran *</label>
-              <select 
-                className="form-select" 
-                value={outflowType} 
+              <select
+                className="form-select"
+                value={outflowType}
                 onChange={e => setOutflowType(e.target.value)}
               >
                 {OUTFLOW_TYPES.map(t => (
@@ -430,21 +428,21 @@ export default function StockOutflowPage() {
             </div>
             <div className="md:col-span-1">
               <label className="form-label">No. Pengeluaran</label>
-              <input 
-                type="text" 
-                className="form-input bg-slate-50" 
-                value={outflowNumber} 
-                disabled 
+              <input
+                type="text"
+                className="form-input bg-slate-50"
+                value={outflowNumber}
+                disabled
               />
             </div>
           </div>
 
           <div>
             <label className="form-label">Deskripsi / Keterangan *</label>
-            <textarea 
-              className="form-input" 
+            <textarea
+              className="form-input"
               rows={2}
-              value={description} 
+              value={description}
               onChange={e => setDescription(e.target.value)}
               placeholder="Jelaskan tujuan atau alasan pengeluaran stok ini..."
             />
@@ -458,7 +456,7 @@ export default function StockOutflowPage() {
                 <Plus className="w-3.5 h-3.5" />Tambah Item
               </button>
             </div>
-            
+
             {items.length > 0 && (
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <table className="table-base">
@@ -485,20 +483,20 @@ export default function StockOutflowPage() {
                           />
                         </td>
                         <td>
-                          <input 
-                            type="number" 
-                            className="form-input text-right text-xs py-1 w-20" 
-                            value={item.quantity} 
+                          <input
+                            type="number"
+                            className="form-input text-right text-xs py-1 w-20"
+                            value={item.quantity}
                             min={1}
-                            onChange={e => updateItem(item.id, 'quantity', parseInt(e.target.value) || 1)} 
+                            onChange={e => updateItem(item.id, 'quantity', parseInt(e.target.value) || 1)}
                           />
                         </td>
                         <td className="text-right font-mono text-sm">{fmtIDR(item.unitCost)}</td>
                         <td className="text-right font-mono text-sm font-bold">{fmtIDR(item.totalCost)}</td>
                         <td>
-                          <button 
-                            type="button" 
-                            onClick={() => removeItem(item.id)} 
+                          <button
+                            type="button"
+                            onClick={() => removeItem(item.id)}
                             className="p-1 text-slate-300 hover:text-red-500"
                           >
                             <Trash2 className="w-3.5 h-3.5" />

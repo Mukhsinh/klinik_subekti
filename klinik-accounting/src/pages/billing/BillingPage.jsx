@@ -110,8 +110,8 @@ export default function BillingPage() {
         const stk = (invBatches || []).filter(b => b.itemId === i.id && b.quantityCurrent > 0).reduce((s, b) => s + b.quantityCurrent, 0)
         const catRaw = i.category || i.itemCategory || i.item_category || ''
         let categoryLabel = '📦 Item'
-        if (catRaw === 'OBAT_PATEN') categoryLabel = '🔵 Paten'
-        else if (catRaw === 'OBAT_GENERIK') categoryLabel = '🟢 Generik'
+        if (catRaw === 'OBAT_PATEN' || catRaw === 'BRANDED') categoryLabel = '🔵 BRANDED'
+        else if (catRaw === 'OBAT_GENERIK' || catRaw === 'GENERIK') categoryLabel = '🟢 GENERIK'
         else if (catRaw === 'BHP' || catRaw === 'BHP_MEDIS') categoryLabel = '🟡 BHP'
         else if (catRaw === 'RUMAH_TANGGA' || catRaw === 'RT') categoryLabel = '🏠 RT'
 
@@ -127,7 +127,8 @@ export default function BillingPage() {
           price,
           disabled: stk === 0
         }
-      }),
+      })
+      .filter(i => i.stock > 0),
     [pharmacyItems, invBatches]
   )
 

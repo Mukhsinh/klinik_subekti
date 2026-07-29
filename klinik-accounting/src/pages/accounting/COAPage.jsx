@@ -103,6 +103,8 @@ export default function COAPage() {
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef(null)
 
+  const TYPE_ORDER = { ASSET: 1, LIABILITY: 2, EQUITY: 3, REVENUE: 4, EXPENSE: 5 }
+
   const filtered = useMemo(() =>
     coa
       .filter(a => typeFilter === 'ALL' || a.accountType === typeFilter)
@@ -111,7 +113,15 @@ export default function COAPage() {
         a.accountName.toLowerCase().includes(search.toLowerCase()) ||
         (a.accountGroup || '').toLowerCase().includes(search.toLowerCase())
       )
-      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
+      .sort((a, b) => {
+        const orderA = TYPE_ORDER[a.accountType] || 99
+        const orderB = TYPE_ORDER[b.accountType] || 99
+        if (orderA !== orderB) return orderA - orderB
+        const sortA = a.sortOrder ?? 99999
+        const sortB = b.sortOrder ?? 99999
+        if (sortA !== sortB) return sortA - sortB
+        return (a.accountCode || '').localeCompare(b.accountCode || '', undefined, { numeric: true })
+      }),
     [coa, search, typeFilter])
 
   const handleSave = (data) => {

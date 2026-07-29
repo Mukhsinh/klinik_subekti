@@ -236,10 +236,23 @@ export default function InventoryItemOpeningBalancePage() {
     }, [editableBalances])
 
     const CAT_LABELS = {
-        OBAT_PATEN: 'Obat Paten',
-        OBAT_GENERIK: 'Obat Generik',
+        BRANDED: 'BRANDED',
+        GENERIK: 'GENERIK',
         BHP: 'BHP',
-        RUMAH_TANGGA: 'Rumah Tangga'
+        'PEMAKAIAN BHP': 'BHP',
+        OBAT_PATEN: 'BRANDED',
+        OBAT_GENERIK: 'GENERIK',
+        RUMAH_TANGGA: 'RUMAH TANGGA'
+    }
+
+    const CAT_COLORS = {
+        BRANDED: 'badge-blue',
+        GENERIK: 'badge-green',
+        BHP: 'badge-purple',
+        'PEMAKAIAN BHP': 'badge-purple',
+        OBAT_PATEN: 'badge-blue',
+        OBAT_GENERIK: 'badge-green',
+        RUMAH_TANGGA: 'badge-yellow'
     }
 
     if (loading) {
@@ -286,20 +299,6 @@ export default function InventoryItemOpeningBalancePage() {
                 </div>
             </div>
 
-            {/* Info Alert */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
-                <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                <div className="text-sm text-blue-800">
-                    <p className="font-semibold mb-1">Informasi Penting:</p>
-                    <ul className="list-disc list-inside space-y-1 text-blue-700">
-                        <li>Saldo awal akan tersimpan sebagai batch dengan nomor "SALDO-AWAL-[KODE_ITEM]"</li>
-                        <li>Data akan tercatat di kartu stok dengan tipe transaksi "SALDO_AWAL"</li>
-                        <li>Hanya item dengan kuantitas &gt; 0 yang akan disimpan</li>
-                        <li>Data yang sudah ada akan diupdate, data baru akan dibuat otomatis</li>
-                    </ul>
-                </div>
-            </div>
-
             {/* Summary card & Search */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-stretch">
                 <div className="card p-3.5 bg-emerald-500 text-white border-0 shadow-sm md:col-span-2 flex items-center justify-between">
@@ -328,25 +327,25 @@ export default function InventoryItemOpeningBalancePage() {
 
             {/* Main Table */}
             <div className="card">
-                <div className="overflow-x-auto">
-                    <table className="table-base">
+                <div className="w-full">
+                    <table className="w-full text-left border-collapse table-auto">
                         <thead>
-                            <tr>
-                                <th style={{ width: 120 }}>Kode Barang</th>
-                                <th>Nama Item</th>
-                                <th style={{ width: 120 }}>Kategori</th>
-                                <th style={{ width: 80 }}>Satuan</th>
-                                <th style={{ width: 150 }} className="text-right">Kuantitas (Qty)</th>
-                                <th style={{ width: 200 }} className="text-right">Harga Pokok (HPP) / Unit</th>
-                                <th style={{ width: 180 }} className="text-right">Total Nilai</th>
+                            <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                                <th className="py-2.5 px-2.5" style={{ width: '100px' }}>Kode</th>
+                                <th className="py-2.5 px-2.5" style={{ minWidth: '180px' }}>Nama Item</th>
+                                <th className="py-2.5 px-2.5" style={{ width: '90px' }}>Kategori</th>
+                                <th className="py-2.5 px-2.5" style={{ width: '70px' }}>Satuan</th>
+                                <th className="py-2.5 px-2.5 text-right" style={{ width: '110px' }}>Kuantitas (Qty)</th>
+                                <th className="py-2.5 px-2.5 text-right" style={{ width: '160px' }}>HPP / Unit</th>
+                                <th className="py-2.5 px-2.5 text-right" style={{ width: '140px' }}>Total Nilai</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-slate-200 bg-white text-[11px]">
                             {filteredItems.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="text-center py-14 text-slate-400">
-                                        <Package className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                                        <p>{searchTerm ? 'Item tidak ditemukan' : 'Belum ada master item / data kosong'}</p>
+                                    <td colSpan={7} className="text-center py-12 text-slate-400">
+                                        <Package className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                        <p className="text-xs">{searchTerm ? 'Item tidak ditemukan' : 'Belum ada master item / data kosong'}</p>
                                     </td>
                                 </tr>
                             ) : (
@@ -356,33 +355,35 @@ export default function InventoryItemOpeningBalancePage() {
 
                                     return (
                                         <tr key={item.id} className="hover:bg-slate-50">
-                                            <td className="font-mono text-xs text-primary-700 font-semibold">{item.itemCode || '—'}</td>
-                                            <td>
-                                                <div className="font-medium text-sm text-slate-800">{item.itemName}</div>
-                                                <div className="text-xs text-slate-400 font-mono mt-0.5">SKU: {item.skuCode || '—'}</div>
+                                            <td className="py-2 px-2.5 font-mono text-[11px] text-primary-700 font-semibold whitespace-nowrap">{item.itemCode || '—'}</td>
+                                            <td className="py-2 px-2.5">
+                                                <div className="font-bold text-slate-900 leading-tight">{item.itemName}</div>
+                                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">SKU: {item.skuCode || '—'}</div>
                                             </td>
-                                            <td>
-                                                <span className="badge badge-gray text-xs">{CAT_LABELS[item.category] || item.category}</span>
+                                            <td className="py-2 px-2.5 whitespace-nowrap">
+                                                <span className={`badge ${CAT_COLORS[item.category] || 'badge-gray'} text-[10px] px-2 py-0.5`}>
+                                                    {CAT_LABELS[item.category] || item.category}
+                                                </span>
                                             </td>
-                                            <td className="text-sm text-slate-500">{item.baseUnit}</td>
-                                            <td>
+                                            <td className="py-2 px-2.5 text-[11px] text-slate-600 whitespace-nowrap">{item.baseUnit}</td>
+                                            <td className="py-2 px-2.5">
                                                 <input
                                                     type="number"
-                                                    className="form-input text-right font-mono font-semibold"
+                                                    className="form-input text-right font-mono font-semibold text-[11px] py-1 px-2"
                                                     value={stateVal.quantity === 0 ? '' : stateVal.quantity}
                                                     onChange={(e) => handleQtyChange(item.id, e.target.value)}
                                                     placeholder="0"
                                                     min="0"
                                                 />
                                             </td>
-                                            <td>
+                                            <td className="py-2 px-2.5">
                                                 <div className="relative rounded-md shadow-sm">
                                                     <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2">
-                                                        <span className="text-xs text-slate-400">Rp</span>
+                                                        <span className="text-[10px] text-slate-400">Rp</span>
                                                     </div>
                                                     <input
                                                         type="number"
-                                                        className="form-input text-right font-mono pl-7"
+                                                        className="form-input text-right font-mono pl-6 text-[11px] py-1 px-2"
                                                         value={stateVal.unitCost === 0 ? '' : stateVal.unitCost}
                                                         onChange={(e) => handleCostChange(item.id, e.target.value)}
                                                         placeholder="0"
@@ -391,7 +392,7 @@ export default function InventoryItemOpeningBalancePage() {
                                                     />
                                                 </div>
                                             </td>
-                                            <td className="text-right font-mono text-sm font-bold text-slate-700">
+                                            <td className="py-2 px-2.5 text-right font-mono text-[11px] font-bold text-slate-700 whitespace-nowrap">
                                                 {fmtIDR(totalVal)}
                                             </td>
                                         </tr>

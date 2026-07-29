@@ -222,18 +222,18 @@ export default function GRNPage() {
             </span>
             <button type="button" className="btn-secondary py-1.5 text-xs" onClick={addLine}><Plus className="w-3.5 h-3.5" />Tambah Baris</button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="table-base" style={{ minWidth: 1100 }}>
+          <div className="w-full">
+            <table className="w-full text-left border-collapse table-auto">
               <thead>
-                <tr>
-                  <th style={{ width: '26%', minWidth: 220 }}>Item Farmasi / Medis</th>
-                  <th style={{ width: '10%', minWidth: 100 }}>No. Batch</th>
-                  <th style={{ width: '12%', minWidth: 120 }}>Tgl Kadaluarsa</th>
-                  <th style={{ width: '13%', minWidth: 120 }} className="text-right">HPP / Unit (Rp)</th>
-                  <th style={{ width: '13%', minWidth: 120 }} className="text-right">Harga Jual (Rp)</th>
-                  <th style={{ width: '10%', minWidth: 100 }} className="text-right">Qty (Satuan)</th>
-                  <th style={{ width: '13%', minWidth: 120 }} className="text-right">Sub-Total (Rp)</th>
-                  <th style={{ width: '3%', minWidth: 40 }}></th>
+                <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                  <th className="py-2.5 px-2" style={{ minWidth: '200px' }}>Item Farmasi / Medis</th>
+                  <th className="py-2.5 px-2" style={{ width: '110px' }}>No. Batch</th>
+                  <th className="py-2.5 px-2" style={{ width: '120px' }}>Tgl Kadaluarsa</th>
+                  <th className="py-2.5 px-2 text-right" style={{ width: '130px' }}>HPP / Unit (Rp)</th>
+                  <th className="py-2.5 px-2 text-right" style={{ width: '130px' }}>Harga Jual (Rp)</th>
+                  <th className="py-2.5 px-2 text-right" style={{ width: '90px' }}>Qty</th>
+                  <th className="py-2.5 px-2 text-right" style={{ width: '130px' }}>Sub-Total (Rp)</th>
+                  <th style={{ width: '40px' }} className="py-2.5 px-1 text-center"></th>
                 </tr>
               </thead>
               <tbody>
