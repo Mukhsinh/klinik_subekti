@@ -16,8 +16,11 @@ export default function GRNPage() {
 
   const [grnNumber] = useState(() => generateGRN(invBatches.length))
   const [grnDate, setGrnDate] = useState(todayISO())
+  const [invoiceDate, setInvoiceDate] = useState(todayISO())
   const [supplierName, setSupplierName] = useState('')
   const [invoiceRef, setInvoiceRef] = useState('')
+  const [ppnType, setPpnType] = useState('NONE') // NONE | INCLUDE | EXCLUDE
+  const [ppnRate] = useState(0.11)
   const [lines, setLines] = useState([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
   const [submitting, setSubmitting] = useState(false)
 
@@ -51,11 +54,9 @@ export default function GRNPage() {
   const setLine = (id, field, val, batch = {}) => setLines(ls => ls.map(l => {
     if (l.id !== id) return l
     const updated = { ...l, [field]: val, ...batch }
-    // Auto-calculate selling price when HPP changes
     if (field === 'unitCostPrice') {
       const hpp = parseFloat(val) || 0
       const currentSP = parseFloat(l.sellingPrice) || 0
-      // Only auto-update if sellingPrice hasn't been manually changed from previous auto
       const prevAuto = Math.round((parseFloat(l.unitCostPrice) || 0) * 1.25)
       if (currentSP === 0 || currentSP === prevAuto) {
         updated.sellingPrice = Math.round(hpp * 1.25)
@@ -64,7 +65,17 @@ export default function GRNPage() {
     return updated
   }))
 
-  const totalValue = lines.reduce((s, l) => s + (parseFloat(l.unitCostPrice) || 0) * (parseInt(l.quantityReceived) || 0), 0)
+  const rawSubtotal = lines.reduce((s, l) => s + (parseFloat(l.unitCostPrice) || 0) * (parseFloat(l.quantityReceived) || 0), 0)
+
+  let netInventoryValue = rawSubtotal
+  let ppnAmount = 0
+  if (ppnType === 'EXCLUDE') {
+    ppnAmount = rawSubtotal * ppnRate
+  } else if (ppnType === 'INCLUDE') {
+    netInventoryValue = rawSubtotal / (1 + ppnRate)
+    ppnAmount = rawSubtotal - netInventoryValue
+  }
+  const totalValue = netInventoryValue + ppnAmount
 
   // Expiry warnings
   const getExpiryWarning = (expiryDate) => {
@@ -77,7 +88,7 @@ export default function GRNPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    const validLines = lines.filter(l => l.itemId && l.batchNumber && l.expiryDate && parseFloat(l.unitCostPrice) > 0 && parseInt(l.quantityReceived) > 0)
+    const validLines = lines.filter(l => l.itemId && l.batchNumber && l.expiryDate && parseFloat(l.unitCostPrice) > 0 && parseFloat(l.quantityReceived) > 0)
     if (validLines.length === 0) { toast.error('Minimal 1 baris GRN valid harus diisi.'); return }
 
     // Check expiry
@@ -90,23 +101,23 @@ export default function GRNPage() {
 
     setSubmitting(true)
     try {
-      // Auto journal entry for GRN
-      // Dr: Persediaan Obat (per item)
-      // Cr: Utang PBF / Kas
       const entryId = uuidv4()
 
       const batchesData = validLines.map(l => {
         const item = pharmacyItems.find(i => i.id === l.itemId)
-        const hpp = parseFloat(l.unitCostPrice) || 0
-        const sp = parseFloat(l.sellingPrice) || Math.round(hpp * 1.25)
+        const rawHpp = parseFloat(l.unitCostPrice) || 0
+        const qty = parseFloat(l.quantityReceived) || 0
+        // Effective unit cost adjusted for PPN if INCLUDE
+        const effectiveHpp = ppnType === 'INCLUDE' ? rawHpp / (1 + ppnRate) : rawHpp
+        const sp = parseFloat(l.sellingPrice) || Math.round(rawHpp * 1.25)
         return {
           itemId: l.itemId,
           batchNumber: l.batchNumber,
           expiryDate: l.expiryDate,
-          unitCostPrice: hpp,
+          unitCostPrice: effectiveHpp,
           sellingPrice: sp,
-          quantityReceived: parseInt(l.quantityReceived),
-          quantityCurrent: parseInt(l.quantityReceived),
+          quantityReceived: qty,
+          quantityCurrent: qty,
           grnReference: grnNumber,
           supplierName,
           journalEntryId: entryId,
@@ -117,19 +128,26 @@ export default function GRNPage() {
       const journalLines = []
       validLines.forEach(l => {
         const item = pharmacyItems.find(i => i.id === l.itemId)
-        const val = parseFloat(l.unitCostPrice) * parseInt(l.quantityReceived)
-        journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: item.coaInventoryCode, description: `GRN ${grnNumber} — ${item.itemName}`, debit: val, credit: 0 })
+        const rawHpp = parseFloat(l.unitCostPrice) || 0
+        const qty = parseFloat(l.quantityReceived) || 0
+        const invVal = ppnType === 'INCLUDE' ? (rawHpp * qty) / (1 + ppnRate) : (rawHpp * qty)
+        journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: item?.coaInventoryCode || '1-13-001', description: `GRN ${grnNumber} — ${item?.itemName || 'Obat'}`, debit: invVal, credit: 0 })
       })
-      journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: '2-11-001', description: `Utang PBF — ${supplierName || 'Supplier'}`, debit: 0, credit: totalValue })
+
+      if (ppnAmount > 0) {
+        journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: '1-14-002', description: `PPN Masukan (Input PPN 11%) — ${grnNumber}`, debit: ppnAmount, credit: 0 })
+      }
+
+      journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: '2-11-001', description: `Utang Usaha / PBF — ${supplierName || 'Supplier'} (Faktur: ${invoiceRef || '-'})`, debit: 0, credit: totalValue })
 
       const header = {
         id: entryId, branchId: activeBranchId, entryNumber,
-        transactionDate: grnDate, description: `Penerimaan Barang (GRN) ${grnNumber} — ${supplierName}`,
+        transactionDate: grnDate, description: `Penerimaan Barang (GRN) ${grnNumber} — ${supplierName} (Faktur ${invoiceRef || '-'} tgl ${invoiceDate})`,
         entryType: 'GRN', totalDebit: totalValue, totalCredit: totalValue,
       }
 
       await saveJournalDraft(header, journalLines)
-      await receiveGRN({ grnNumber, supplierName, invoiceRef, grnDate, totalValue, apStatus: 'UNPAID' }, batchesData)
+      await receiveGRN({ grnNumber, supplierName, invoiceRef, grnDate, invoiceDate, totalValue, apStatus: 'UNPAID' }, batchesData)
       await postJournalEntry(entryId, 'System-GRN')
 
       // Update selling price on items table based on latest batch
@@ -138,8 +156,9 @@ export default function GRNPage() {
         await sb.from('pharmacy_items').update({ selling_price: bd.sellingPrice, updated_at: new Date().toISOString() }).eq('id', bd.itemId)
       }
 
-      toast.success(`GRN ${grnNumber} berhasil diproses. Utang PBF (AP) dicatat UNPAID — status lunas saat dibayar di Pengeluaran.`)
+      toast.success(`GRN ${grnNumber} berhasil diproses & diposting ke Jurnal Umum!`)
       setLines([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
+      setInvoiceRef('')
     } finally {
       setSubmitting(false)
     }
@@ -188,14 +207,18 @@ export default function GRNPage() {
             <span className="w-1.5 h-5 rounded-full bg-primary-500 inline-block"></span>
             Informasi GRN
           </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             <div>
               <label className="form-label">No. GRN</label>
               <input className="form-input font-mono bg-slate-50 text-primary-700 font-semibold" value={grnNumber} readOnly />
             </div>
             <div>
-              <label className="form-label">Tanggal Penerimaan</label>
-              <input type="date" className="form-input" value={grnDate} onChange={e => setGrnDate(e.target.value)} required />
+              <label className="form-label">Tanggal Penerimaan *</label>
+              <input type="date" className="form-input text-xs" value={grnDate} onChange={e => setGrnDate(e.target.value)} required />
+            </div>
+            <div>
+              <label className="form-label">Tanggal Faktur Supplier</label>
+              <input type="date" className="form-input text-xs" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} />
             </div>
             <div>
               <label className="form-label">Nama Supplier / PBF *</label>
@@ -207,8 +230,16 @@ export default function GRNPage() {
               />
             </div>
             <div>
-              <label className="form-label">No. Invoice Supplier</label>
-              <input className="form-input" value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="No. faktur pembelian…" />
+              <label className="form-label">No. Invoice / Faktur</label>
+              <input className="form-input text-xs" value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="No. faktur pembelian…" />
+            </div>
+            <div>
+              <label className="form-label">Perlakuan PPN (11%)</label>
+              <select className="form-select text-xs font-semibold" value={ppnType} onChange={e => setPpnType(e.target.value)}>
+                <option value="NONE">Tanpa PPN (Non-PKP)</option>
+                <option value="EXCLUDE">Exclude PPN 11% (Ditambah)</option>
+                <option value="INCLUDE">Include PPN 11% (Sudah Termasuk)</option>
+              </select>
             </div>
           </div>
         </div>

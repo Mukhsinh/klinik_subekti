@@ -1,7 +1,7 @@
-// ─── Currency Formatting (Standard Accounting Comma Separator: 12,825,000) ───
-const NUM = new Intl.NumberFormat('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-const NUM2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const NUM4 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+// ─── Currency & Numeric Formatting (Indonesian Locale id-ID: Rp 1.250.000,00) ───
+const NUM = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+const NUM2 = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const NUM4 = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
 
 export const fmtNum = (v) => NUM.format(Number(v) || 0)
 export const fmtNum2 = (v) => NUM2.format(Number(v) || 0)
@@ -9,14 +9,27 @@ export const fmtNum4 = (v) => NUM4.format(Number(v) || 0)
 
 export const fmtIDR = (v) => {
   const n = Number(v) || 0
-  if (n < 0) return `-Rp ${NUM.format(Math.abs(n))}`
-  return `Rp ${NUM.format(n)}`
+  const isNegative = n < 0
+  const absVal = Math.abs(n)
+
+  // If value has non-zero decimals, format with NUM2 (2 decimal places)
+  const formatted = (absVal % 1 !== 0) ? NUM2.format(absVal) : NUM.format(absVal)
+  if (isNegative) return `-Rp ${formatted}`
+  return `Rp ${formatted}`
 }
+
 export const fmtIDR2 = (v) => {
   const n = Number(v) || 0
   if (n < 0) return `-Rp ${NUM2.format(Math.abs(n))}`
   return `Rp ${NUM2.format(n)}`
 }
+
+export const fmtIDR4 = (v) => {
+  const n = Number(v) || 0
+  if (n < 0) return `-Rp ${NUM4.format(Math.abs(n))}`
+  return `Rp ${NUM4.format(n)}`
+}
+
 export const fmtPct = (v) => `${Number(v || 0).toFixed(2)}%`
 
 // ─── Date Formatting ─────────────────────────────────────────
@@ -107,8 +120,25 @@ export function calcPPN(dpp) {
   return { dpp, ppn: dpp * PPN_RATE, total: dpp * (1 + PPN_RATE) }
 }
 
-// ─── Number input helper ──────────────────────────────────────
+// ─── Number input helper (Supports ID & US format: 1.250.000,50 -> 1250000.50) ───
 export function parseNumericInput(val) {
-  const cleaned = String(val).replace(/[^\d,]/g, '').replace(',', '.')
-  return parseFloat(cleaned) || 0
+  if (val === null || val === undefined || val === '') return 0
+  if (typeof val === 'number') return isNaN(val) ? 0 : val
+
+  let str = String(val).trim()
+
+  // Handle Indonesian format where dot is thousand separator and comma is decimal
+  // e.g. "1.250.000,50" -> "1250000.50"
+  if (str.includes('.') && str.includes(',')) {
+    str = str.replace(/\./g, '').replace(',', '.')
+  } else if (str.includes(',')) {
+    // e.g. "1250000,50" -> "1250000.50"
+    str = str.replace(',', '.')
+  }
+
+  // Remove non-numeric characters except leading minus and dot
+  const cleaned = str.replace(/[^\d.-]/g, '')
+  const parsed = parseFloat(cleaned)
+  return isNaN(parsed) ? 0 : parsed
 }
+

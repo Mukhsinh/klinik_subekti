@@ -1428,11 +1428,20 @@ export function useStore() {
     const expenseDebits = {}
     const inventoryCredits = {}
 
+    // Map outflowType to appropriate PABU expense account
+    const OUTFLOW_EXPENSE_MAP = {
+      INTERNAL_USE: '6-18-001', // Beban Perlengkapan & Pemakaian Klinik
+      SAMPLE: '6-13-001',       // Beban Promosi & Sampel
+      DONATION: '6-91-002',     // Beban Donasi & Sosial
+      WASTE: '6-91-003',        // Beban Kerugian Barang Rusak / Kadaluarsa
+    }
+
     cogsDetails.forEach(d => {
       const val = d.qty * d.unitCostPrice
       if (val > 0) {
-        expenseDebits[d.coaCOGSCode] = (expenseDebits[d.coaCOGSCode] || 0) + val
-        inventoryCredits[d.coaInventoryCode] = (inventoryCredits[d.coaInventoryCode] || 0) + val
+        const targetExpenseAccount = OUTFLOW_EXPENSE_MAP[outflowType] || d.coaCOGSCode || '5-11-001'
+        expenseDebits[targetExpenseAccount] = (expenseDebits[targetExpenseAccount] || 0) + val
+        inventoryCredits[d.coaInventoryCode || '1-13-001'] = (inventoryCredits[d.coaInventoryCode || '1-13-001'] || 0) + val
       }
     })
 

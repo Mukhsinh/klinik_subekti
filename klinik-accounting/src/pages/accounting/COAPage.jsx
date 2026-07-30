@@ -11,13 +11,14 @@ import * as XLSX from 'xlsx'
 const ACCOUNT_TYPES = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']
 const NATURAL_BALANCES = ['DEBIT', 'CREDIT']
 
-function AccountForm({ initial = {}, onSave, onClose }) {
+function AccountForm({ initial = {}, headerAccounts = [], onSave, onClose }) {
   const [form, setForm] = useState({
     accountCode: initial.accountCode || '',
     accountName: initial.accountName || '',
     accountType: initial.accountType || 'ASSET',
     accountGroup: initial.accountGroup || '',
     accountSubgroup: initial.accountSubgroup || '',
+    parentCode: initial.parentCode || '',
     naturalBalance: initial.naturalBalance || 'DEBIT',
     isHeader: initial.isHeader ?? false,
     description: initial.description || '',
@@ -34,6 +35,9 @@ function AccountForm({ initial = {}, onSave, onClose }) {
     onSave(form)
   }
 
+  // Filter header accounts matching the selected accountType
+  const filteredParents = headerAccounts.filter(h => h.accountType === form.accountType && h.accountCode !== form.accountCode)
+
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -48,6 +52,7 @@ function AccountForm({ initial = {}, onSave, onClose }) {
             const t = e.target.value
             set('accountType', t)
             set('naturalBalance', ['ASSET', 'EXPENSE'].includes(t) ? 'DEBIT' : 'CREDIT')
+            set('parentCode', '')
           }}>
             {ACCOUNT_TYPES.map(t => <option key={t} value={t}>{accountTypeLabel(t)}</option>)}
           </select>
@@ -59,27 +64,38 @@ function AccountForm({ initial = {}, onSave, onClose }) {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
+          <label className="form-label">Akun Induk (Parent Account)</label>
+          <select className="form-select" value={form.parentCode} onChange={e => set('parentCode', e.target.value)}>
+            <option value="">-- Tanpa Induk (Top Level) --</option>
+            {filteredParents.map(h => (
+              <option key={h.accountCode} value={h.accountCode}>
+                {h.accountCode} — {h.accountName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label className="form-label">Kelompok Akun *</label>
           <input className="form-input" value={form.accountGroup} onChange={e => set('accountGroup', e.target.value)} placeholder="mis. ASET LANCAR" required />
         </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="form-label">Sub-Kelompok</label>
           <input className="form-input" value={form.accountSubgroup} onChange={e => set('accountSubgroup', e.target.value)} placeholder="mis. Kas dan Bank" />
         </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="form-label">Saldo Normal</label>
           <select className="form-select" value={form.naturalBalance} onChange={e => set('naturalBalance', e.target.value)}>
             {NATURAL_BALANCES.map(n => <option key={n} value={n}>{n === 'DEBIT' ? 'Debit' : 'Kredit'}</option>)}
           </select>
         </div>
-        <div className="flex items-end pb-1">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.isHeader} onChange={e => set('isHeader', e.target.checked)} className="w-4 h-4 accent-primary-600" />
-            <span className="text-sm text-slate-700">Akun Header (tidak dapat diposting)</span>
-          </label>
-        </div>
+      </div>
+      <div className="flex items-center gap-2 pt-1">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={form.isHeader} onChange={e => set('isHeader', e.target.checked)} className="w-4 h-4 accent-primary-600" />
+          <span className="text-sm font-medium text-slate-700">Akun Header (Akun Induk / Non-Posting)</span>
+        </label>
       </div>
       <div>
         <label className="form-label">Keterangan</label>
@@ -403,7 +419,7 @@ export default function COAPage() {
             </div>
           </div>
         ) : (
-          <AccountForm initial={modal === 'edit' ? selected : {}} onSave={handleSave} onClose={() => setModal(null)} />
+          <AccountForm initial={modal === 'edit' ? selected : {}} headerAccounts={coa.filter(a => a.isHeader)} onSave={handleSave} onClose={() => setModal(null)} />
         )}
       </Modal>
     </div>
