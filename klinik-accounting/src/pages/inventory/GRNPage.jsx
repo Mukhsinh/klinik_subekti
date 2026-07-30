@@ -159,6 +159,9 @@ export default function GRNPage() {
       toast.success(`GRN ${grnNumber} berhasil diproses & diposting ke Jurnal Umum!`)
       setLines([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
       setInvoiceRef('')
+    } catch (err) {
+      console.error('[GRN Submit Error]', err)
+      toast.error(`Gagal menyimpan GRN: ${err.message || 'Terjadi kesalahan'}`)
     } finally {
       setSubmitting(false)
     }

@@ -513,7 +513,10 @@ export function useStore() {
     try {
       await insertBatches(batches)
       await insertStockLedger(ledger)
-    } catch (e) { console.error('[receiveGRN]', e.message) }
+    } catch (e) {
+      console.error('[receiveGRN]', e.message)
+      throw e
+    }
     return batches
   }, [s.invBatches])
 

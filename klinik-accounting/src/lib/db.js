@@ -355,13 +355,21 @@ export async function fetchBatches() {
 }
 export async function insertBatches(batches) {
   if (!batches.length) return []
-  const rows = batches.map(b => {
-    const r = snake(b)
-    r.unit_cost_price = Number(r.unit_cost_price || 0)
-    r.quantity_received = parseInt(r.quantity_received || 0)
-    r.quantity_current = parseInt(r.quantity_current || 0)
-    return r
-  })
+  const rows = batches.map(b => ({
+    id: b.id,
+    item_id: b.itemId || b.item_id,
+    batch_number: b.batchNumber || b.batch_number,
+    expiry_date: b.expiryDate || b.expiry_date,
+    manufacture_date: b.manufactureDate || b.manufacture_date || null,
+    unit_cost_price: Number(b.unitCostPrice ?? b.unit_cost_price ?? 0),
+    quantity_received: Number(b.quantityReceived ?? b.quantity_received ?? 0),
+    quantity_current: Number(b.quantityCurrent ?? b.quantity_current ?? 0),
+    grn_reference: b.grnReference || b.grn_reference,
+    supplier_name: b.supplierName || b.supplier_name || null,
+    journal_entry_id: b.journalEntryId || b.journal_entry_id || null,
+    received_at: b.receivedAt || b.received_at || new Date().toISOString(),
+    created_at: b.createdAt || b.created_at || new Date().toISOString(),
+  }))
   const { data, error } = await supabase
     .from('inventory_batches').insert(rows).select()
   handleError(error, 'insertBatches')
@@ -370,7 +378,7 @@ export async function insertBatches(batches) {
 export async function updateBatchQty(id, qty) {
   const { error } = await supabase
     .from('inventory_batches')
-    .update({ quantity_current: parseInt(qty) })
+    .update({ quantity_current: Number(qty) })
     .eq('id', id)
   handleError(error, 'updateBatchQty')
 }
@@ -388,15 +396,21 @@ export async function fetchStockLedger(itemId = null) {
 }
 export async function insertStockLedger(entries) {
   if (!entries.length) return []
-  const rows = entries.map(e => {
-    const r = snake(e)
-    r.quantity_in = parseInt(r.quantity_in || 0)
-    r.quantity_out = parseInt(r.quantity_out || 0)
-    r.balance_after = parseInt(r.balance_after || 0)
-    r.unit_cost = Number(r.unit_cost || 0)
-    r.total_value = Number(r.total_value || 0)
-    return r
-  })
+  const rows = entries.map(e => ({
+    id: e.id,
+    batch_id: e.batchId || e.batch_id || null,
+    item_id: e.itemId || e.item_id,
+    transaction_type: e.transactionType || e.transaction_type,
+    reference_id: e.referenceId || e.reference_id || null,
+    reference_number: e.referenceNumber || e.reference_number || null,
+    quantity_in: Number(e.quantityIn ?? e.quantity_in ?? 0),
+    quantity_out: Number(e.quantityOut ?? e.quantity_out ?? 0),
+    balance_after: Number(e.balanceAfter ?? e.balance_after ?? 0),
+    unit_cost: Number(e.unitCost ?? e.unit_cost ?? 0),
+    total_value: Number(e.totalValue ?? e.total_value ?? 0),
+    notes: e.notes || null,
+    logged_at: e.loggedAt || e.logged_at || new Date().toISOString(),
+  }))
   const { data, error } = await supabase
     .from('stock_ledger_cards').insert(rows).select()
   handleError(error, 'insertStockLedger')
