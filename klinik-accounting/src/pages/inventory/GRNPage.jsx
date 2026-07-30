@@ -1,14 +1,52 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Plus, Trash2, CheckCircle, AlertTriangle } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import SearchableSelect from '../../components/ui/SearchableSelect'
-import { fmtIDR, fmtDate, todayISO, daysBetween } from '../../utils/format'
+import { fmtIDR, fmtDate, todayISO, daysBetween, fmtNum, parseNumericInput } from '../../utils/format'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
 function generateGRN(count) {
   const d = new Date()
   return `GRN/${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}/${String(count + 1).padStart(5, '0')}`
+}
+
+// Helper component for thousand-separated numeric inputs
+function FormattedNumberInput({ value, onChange, placeholder, className, min, style }) {
+  const [displayVal, setDisplayVal] = useState('')
+
+  useEffect(() => {
+    if (value !== undefined && value !== null && value !== '') {
+      const num = parseNumericInput(value)
+      setDisplayVal(num ? fmtNum(num) : String(value))
+    } else {
+      setDisplayVal('')
+    }
+  }, [value])
+
+  const handleChange = (e) => {
+    const raw = e.target.value
+    const num = parseNumericInput(raw)
+    setDisplayVal(raw)
+    onChange(num)
+  }
+
+  const handleBlur = () => {
+    const num = parseNumericInput(displayVal)
+    setDisplayVal(num ? fmtNum(num) : '')
+  }
+
+  return (
+    <input
+      type="text"
+      className={className}
+      value={displayVal}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      placeholder={placeholder}
+      style={style}
+    />
+  )
 }
 
 export default function GRNPage() {
@@ -39,14 +77,16 @@ export default function GRNPage() {
     [pharmacyItems]
   )
 
-  // History
-  const grnHistory = useMemo(() => {
-    const grns = {}
-    invBatches.forEach(b => {
-      if (!grns[b.grnReference]) grns[b.grnReference] = { grnReference: b.grnReference, receivedAt: b.receivedAt, batches: [] }
-      grns[b.grnReference].batches.push(b)
-    })
-    return Object.values(grns).sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt))
+  // Item map for quick lookup
+  const itemMap = useMemo(() => {
+    const m = {}
+    pharmacyItems.forEach(i => { m[i.id] = i })
+    return m
+  }, [pharmacyItems])
+
+  // Flat list of batches for preview table, sorted by receivedAt descending
+  const previewBatches = useMemo(() => {
+    return [...invBatches].sort((a, b) => new Date(b.receivedAt || b.createdAt) - new Date(a.receivedAt || a.createdAt))
   }, [invBatches])
 
   const addLine = () => setLines(ls => [...ls, { id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
@@ -91,7 +131,6 @@ export default function GRNPage() {
     const validLines = lines.filter(l => l.itemId && l.batchNumber && l.expiryDate && parseFloat(l.unitCostPrice) > 0 && parseFloat(l.quantityReceived) > 0)
     if (validLines.length === 0) { toast.error('Minimal 1 baris GRN valid harus diisi.'); return }
 
-    // Check expiry
     for (const l of validLines) {
       if (new Date(l.expiryDate) <= new Date()) {
         toast.error(`Batch ${l.batchNumber}: Tanggal kadaluarsa sudah lewat. GRN ditolak.`)
@@ -102,12 +141,9 @@ export default function GRNPage() {
     setSubmitting(true)
     try {
       const entryId = uuidv4()
-
       const batchesData = validLines.map(l => {
-        const item = pharmacyItems.find(i => i.id === l.itemId)
         const rawHpp = parseFloat(l.unitCostPrice) || 0
         const qty = parseFloat(l.quantityReceived) || 0
-        // Effective unit cost adjusted for PPN if INCLUDE
         const effectiveHpp = ppnType === 'INCLUDE' ? rawHpp / (1 + ppnRate) : rawHpp
         const sp = parseFloat(l.sellingPrice) || Math.round(rawHpp * 1.25)
         return {
@@ -150,13 +186,12 @@ export default function GRNPage() {
       await receiveGRN({ grnNumber, supplierName, invoiceRef, grnDate, invoiceDate, totalValue, apStatus: 'UNPAID' }, batchesData)
       await postJournalEntry(entryId, 'System-GRN')
 
-      // Update selling price on items table based on latest batch
       for (const bd of batchesData) {
         const { supabase: sb } = await import('../../lib/supabase')
         await sb.from('pharmacy_items').update({ selling_price: bd.sellingPrice, updated_at: new Date().toISOString() }).eq('id', bd.itemId)
       }
 
-      toast.success(`GRN ${grnNumber} berhasil diproses & diposting ke Jurnal Umum!`)
+      toast.success(`GRN ${grnNumber} berhasil diproses!`)
       setLines([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
       setInvoiceRef('')
     } catch (err) {
@@ -167,13 +202,11 @@ export default function GRNPage() {
     }
   }
 
-  // Summary stats
   const totalItems = lines.filter(l => l.itemId).length
-  const totalQty = lines.reduce((s, l) => s + (parseInt(l.quantityReceived) || 0), 0)
+  const totalQty = lines.reduce((s, l) => s + (parseFloat(l.quantityReceived) || 0), 0)
 
   return (
     <div className="space-y-6">
-      {/* ── Page Header ───────────────────────────────────── */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="page-title">Penerimaan Barang (GRN)</h1>
@@ -181,12 +214,11 @@ export default function GRNPage() {
         </div>
         <div className="flex items-center gap-3">
           <div className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200">
-            <span className="text-xs text-emerald-600 font-medium">{grnHistory.length} GRN tercatat</span>
+            <span className="text-xs text-emerald-600 font-medium">{previewBatches.length} batch tercatat</span>
           </div>
         </div>
       </div>
 
-      {/* ── Summary Cards ─────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-4">
         <div className="card card-body bg-blue-600 text-white border-0">
           <p className="text-xs text-blue-100 mb-1 font-medium">Item Terisi</p>
@@ -198,65 +230,59 @@ export default function GRNPage() {
         </div>
         <div className="card card-body bg-amber-500 text-white border-0">
           <p className="text-xs text-amber-100 mb-1 font-medium">Total Nilai GRN (Utang PBF)</p>
-          <p className="font-bold text-xl">{fmtIDR(totalValue)}</p>
+          <p className="font-bold text-2xl">{fmtIDR(totalValue)}</p>
         </div>
       </div>
 
-      {/* ── GRN Form (Full Width) ──────────────────────────── */}
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Header Info */}
+      <form onSubmit={handleSubmit} className="space-y-6">
         <div className="card card-body">
-          <h3 className="section-title mb-4 flex items-center gap-2">
-            <span className="w-1.5 h-5 rounded-full bg-primary-500 inline-block"></span>
-            Informasi GRN
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+          <h3 className="text-base font-semibold text-slate-700 mb-4 pb-2 border-b border-slate-100">Header Dokumen Penerimaan</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div>
               <label className="form-label">No. GRN</label>
-              <input className="form-input font-mono bg-slate-50 text-primary-700 font-semibold" value={grnNumber} readOnly />
+              <input className="form-input bg-slate-100 font-mono text-xs font-semibold text-slate-700" value={grnNumber} readOnly />
             </div>
             <div>
-              <label className="form-label">Tanggal Penerimaan *</label>
+              <label className="form-label">Tgl. Penerimaan *</label>
               <input type="date" className="form-input text-xs" value={grnDate} onChange={e => setGrnDate(e.target.value)} required />
             </div>
             <div>
-              <label className="form-label">Tanggal Faktur Supplier</label>
-              <input type="date" className="form-input text-xs" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} />
-            </div>
-            <div>
-              <label className="form-label">Nama Supplier / PBF *</label>
+              <label className="form-label">Supplier / PBF *</label>
               <SearchableSelect
                 value={supplierName}
                 onChange={val => setSupplierName(val)}
                 options={vendorOptions}
-                placeholder="— Pilih Vendor / PBF —"
+                placeholder="— Pilih Supplier —"
+                searchPlaceholder="Cari supplier..."
               />
             </div>
             <div>
-              <label className="form-label">No. Invoice / Faktur</label>
-              <input className="form-input text-xs" value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="No. faktur pembelian…" />
+              <label className="form-label">No. Faktur Supplier</label>
+              <input className="form-input text-xs" value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="INV-2026-XXXX" />
             </div>
             <div>
-              <label className="form-label">Perlakuan PPN (11%)</label>
-              <select className="form-select text-xs font-semibold" value={ppnType} onChange={e => setPpnType(e.target.value)}>
-                <option value="NONE">Tanpa PPN (Non-PKP)</option>
-                <option value="EXCLUDE">Exclude PPN 11% (Ditambah)</option>
-                <option value="INCLUDE">Include PPN 11% (Sudah Termasuk)</option>
+              <label className="form-label">Tgl. Faktur</label>
+              <input type="date" className="form-input text-xs" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="form-label">Perlakuan PPN</label>
+              <select className="form-select text-xs font-medium" value={ppnType} onChange={e => setPpnType(e.target.value)}>
+                <option value="NONE">Non-PPN (0%)</option>
+                <option value="EXCLUDE">PPN Exclude (+11%)</option>
+                <option value="INCLUDE">PPN Include (11%)</option>
               </select>
             </div>
           </div>
         </div>
 
-        {/* Line items */}
-        <div className="card">
-          <div className="card-header">
-            <span className="section-title flex items-center gap-2">
-              <span className="w-1.5 h-5 rounded-full bg-emerald-500 inline-block"></span>
-              Detail Item Diterima
-            </span>
-            <button type="button" className="btn-secondary py-1.5 text-xs" onClick={addLine}><Plus className="w-3.5 h-3.5" />Tambah Baris</button>
+        <div className="card overflow-hidden">
+          <div className="card-header bg-slate-50 flex items-center justify-between">
+            <span className="section-title">Daftar Item Diterima</span>
+            <button type="button" onClick={addLine} className="btn-secondary text-xs py-1.5 px-3">
+              <Plus className="w-3.5 h-3.5" />Tambah Baris
+            </button>
           </div>
-          <div className="w-full">
+          <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse table-auto">
               <thead>
                 <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
@@ -266,15 +292,16 @@ export default function GRNPage() {
                   <th className="py-2.5 px-2 text-right" style={{ width: '130px' }}>HPP / Unit (Rp)</th>
                   <th className="py-2.5 px-2 text-right" style={{ width: '130px' }}>Harga Jual (Rp)</th>
                   <th className="py-2.5 px-2 text-right" style={{ width: '90px' }}>Qty</th>
-                  <th className="py-2.5 px-2 text-right" style={{ width: '130px' }}>Sub-Total (Rp)</th>
+                  <th className="py-2.5 px-2 text-right" style={{ width: '130px' }}>Total (Qty × HPP)</th>
                   <th style={{ width: '40px' }} className="py-2.5 px-1 text-center"></th>
                 </tr>
               </thead>
               <tbody>
-                {lines.map((l, idx) => {
+                {lines.map((l) => {
                   const warn = getExpiryWarning(l.expiryDate)
                   const hpp = parseFloat(l.unitCostPrice) || 0
-                  const subTotal = hpp * (parseInt(l.quantityReceived) || 0)
+                  const qty = parseFloat(l.quantityReceived) || 0
+                  const subTotal = hpp * qty
                   return (
                     <tr key={l.id} className="group">
                       <td className="py-2.5">
@@ -298,24 +325,34 @@ export default function GRNPage() {
                         </div>
                       </td>
                       <td className="py-2.5">
-                        <input type="number" className="form-input text-xs py-2 text-right font-mono" value={l.unitCostPrice}
-                          onChange={e => setLine(l.id, 'unitCostPrice', e.target.value)}
-                          placeholder="0" min={0} step={1} />
+                        <FormattedNumberInput
+                          className="form-input text-xs py-2 text-right font-mono"
+                          value={l.unitCostPrice}
+                          onChange={val => setLine(l.id, 'unitCostPrice', val)}
+                          placeholder="0"
+                        />
                       </td>
                       <td className="py-2.5">
                         <div>
-                          <input type="number" className="form-input text-xs py-2 text-right font-mono text-amber-700 font-bold" value={l.sellingPrice}
-                            onChange={e => setLine(l.id, 'sellingPrice', e.target.value)}
-                            placeholder={l.unitCostPrice ? Math.round(parseFloat(l.unitCostPrice) * 1.25) : '0'} min={0} step={1} />
+                          <FormattedNumberInput
+                            className="form-input text-xs py-2 text-right font-mono text-amber-700 font-bold"
+                            value={l.sellingPrice}
+                            onChange={val => setLine(l.id, 'sellingPrice', val)}
+                            placeholder={l.unitCostPrice ? fmtNum(Math.round(parseFloat(l.unitCostPrice) * 1.25)) : '0'}
+                          />
                           {l.unitCostPrice && !l.sellingPrice && (
                             <p className="text-[9px] text-amber-600 mt-0.5">Default: {fmtIDR(Math.round(parseFloat(l.unitCostPrice) * 1.25))}</p>
                           )}
                         </div>
                       </td>
                       <td className="py-2.5">
-                        <input type="number" className="form-input text-xs py-2 text-right font-mono font-bold text-blue-700" value={l.quantityReceived}
-                          onChange={e => setLine(l.id, 'quantityReceived', e.target.value)}
-                          placeholder="0 unit" min={1} style={{ minWidth: 90 }} />
+                        <FormattedNumberInput
+                          className="form-input text-xs py-2 text-right font-mono font-bold text-blue-700"
+                          value={l.quantityReceived}
+                          onChange={val => setLine(l.id, 'quantityReceived', val)}
+                          placeholder="0 unit"
+                          style={{ minWidth: 90 }}
+                        />
                       </td>
                       <td className="text-right font-mono text-sm font-semibold py-2.5">
                         {subTotal > 0 ? (
@@ -335,24 +372,7 @@ export default function GRNPage() {
                   )
                 })}
               </tbody>
-              <tfoot>
-                <tr className="bg-slate-800 text-white font-semibold border-t-2 border-slate-600">
-                  <td colSpan={6} className="text-right pr-4 text-sm py-3">TOTAL NILAI GRN (Utang PBF)</td>
-                  <td className="text-right font-mono text-sm py-3">{fmtIDR(totalValue)}</td>
-                  <td />
-                </tr>
-              </tfoot>
             </table>
-          </div>
-
-          {/* Journal info banner */}
-          <div className="px-5 py-3 border-t border-slate-100 bg-emerald-600">
-            <p className="text-xs text-white flex items-start gap-1.5">
-              <span className="mt-0.5 flex-shrink-0">ℹ</span>
-              <span>
-                Jurnal otomatis: <strong>Dr Persediaan</strong> / <strong>Cr Utang PBF 2-11-001</strong> — Total <strong>{fmtIDR(totalValue)}</strong> | Status AP: <strong>UNPAID</strong> → dapat dilunasi melalui Pengeluaran
-              </span>
-            </p>
           </div>
         </div>
 
@@ -370,57 +390,50 @@ export default function GRNPage() {
         </div>
       </form>
 
-      {/* ── GRN History (Full Width Below) ────────────────── */}
       <div className="card">
-        <div className="card-header bg-gradient-to-r from-slate-50 to-slate-100">
-          <span className="section-title">Riwayat Penerimaan Barang (GRN)</span>
-          <span className="text-sm text-slate-400">{grnHistory.length} transaksi tercatat</span>
+        <div className="card-header bg-gradient-to-r from-slate-50 to-slate-100 flex items-center justify-between">
+          <div>
+            <span className="section-title">Riwayat & Preview Hasil Input Penerimaan (GRN)</span>
+            <p className="text-xs text-slate-500 mt-0.5">Menampilkan detail penerimaan barang dari database Supabase sesuai inputan</p>
+          </div>
+          <span className="text-xs badge badge-blue">{previewBatches.length} batch</span>
         </div>
         <div className="overflow-x-auto">
-          {grnHistory.length === 0 ? (
+          {previewBatches.length === 0 ? (
             <div className="text-center py-16 text-slate-400">
               <CheckCircle className="w-12 h-12 mx-auto mb-3 opacity-20" />
-              <p className="text-sm">Belum ada riwayat penerimaan barang</p>
+              <p className="text-sm">Belum ada riwayat penerimaan barang di database</p>
             </div>
           ) : (
-            <table className="table-base">
+            <table className="table-base text-xs">
               <thead>
                 <tr>
-                  <th style={{ width: '15%' }}>No. GRN</th>
-                  <th style={{ width: '12%' }}>Tanggal</th>
-                  <th style={{ width: '25%' }}>Supplier / PBF</th>
-                  <th style={{ width: '10%' }} className="text-center">Jumlah Batch</th>
-                  <th style={{ width: '10%' }} className="text-right">Total Qty</th>
-                  <th style={{ width: '18%' }} className="text-right">Total Nilai</th>
-                  <th style={{ width: '10%' }}>Status</th>
+                  <th style={{ width: '110px' }}>Tgl. Penerimaan</th>
+                  <th style={{ width: '160px' }}>Nama Supplier</th>
+                  <th style={{ width: '180px' }}>Barang yang Diinput</th>
+                  <th style={{ width: '140px' }}>Nomor Faktur / GRN</th>
+                  <th style={{ width: '100px' }}>No. Batch</th>
+                  <th style={{ width: '110px' }} className="text-right">Harga per Item (HPP)</th>
+                  <th style={{ width: '90px' }} className="text-right">Jumlah Barang</th>
+                  <th style={{ width: '120px' }} className="text-right">Harga Total (Qty × HPP)</th>
                 </tr>
               </thead>
               <tbody>
-                {grnHistory.map(g => {
-                  const grnTotalVal = g.batches.reduce((s, b) => s + (b.unitCostPrice * b.quantityReceived), 0)
-                  const grnTotalQty = g.batches.reduce((s, b) => s + b.quantityReceived, 0)
-                  const hasExpiringSoon = g.batches.some(b => {
-                    const days = daysBetween(new Date(), new Date(b.expiryDate))
-                    return days > 0 && days <= 180
-                  })
+                {previewBatches.map(b => {
+                  const item = itemMap[b.itemId]
+                  const totalVal = (Number(b.quantityReceived) || 0) * (Number(b.unitCostPrice) || 0)
                   return (
-                    <tr key={g.grnReference} className="hover:bg-blue-50/30 transition-colors">
+                    <tr key={b.id} className="hover:bg-blue-50/30 transition-colors">
+                      <td className="text-slate-600 font-medium whitespace-nowrap">{fmtDate(b.receivedAt)}</td>
+                      <td className="font-medium text-slate-800">{b.supplierName || '—'}</td>
+                      <td className="font-semibold text-slate-900">{item?.itemName || '—'}</td>
                       <td>
-                        <span className="font-mono text-xs text-primary-700 font-semibold">{g.grnReference}</span>
+                        <span className="font-mono text-xs text-primary-700 font-semibold">{b.grnReference || '—'}</span>
                       </td>
-                      <td className="text-sm text-slate-600">{fmtDate(g.receivedAt)}</td>
-                      <td className="text-sm font-medium text-slate-800">{g.batches[0]?.supplierName || '—'}</td>
-                      <td className="text-center">
-                        <span className="badge badge-blue text-xs">{g.batches.length} batch</span>
-                      </td>
-                      <td className="text-right font-mono text-sm font-semibold text-slate-700">{grnTotalQty}</td>
-                      <td className="text-right font-mono text-sm font-bold text-slate-800">{fmtIDR(grnTotalVal)}</td>
-                      <td>
-                        <div className="flex flex-wrap gap-1">
-                          <span className="badge badge-green text-xs">Diterima</span>
-                          {hasExpiringSoon && <span className="badge badge-yellow text-xs">⚠ ED &lt;6bln</span>}
-                        </div>
-                      </td>
+                      <td className="font-mono text-xs text-slate-700">{b.batchNumber}</td>
+                      <td className="text-right font-mono font-medium text-slate-700">{fmtIDR(b.unitCostPrice)}</td>
+                      <td className="text-right font-mono font-semibold text-blue-700">{b.quantityReceived}</td>
+                      <td className="text-right font-mono font-bold text-slate-900">{fmtIDR(totalVal)}</td>
                     </tr>
                   )
                 })}

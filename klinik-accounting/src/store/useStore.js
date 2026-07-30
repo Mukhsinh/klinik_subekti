@@ -495,14 +495,15 @@ export function useStore() {
 
   const receiveGRN = useCallback(async (grnData, batchesData) => {
     const now = new Date().toISOString()
-    const batches = batchesData.map(b => ({ ...b, id: b.id || uuidv4(), receivedAt: now, createdAt: now }))
+    const receivedTime = grnData.grnDate ? `${grnData.grnDate}T${now.split('T')[1] || '00:00:00.000Z'}` : now
+    const batches = batchesData.map(b => ({ ...b, id: b.id || uuidv4(), receivedAt: b.receivedAt || receivedTime, createdAt: now }))
     const ledger = batches.map(b => ({
       id: uuidv4(), batchId: b.id, itemId: b.itemId,
       transactionType: 'GRN', referenceId: b.id,
       referenceNumber: grnData.grnNumber,
       quantityIn: b.quantityReceived, quantityOut: 0, balanceAfter: b.quantityReceived,
       unitCost: b.unitCostPrice, totalValue: b.quantityReceived * b.unitCostPrice,
-      loggedAt: now,
+      loggedAt: b.receivedAt || receivedTime,
     }))
 
     setState(prev => ({
@@ -1434,6 +1435,7 @@ export function useStore() {
     // Map outflowType to appropriate PABU expense account
     const OUTFLOW_EXPENSE_MAP = {
       INTERNAL_USE: '6-18-001', // Beban Perlengkapan & Pemakaian Klinik
+      OVERHEAD: '6-18-001',     // Beban Overhead / Operasional Klinik
       SAMPLE: '6-13-001',       // Beban Promosi & Sampel
       DONATION: '6-91-002',     // Beban Donasi & Sosial
       WASTE: '6-91-003',        // Beban Kerugian Barang Rusak / Kadaluarsa

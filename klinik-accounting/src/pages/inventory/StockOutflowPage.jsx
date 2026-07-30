@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 const OUTFLOW_TYPES = [
   { value: 'INTERNAL_USE', label: 'Pemakaian Internal' },
+  { value: 'OVERHEAD', label: 'Overhead / Operasional' },
   { value: 'DONATION', label: 'Donasi' },
   { value: 'SAMPLE', label: 'Sampel Gratis' },
   { value: 'WASTE', label: 'Barang Rusak/Terbuang' },
@@ -473,14 +474,21 @@ export default function StockOutflowPage() {
                     {items.map(item => (
                       <tr key={item.id}>
                         <td>
-                          <SearchableSelect
-                            value={item.itemId}
-                            onChange={val => updateItem(item.id, 'itemId', val)}
-                            options={pharmacyOptions}
-                            placeholder="— Pilih Item —"
-                            hideValue={true}
-                            searchPlaceholder="Ketik nama item..."
-                          />
+                          <div>
+                            <SearchableSelect
+                              value={item.itemId}
+                              onChange={val => updateItem(item.id, 'itemId', val)}
+                              options={pharmacyOptions}
+                              placeholder="— Pilih Item —"
+                              hideValue={true}
+                              searchPlaceholder="Ketik nama item..."
+                            />
+                            {item.itemId && (
+                              <p className="text-[10px] text-blue-600 mt-1 font-medium">
+                                Stok Tersedia di Database: <strong>{getItemStock(item.itemId)} unit</strong>
+                              </p>
+                            )}
+                          </div>
                         </td>
                         <td>
                           <input

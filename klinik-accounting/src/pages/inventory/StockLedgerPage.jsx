@@ -428,16 +428,6 @@ export default function StockLedgerPage() {
                                 b.quantityCurrent === 0 ? 'Habis' : 'Aktif'}
                           </span>
                         </td>
-                        <td>
-                          {b.quantityCurrent > 0 && (
-                            <button
-                              className="btn-ghost text-xs py-1 px-2 text-red-600"
-                              onClick={() => openAdjust(b)}
-                            >
-                              <RotateCcw className="w-3.5 h-3.5 mr-1" />Hapus
-                            </button>
-                          )}
-                        </td>
                       </tr>
                     )
                   })}
@@ -449,32 +439,33 @@ export default function StockLedgerPage() {
           {/* Mutation history */}
           <div className="card">
             <div className="card-header">
-              <span className="section-title">Riwayat Mutasi Stok</span>
+              <span className="section-title">Riwayat Mutasi Stok & Kartu Stok</span>
               <span className="text-xs text-slate-400">{ledgerLines.length} catatan</span>
             </div>
             <div className="overflow-x-auto">
               <table className="table-base">
                 <thead>
                   <tr>
-                    <th>Waktu</th>
+                    <th>Waktu & Tanggal</th>
                     <th>Tipe Transaksi</th>
                     <th>No. Referensi</th>
+                    <th className="text-right">HPP / Unit</th>
                     <th className="text-right">Masuk</th>
                     <th className="text-right">Keluar</th>
                     <th className="text-right">Saldo</th>
-                    <th className="text-right">Nilai (Rp)</th>
+                    <th className="text-right">Total Nilai (Rp)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ledgerLines.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-8 text-slate-400">
+                      <td colSpan={8} className="text-center py-8 text-slate-400">
                         Belum ada mutasi stok
                       </td>
                     </tr>
                   ) : ledgerLines.map(l => (
                     <tr key={l.id}>
-                      <td className="text-xs">{fmtDateTime(l.loggedAt)}</td>
+                      <td className="text-xs font-medium text-slate-700">{fmtDateTime(l.loggedAt || l.transactionDate)}</td>
                       <td>
                         <span className={`badge text-xs ${TRANS_COLORS[l.transactionType] || 'badge-gray'}`}>
                           {TRANS_LABELS[l.transactionType] || l.transactionType}
@@ -482,6 +473,9 @@ export default function StockLedgerPage() {
                       </td>
                       <td className="font-mono text-xs text-primary-700">
                         {l.referenceNumber || '—'}
+                      </td>
+                      <td className="text-right font-mono text-xs text-slate-600">
+                        {l.unitCost ? fmtIDR(l.unitCost) : '—'}
                       </td>
                       <td className="text-right font-mono text-sm text-emerald-700">
                         {l.quantityIn > 0 ? `+${l.quantityIn}` : ''}
@@ -492,7 +486,7 @@ export default function StockLedgerPage() {
                       <td className="text-right font-mono text-sm font-bold">
                         {l.balanceAfter}
                       </td>
-                      <td className="text-right font-mono text-xs text-slate-600">
+                      <td className="text-right font-mono text-xs text-slate-800 font-semibold">
                         {l.totalValue > 0 ? fmtIDR(l.totalValue) : ''}
                       </td>
                     </tr>
