@@ -445,6 +445,12 @@ export async function fetchBillingItems(billingIds = []) {
   handleError(error, 'fetchBillingItems')
   return normArr(data)
 }
+export async function fetchAllBillingItems() {
+  const { data, error } = await supabase
+    .from('billing_items').select('*')
+  handleError(error, 'fetchAllBillingItems')
+  return normArr(data)
+}
 export async function insertBillingItems(items) {
   if (!items.length) return []
   const rows = items.map(it => {

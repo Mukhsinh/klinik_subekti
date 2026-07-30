@@ -384,7 +384,7 @@ export function useStore() {
     // Optimistic update
     setState(prev => ({
       ...prev,
-      journalEntries: [...prev.journalEntries.filter(j => j.id !== entryId), entry],
+      journalEntries: [...prev.journalEntries.filter(j => j.id !== entryId && j.entryNumber !== entry.entryNumber), entry],
       journalItems: [...prev.journalItems.filter(i => i.journalEntryId !== entryId), ...newItems],
     }))
 
@@ -713,24 +713,43 @@ export function useStore() {
     }
 
     if (remaining > 0) {
-      throw new Error(`Stok tidak mencukupi untuk item ${item?.itemName || itemId}. Kurang ${remaining} unit.`)
+      const fallbackCost = item?.purchasePrice || item?.hpp || item?.unitCostPrice || item?.sellingPrice || 0
+      depletedList.push({
+        batchId: uuidv4(),
+        batchNumber: 'DIRECT-BILLING',
+        qty: remaining,
+        unitCostPrice: fallbackCost,
+        expiryDate: new Date().toISOString(),
+        coaCOGSCode,
+        coaInventoryCode,
+      })
     }
 
+    // Calculate running balance per item for stock_ledger_cards
+    const initialItemStock = (s.invBatches || [])
+      .filter(b => b.itemId === itemId)
+      .reduce((sum, b) => sum + (b.quantityCurrent || 0), 0)
+
+    let currentItemBalance = initialItemStock
     const now = new Date().toISOString()
-    const ledgerEntries = depletedList.map(dep => ({
-      id: uuidv4(),
-      batchId: dep.batchId,
-      itemId: itemId,
-      transactionType: 'BILLING',
-      referenceId: dep.batchId,
-      referenceNumber: referenceNumber,
-      quantityIn: 0,
-      quantityOut: dep.qty,
-      balanceAfter: updatedBatchesMap[dep.batchId],
-      unitCost: dep.unitCostPrice,
-      totalValue: dep.qty * dep.unitCostPrice,
-      loggedAt: now,
-    }))
+
+    const ledgerEntries = depletedList.map(dep => {
+      currentItemBalance -= dep.qty
+      return {
+        id: uuidv4(),
+        batchId: dep.batchId,
+        itemId: itemId,
+        transactionType: 'BILLING',
+        referenceId: dep.batchId,
+        referenceNumber: referenceNumber,
+        quantityIn: 0,
+        quantityOut: dep.qty,
+        balanceAfter: Math.max(0, currentItemBalance),
+        unitCost: dep.unitCostPrice,
+        totalValue: dep.qty * dep.unitCostPrice,
+        loggedAt: now,
+      }
+    })
 
     setState(prev => ({
       ...prev,
@@ -769,7 +788,7 @@ export function useStore() {
 
     setState(prev => ({
       ...prev,
-      billings: [...prev.billings.filter(b => b.id !== id), entry],
+      billings: [...prev.billings.filter(b => b.id !== id && b.billingNumber !== entry.billingNumber), entry],
       billingItems: [...prev.billingItems.filter(i => i.billingId !== id), ...bItems],
     }))
     try {

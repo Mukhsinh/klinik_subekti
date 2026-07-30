@@ -134,6 +134,14 @@ export function parseNumericInput(val) {
   } else if (str.includes(',')) {
     // e.g. "1250000,50" -> "1250000.50"
     str = str.replace(',', '.')
+  } else if (str.includes('.')) {
+    // If string has dot(s) and NO comma:
+    // Check if dot looks like a thousand separator (e.g. 5.000, 10.000, 1.250.000)
+    const dotParts = str.split('.')
+    const isThousandSep = dotParts.length > 2 || (dotParts.length === 2 && dotParts[1].length === 3)
+    if (isThousandSep) {
+      str = str.replace(/\./g, '')
+    }
   }
 
   // Remove non-numeric characters except leading minus and dot

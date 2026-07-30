@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useStore } from '../../store/useStore'
+import { fetchStockLedger, fetchStockOutflows, fetchBillings } from '../../lib/db'
 import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown, AlertCircle } from 'lucide-react'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
@@ -31,6 +32,35 @@ export default function StockOutflowPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
 
+  const [dbStockLedger, setDbStockLedger] = useState([])
+  const [dbBillings, setDbBillings] = useState([])
+  const [dbBillingItems, setDbBillingItems] = useState([])
+  const [dbOutflows, setDbOutflows] = useState([])
+
+  useEffect(() => {
+    let isMounted = true
+    const loadLiveDbData = async () => {
+      try {
+        const [ledgerData, billingData, bItemsData, outflowData] = await Promise.all([
+          fetchStockLedger(),
+          fetchBillings(),
+          fetchAllBillingItems().catch(() => []),
+          fetchStockOutflows(),
+        ])
+        if (isMounted) {
+          if (Array.isArray(ledgerData)) setDbStockLedger(ledgerData)
+          if (Array.isArray(billingData)) setDbBillings(billingData)
+          if (Array.isArray(bItemsData)) setDbBillingItems(bItemsData)
+          if (Array.isArray(outflowData)) setDbOutflows(outflowData)
+        }
+      } catch (err) {
+        console.warn('[StockOutflowPage] Error loading live database:', err.message)
+      }
+    }
+    loadLiveDbData()
+    return () => { isMounted = false }
+  }, [])
+
   // Form states
   const [outflowDate, setOutflowDate] = useState(todayISO())
   const [outflowType, setOutflowType] = useState('INTERNAL_USE')
@@ -54,42 +84,81 @@ export default function StockOutflowPage() {
     [pharmacyItems, invBatches, getItemStock]
   )
 
-  // Get all outflows (will be implemented in useStore)
   const stockOutflows = useStore(state => state.stockOutflows || [])
   const stockOutflowItems = useStore(state => state.stockOutflowItems || [])
 
-  const outflows = stockOutflows
+  const outflows = dbOutflows.length > 0 ? dbOutflows : stockOutflows
   const outflowItems = stockOutflowItems
 
-  // Debug: Log data
-  console.log('[StockOutflowPage] Total stock outflows:', outflows.length)
-  console.log('[StockOutflowPage] Total outflow items:', outflowItems.length)
-
-  // Get billing-related outflows from stock ledger
+  // Consolidate billing-related outflows from live database stock ledger & billing_items
   const billingOutflows = useMemo(() => {
-    if (!Array.isArray(stockLedger) || !Array.isArray(pharmacyItems) || !Array.isArray(billings)) {
-      return []
+    const ledgerSource = dbStockLedger.length > 0 ? dbStockLedger : (stockLedger || [])
+    const billingSource = dbBillings.length > 0 ? dbBillings : (billings || [])
+    const bItemsSource = dbBillingItems.length > 0 ? dbBillingItems : (billingItems || [])
+    const pharmacySource = pharmacyItems || []
+
+    const list = []
+    const processedKeys = new Set()
+
+    // 1. Add entries from stock ledger cards
+    if (Array.isArray(ledgerSource)) {
+      ledgerSource
+        .filter(s => s.transactionType === 'BILLING' && s.quantityOut > 0)
+        .forEach(s => {
+          const item = pharmacySource.find(p => p.id === s.itemId)
+          const billing = billingSource.find(b => b.billingNumber === s.referenceNumber)
+          const key = `${s.referenceNumber}_${s.itemId}`
+          processedKeys.add(key)
+
+          list.push({
+            id: s.id,
+            date: s.loggedAt || s.transactionDate,
+            referenceNumber: s.referenceNumber || '-',
+            itemName: item?.itemName || 'Obat / BHP Kasir',
+            quantity: s.quantityOut || 0,
+            unitCost: s.unitCost || 0,
+            totalValue: s.totalValue || (s.quantityOut * (s.unitCost || 0)),
+            source: 'BILLING',
+            patientName: billing?.patientName || '-'
+          })
+        })
     }
 
-    return stockLedger
-      .filter(s => s.transactionType === 'BILLING' && s.quantityOut > 0)
-      .map(s => {
-        const item = pharmacyItems.find(p => p.id === s.itemId)
-        const billing = billings.find(b => b.billingNumber === s.referenceNumber)
-        return {
-          id: s.id,
-          date: s.loggedAt || s.transactionDate,
-          referenceNumber: s.referenceNumber || '-',
-          itemName: item?.itemName || 'Unknown',
-          quantity: s.quantityOut || 0,
-          unitCost: s.unitCost || 0,
-          totalValue: s.totalValue || 0,
-          source: 'BILLING',
-          patientName: billing?.patientName || '-'
-        }
-      })
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [stockLedger, pharmacyItems, billings])
+    // 2. Reconcile with billing_items if missing from stock_ledger_cards
+    if (Array.isArray(bItemsSource)) {
+      bItemsSource
+        .filter(bi => bi.itemType === 'PHARMACY' || bi.pharmacyItemId)
+        .forEach(bi => {
+          const billing = billingSource.find(b => b.id === bi.billingId)
+          if (!billing) return
+
+          const itemId = bi.pharmacyItemId || bi.itemId
+          const key = `${billing.billingNumber}_${itemId}`
+
+          if (!processedKeys.has(key)) {
+            processedKeys.add(key)
+            const item = pharmacySource.find(p => p.id === itemId)
+            const qty = bi.quantity || 1
+            const unitPrice = bi.unitPrice || bi.price || 0
+            const itemCost = item?.purchasePrice || item?.hpp || unitPrice
+
+            list.push({
+              id: bi.id,
+              date: billing.visitDate || billing.createdAt,
+              referenceNumber: billing.billingNumber || '-',
+              itemName: bi.itemName || item?.itemName || 'Obat / BHP Kasir',
+              quantity: qty,
+              unitCost: itemCost,
+              totalValue: qty * itemCost,
+              source: 'BILLING',
+              patientName: billing.patientName || '-'
+            })
+          }
+        })
+    }
+
+    return list.sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [dbStockLedger, stockLedger, dbBillings, billings, dbBillingItems, billingItems, pharmacyItems])
 
   const addItem = () => {
     setItems(prev => [...prev, {
@@ -224,21 +293,7 @@ export default function StockOutflowPage() {
         </button>
       </div>
 
-      {/* Alert Info */}
-      <div className="card card-body bg-blue-50 border-blue-200">
-        <div className="flex gap-3">
-          <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-blue-900">Informasi Pengeluaran Stok</p>
-            <p className="text-xs text-blue-700 mt-1">
-              • Pengeluaran dari <strong>transaksi billing kasir</strong> akan tampil otomatis di bagian "Riwayat Pengeluaran dari Billing"
-              <br />
-              • Gunakan form pengeluaran manual untuk mencatat pengeluaran yang <strong>tidak terkait billing</strong>
-              (pemakaian internal, donasi, sampel, dll)
-            </p>
-          </div>
-        </div>
-      </div>
+
 
       {/* Tabs */}
       <div className="card">

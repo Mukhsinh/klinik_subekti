@@ -38,6 +38,7 @@ export default function BillingPage() {
   const [labLines, setLabLines] = useState([])
   const [pharmacyLines, setPharmacyLines] = useState([])
   const [discount, setDiscount] = useState(0)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Modal state for add pharmacy item
   const [showAddPharmModal, setShowAddPharmModal] = useState(false)
@@ -208,6 +209,7 @@ export default function BillingPage() {
 
     return u
   }))
+
   const resetForm = () => {
     setPatientName(''); setPatientMRN(''); setSelectedDoctor(null)
     setVisitDate(todayISO()); setPayMethod('TUNAI'); setBpjsClaimNo('')
@@ -215,122 +217,131 @@ export default function BillingPage() {
   }
 
   const handleCheckout = async () => {
+    if (isSubmitting) return
     if (!patientName.trim()) { toast.error('Nama pasien wajib diisi.'); return }
     if (!serviceLines.length && !labLines.length && !pharmacyLines.length) { toast.error('Minimal 1 item layanan, lab, atau farmasi.'); return }
 
-    // Validation: check stock limit for each pharmacy item
-    for (const line of pharmacyLines.filter(l => l.itemId)) {
-      const requestedQty = parseInt(line.qty) || 0
-      if (requestedQty <= 0) {
-        toast.error('Jumlah pembelian obat harus lebih besar dari 0.')
-        return
-      }
-      const available = getItemStock(line.itemId)
-      if (requestedQty > available) {
-        toast.error(`Stok obat "${line.name}" tidak mencukupi. (Tersedia: ${available}, Diminta: ${requestedQty})`)
-        return
-      }
-    }
-
-    const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName}`.trim() : ''
-    const bId = uuidv4()
-    const eId = uuidv4()
-    const items = [
-      ...serviceLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'SERVICE', itemName: l.name, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
-      ...labLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'LAB', itemName: l.name, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
-      ...pharmacyLines.filter(l => l.itemId).map(l => ({ id: uuidv4(), billingId: bId, itemType: 'PHARMACY', itemName: l.name, pharmacyItemId: l.itemId, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
-    ]
-    const billing = {
-      id: bId, branchId: activeBranchId, billingNumber, patientName, patientMRN,
-      doctorId: selectedDoctor?.id || null, doctorName: docName,
-      visitDate, paymentMethod: payMethod, bpjsClaimNumber: bpjsClaimNo,
-      subtotalServices: subService + subLab, subtotalPharmacy: subPharmacy,
-      discountAmount: discountAmt, ppnAmount, grandTotal, patientPortion, insurancePortion,
-      status: 'PAID', createdBy: 'Kasir',
-      journalEntryId: eId,
-    }
-
-    // Consolidate HPP / COGS journal entries and deplete stock
-    const hppDebits = {}
-    const hppCredits = {}
-
+    setIsSubmitting(true)
     try {
+      // Validation: check stock limit for each pharmacy item
       for (const line of pharmacyLines.filter(l => l.itemId)) {
-        const qtyToDeplete = parseInt(line.qty) || 0
-        const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, billingNumber, bId)
-        cogsDetails.forEach(d => {
-          const val = d.qty * d.unitCostPrice
-          if (val > 0) {
-            hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
-            hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
-          }
-        })
+        const requestedQty = parseInt(line.qty) || 0
+        if (requestedQty <= 0) {
+          toast.error('Jumlah pembelian obat harus lebih besar dari 0.')
+          return
+        }
+        const available = getItemStock(line.itemId)
+        if (requestedQty > available) {
+          toast.error(`Stok obat "${line.name}" tidak mencukupi. (Tersedia: ${available}, Diminta: ${requestedQty})`)
+          return
+        }
       }
+
+      const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName}`.trim() : ''
+      const bId = uuidv4()
+      const eId = uuidv4()
+      const items = [
+        ...serviceLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'SERVICE', itemName: l.name, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
+        ...labLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'LAB', itemName: l.name, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
+        ...pharmacyLines.filter(l => l.itemId).map(l => ({ id: uuidv4(), billingId: bId, itemType: 'PHARMACY', itemName: l.name, pharmacyItemId: l.itemId, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
+      ]
+      const billing = {
+        id: bId, branchId: activeBranchId, billingNumber, patientName, patientMRN,
+        doctorId: selectedDoctor?.id || null, doctorName: docName,
+        visitDate, paymentMethod: payMethod, bpjsClaimNumber: bpjsClaimNo,
+        subtotalServices: subService + subLab, subtotalPharmacy: subPharmacy,
+        discountAmount: discountAmt, ppnAmount, grandTotal, patientPortion, insurancePortion,
+        status: 'PAID', createdBy: 'Kasir',
+        journalEntryId: eId,
+      }
+
+      // Consolidate HPP / COGS journal entries and deplete stock
+      const hppDebits = {}
+      const hppCredits = {}
+
+      try {
+        for (const line of pharmacyLines.filter(l => l.itemId)) {
+          const qtyToDeplete = parseInt(line.qty) || 0
+          const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, billingNumber, bId)
+          cogsDetails.forEach(d => {
+            const val = d.qty * d.unitCostPrice
+            if (val > 0) {
+              hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
+              hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
+            }
+          })
+        }
+      } catch (err) {
+        toast.error(err.message)
+        return
+      }
+
+      const eNum = generateEntryNumber('BILLING')
+      const journalItems = []
+
+      if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Kas Tunai — ${billingNumber}`, debit: grandTotal, credit: 0 })
+      } else if (payMethod === 'BPJS') {
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Bayar Pasien BPJS — ${billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-12-001', description: `Piutang BPJS — ${billingNumber}`, debit: insurancePortion, credit: 0 })
+      } else {
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Bayar Pasien Asuransi — ${billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-12-002', description: `Piutang Asuransi — ${billingNumber}`, debit: insurancePortion, credit: 0 })
+      }
+
+      // Group revenue by account code from service tariff
+      const revenueByAccount = {}
+      serviceLines.forEach(l => {
+        const accCode = l.revenueAccountCode || '4-11-001'
+        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+      })
+      labLines.forEach(l => {
+        const accCode = l.revenueAccountCode || '4-12-001'
+        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+      })
+
+      // Add revenue entries
+      Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
+        if (amount > 0) {
+          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `Pendapatan Layanan — ${billingNumber}`, debit: 0, credit: amount })
+        }
+      })
+
+      if (subPharmacy > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '4-13-001', description: `Penjualan Obat — ${billingNumber}`, debit: 0, credit: subPharmacy })
+      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-14-001', description: `PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
+      if (discountAmt > 0) {
+        // Discount reduces the first revenue account
+        const firstRevAccount = Object.keys(revenueByAccount)[0] || '4-11-001'
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon — ${billingNumber}`, debit: discountAmt, credit: 0 })
+      }
+      if (grossDoctorFee > 0 && selectedDoctor) {
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '6-12-001', description: `Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-13-001', description: `PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-12-001', description: `Net Fee ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
+      }
+
+      // Append consolidated HPP / COGS journal entries
+      Object.entries(hppDebits).forEach(([coaCode, val]) => {
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `HPP Penjualan Obat — ${billingNumber}`, debit: val, credit: 0 })
+      })
+      Object.entries(hppCredits).forEach(([coaCode, val]) => {
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${billingNumber}`, debit: 0, credit: val })
+      })
+
+      const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
+      const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
+
+      await saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
+      await saveBilling(billing, items)
+      await postJournalEntry(eId, 'System-Billing')
+      toast.success(`Billing ${billingNumber} berhasil. Jurnal diposting.`)
+      setModal(null); resetForm()
     } catch (err) {
-      toast.error(err.message)
-      return
+      console.error('[handleCheckout] Error:', err.message)
+      toast.error(`Gagal menyimpan billing: ${err.message}`)
+    } finally {
+      setIsSubmitting(false)
     }
-
-    const eNum = generateEntryNumber('BILLING')
-    const journalItems = []
-
-    if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Kas Tunai — ${billingNumber}`, debit: grandTotal, credit: 0 })
-    } else if (payMethod === 'BPJS') {
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Bayar Pasien BPJS — ${billingNumber}`, debit: patientPortion, credit: 0 })
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-12-001', description: `Piutang BPJS — ${billingNumber}`, debit: insurancePortion, credit: 0 })
-    } else {
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Bayar Pasien Asuransi — ${billingNumber}`, debit: patientPortion, credit: 0 })
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-12-002', description: `Piutang Asuransi — ${billingNumber}`, debit: insurancePortion, credit: 0 })
-    }
-
-    // Group revenue by account code from service tariff
-    const revenueByAccount = {}
-    serviceLines.forEach(l => {
-      const accCode = l.revenueAccountCode || '4-11-001'
-      revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
-    })
-    labLines.forEach(l => {
-      const accCode = l.revenueAccountCode || '4-12-001'
-      revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
-    })
-
-    // Add revenue entries
-    Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
-      if (amount > 0) {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `Pendapatan Layanan — ${billingNumber}`, debit: 0, credit: amount })
-      }
-    })
-
-    if (subPharmacy > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '4-13-001', description: `Penjualan Obat — ${billingNumber}`, debit: 0, credit: subPharmacy })
-    if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-14-001', description: `PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
-    if (discountAmt > 0) {
-      // Discount reduces the first revenue account
-      const firstRevAccount = Object.keys(revenueByAccount)[0] || '4-11-001'
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon — ${billingNumber}`, debit: discountAmt, credit: 0 })
-    }
-    if (grossDoctorFee > 0 && selectedDoctor) {
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '6-12-001', description: `Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-13-001', description: `PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-12-001', description: `Net Fee ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
-    }
-
-    // Append consolidated HPP / COGS journal entries
-    Object.entries(hppDebits).forEach(([coaCode, val]) => {
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `HPP Penjualan Obat — ${billingNumber}`, debit: val, credit: 0 })
-    })
-    Object.entries(hppCredits).forEach(([coaCode, val]) => {
-      journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${billingNumber}`, debit: 0, credit: val })
-    })
-
-    const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
-    const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
-
-    await saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
-    await saveBilling(billing, items)
-    await postJournalEntry(eId, 'System-Billing')
-    toast.success(`Billing ${billingNumber} berhasil. Jurnal diposting.`)
-    setModal(null); resetForm()
   }
 
   const filtered = useMemo(() =>

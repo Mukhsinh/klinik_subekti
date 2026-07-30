@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { AlertTriangle, RotateCcw, Download, Search } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { fetchStockLedger, fetchBatches } from '../../lib/db'
 import Modal from '../../components/ui/Modal'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import { fmtIDR, fmtDate, fmtDateTime } from '../../utils/format'
@@ -47,11 +48,86 @@ export default function StockLedgerPage() {
   const [adjQty, setAdjQty] = useState('')
   const [recapSearch, setRecapSearch] = useState('')
 
+  // Live database states
+  const [dbStockLedger, setDbStockLedger] = useState([])
+  const [dbBatches, setDbBatches] = useState([])
+  const [dbBillingItems, setDbBillingItems] = useState([])
+  const [dbBillings, setDbBillings] = useState([])
+
+  useEffect(() => {
+    let isMounted = true
+    const loadLiveDbData = async () => {
+      try {
+        const [ledgerData, batchData, bItemsData, billData] = await Promise.all([
+          fetchStockLedger(),
+          fetchBatches(),
+          fetchAllBillingItems().catch(() => []),
+          fetchBillings().catch(() => []),
+        ])
+        if (isMounted) {
+          if (Array.isArray(ledgerData)) setDbStockLedger(ledgerData)
+          if (Array.isArray(batchData)) setDbBatches(batchData)
+          if (Array.isArray(bItemsData)) setDbBillingItems(bItemsData)
+          if (Array.isArray(billData)) setDbBillings(billData)
+        }
+      } catch (err) {
+        console.warn('[StockLedgerPage] Error loading live DB:', err.message)
+      }
+    }
+    loadLiveDbData()
+    return () => { isMounted = false }
+  }, [])
+
+  const effectiveStockLedger = useMemo(() => {
+    const baseLedger = dbStockLedger.length > 0 ? dbStockLedger : (stockLedger || [])
+    const list = [...baseLedger]
+    const processedKeys = new Set(
+      list.filter(l => l.transactionType === 'BILLING').map(l => `${l.referenceNumber}_${l.itemId}`)
+    )
+
+    // Reconcile pharmacy items from billings if missing in stock ledger
+    if (Array.isArray(dbBillingItems) && dbBillingItems.length > 0) {
+      dbBillingItems
+        .filter(bi => bi.itemType === 'PHARMACY' || bi.pharmacyItemId)
+        .forEach(bi => {
+          const billing = (dbBillings || []).find(b => b.id === bi.billingId)
+          const itemId = bi.pharmacyItemId || bi.itemId
+          const refNo = billing?.billingNumber || 'BILL-KASIR'
+          const key = `${refNo}_${itemId}`
+
+          if (itemId && !processedKeys.has(key)) {
+            processedKeys.add(key)
+            list.push({
+              id: bi.id,
+              batchId: 'DIRECT-BILLING',
+              itemId: itemId,
+              transactionType: 'BILLING',
+              referenceId: bi.id,
+              referenceNumber: refNo,
+              quantityIn: 0,
+              quantityOut: bi.quantity || 1,
+              balanceAfter: 0,
+              unitCost: bi.unitPrice || 0,
+              totalValue: (bi.quantity || 1) * (bi.unitPrice || 0),
+              loggedAt: billing?.visitDate || billing?.createdAt || new Date().toISOString(),
+            })
+          }
+        })
+    }
+
+    return list
+  }, [dbStockLedger, stockLedger, dbBillingItems, dbBillings])
+
+  const effectiveBatches = useMemo(() =>
+    dbBatches.length > 0 ? dbBatches : (invBatches || []),
+    [dbBatches, invBatches]
+  )
+
   const selectOptions = useMemo(() => {
-    const list = pharmacyItems
+    const list = (pharmacyItems || [])
       .sort((a, b) => a.itemName.localeCompare(b.itemName))
       .map(i => {
-        const qty = invBatches
+        const qty = effectiveBatches
           .filter(b => b.itemId === i.id && b.quantityCurrent > 0)
           .reduce((s, b) => s + b.quantityCurrent, 0)
         return {
@@ -70,11 +146,11 @@ export default function StockLedgerPage() {
       },
       ...list
     ]
-  }, [pharmacyItems, invBatches])
+  }, [pharmacyItems, effectiveBatches])
 
   const recapData = useMemo(() => {
-    return pharmacyItems.map(item => {
-      const itemLedger = stockLedger.filter(l => l.itemId === item.id)
+    return (pharmacyItems || []).map(item => {
+      const itemLedger = effectiveStockLedger.filter(l => l.itemId === item.id)
 
       const saldoAwal = itemLedger
         .filter(l => l.transactionType === 'SALDO_AWAL')
@@ -97,7 +173,7 @@ export default function StockLedgerPage() {
         saldoAkhir
       }
     })
-  }, [pharmacyItems, stockLedger])
+  }, [pharmacyItems, effectiveStockLedger])
 
   const filteredRecap = useMemo(() => {
     if (!recapSearch.trim()) return recapData
@@ -111,22 +187,22 @@ export default function StockLedgerPage() {
   }, [recapData, recapSearch])
 
   const item = useMemo(
-    () => pharmacyItems.find(i => i.id === selectedItem),
+    () => (pharmacyItems || []).find(i => i.id === selectedItem),
     [pharmacyItems, selectedItem],
   )
 
   const itemBatches = useMemo(
-    () => invBatches
+    () => effectiveBatches
       .filter(b => b.itemId === selectedItem)
       .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate)),
-    [invBatches, selectedItem],
+    [effectiveBatches, selectedItem],
   )
 
   const ledgerLines = useMemo(
-    () => stockLedger
+    () => effectiveStockLedger
       .filter(l => l.itemId === selectedItem)
-      .sort((a, b) => new Date(b.loggedAt) - new Date(a.loggedAt)),
-    [stockLedger, selectedItem],
+      .sort((a, b) => new Date(b.loggedAt || b.transactionDate) - new Date(a.loggedAt || a.transactionDate)),
+    [effectiveStockLedger, selectedItem],
   )
 
   const totalStock = itemBatches.reduce((s, b) => s + (b.quantityCurrent || 0), 0)
