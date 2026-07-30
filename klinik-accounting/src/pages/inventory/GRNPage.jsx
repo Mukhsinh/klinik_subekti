@@ -5,6 +5,16 @@ import SearchableSelect from '../../components/ui/SearchableSelect'
 import { fmtIDR, fmtDate, todayISO, daysBetween, fmtNum, parseNumericInput } from '../../utils/format'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
+import {
+  fetchPharmacyItems,
+  fetchVendors,
+  fetchBatches,
+  insertBatches,
+  insertStockLedger,
+  upsertJournalEntry,
+  insertJournalItems,
+} from '../../lib/db'
+import { supabase } from '../../lib/supabase'
 
 function generateGRN(count) {
   const d = new Date()
@@ -50,9 +60,38 @@ function FormattedNumberInput({ value, onChange, placeholder, className, min, st
 }
 
 export default function GRNPage() {
-  const { pharmacyItems, invBatches, receiveGRN, coa, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber, vendors } = useStore()
+  const { pharmacyItems, invBatches, activeBranchId, vendors } = useStore()
 
-  const [grnNumber] = useState(() => generateGRN(invBatches.length))
+  const [dbPharmacyItems, setDbPharmacyItems] = useState([])
+  const [dbVendors, setDbVendors] = useState([])
+  const [dbBatches, setDbBatches] = useState([])
+
+  const loadLiveDbData = async () => {
+    try {
+      const [items, vends, batches] = await Promise.all([
+        fetchPharmacyItems().catch(() => []),
+        fetchVendors().catch(() => []),
+        fetchBatches().catch(() => []),
+      ])
+      if (Array.isArray(items)) setDbPharmacyItems(items)
+      if (Array.isArray(vends)) setDbVendors(vends)
+      if (Array.isArray(batches)) setDbBatches(batches)
+    } catch (err) {
+      console.warn('[GRNPage] Error loading live DB:', err)
+    }
+  }
+
+  useEffect(() => {
+    let isMounted = true
+    loadLiveDbData()
+    return () => { isMounted = false }
+  }, [])
+
+  const itemsList = dbPharmacyItems.length > 0 ? dbPharmacyItems : (pharmacyItems || [])
+  const vendorsList = dbVendors.length > 0 ? dbVendors : (vendors || [])
+  const batchesList = dbBatches.length > 0 ? dbBatches : (invBatches || [])
+
+  const [grnNumber] = useState(() => generateGRN(batchesList.length))
   const [grnDate, setGrnDate] = useState(todayISO())
   const [invoiceDate, setInvoiceDate] = useState(todayISO())
   const [supplierName, setSupplierName] = useState('')
@@ -63,31 +102,31 @@ export default function GRNPage() {
   const [submitting, setSubmitting] = useState(false)
 
   const vendorOptions = useMemo(() =>
-    (vendors || [])
+    vendorsList
       .filter(v => v.isActive !== false)
-      .map(v => ({ value: v.name, label: `${v.code} — ${v.name}` })),
-    [vendors]
+      .map(v => ({ value: v.name, label: `${v.code || 'VEND'} — ${v.name}` })),
+    [vendorsList]
   )
 
   const itemOptions = useMemo(() =>
-    pharmacyItems
-      .filter(i => i.isActive)
-      .sort((a, b) => a.itemName.localeCompare(b.itemName))
-      .map(i => ({ value: i.id, label: `${i.itemCode} — ${i.itemName}` })),
-    [pharmacyItems]
+    itemsList
+      .filter(i => i.isActive !== false)
+      .sort((a, b) => (a.itemName || '').localeCompare(b.itemName || ''))
+      .map(i => ({ value: i.id, label: `${i.itemCode || i.skuCode || 'ITEM'} — ${i.itemName}` })),
+    [itemsList]
   )
 
   // Item map for quick lookup
   const itemMap = useMemo(() => {
     const m = {}
-    pharmacyItems.forEach(i => { m[i.id] = i })
+    itemsList.forEach(i => { m[i.id] = i })
     return m
-  }, [pharmacyItems])
+  }, [itemsList])
 
   // Flat list of batches for preview table, sorted by receivedAt descending
   const previewBatches = useMemo(() => {
-    return [...invBatches].sort((a, b) => new Date(b.receivedAt || b.createdAt) - new Date(a.receivedAt || a.createdAt))
-  }, [invBatches])
+    return [...batchesList].sort((a, b) => new Date(b.receivedAt || b.createdAt) - new Date(a.receivedAt || a.createdAt))
+  }, [batchesList])
 
   const addLine = () => setLines(ls => [...ls, { id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
   const removeLine = (id) => { if (lines.length > 1) setLines(ls => ls.filter(l => l.id !== id)) }
@@ -126,6 +165,7 @@ export default function GRNPage() {
     return null
   }
 
+  // Direct DB persistence without relying on useStore
   const handleSubmit = async (e) => {
     e.preventDefault()
     const validLines = lines.filter(l => l.itemId && l.batchNumber && l.expiryDate && parseFloat(l.unitCostPrice) > 0 && parseFloat(l.quantityReceived) > 0)
@@ -141,12 +181,16 @@ export default function GRNPage() {
     setSubmitting(true)
     try {
       const entryId = uuidv4()
+      const now = new Date().toISOString()
+      const receivedTime = grnDate ? `${grnDate}T${now.split('T')[1] || '00:00:00.000Z'}` : now
+
       const batchesData = validLines.map(l => {
         const rawHpp = parseFloat(l.unitCostPrice) || 0
         const qty = parseFloat(l.quantityReceived) || 0
         const effectiveHpp = ppnType === 'INCLUDE' ? rawHpp / (1 + ppnRate) : rawHpp
         const sp = parseFloat(l.sellingPrice) || Math.round(rawHpp * 1.25)
         return {
+          id: uuidv4(),
           itemId: l.itemId,
           batchNumber: l.batchNumber,
           expiryDate: l.expiryDate,
@@ -157,43 +201,102 @@ export default function GRNPage() {
           grnReference: grnNumber,
           supplierName,
           journalEntryId: entryId,
+          receivedAt: receivedTime,
+          createdAt: now,
         }
       })
 
-      const entryNumber = generateEntryNumber('GRN')
+      // Stock ledger entries
+      const ledgerEntries = batchesData.map(b => ({
+        id: uuidv4(),
+        batchId: b.id,
+        itemId: b.itemId,
+        transactionType: 'GRN',
+        referenceId: b.id,
+        referenceNumber: grnNumber,
+        quantityIn: b.quantityReceived,
+        quantityOut: 0,
+        balanceAfter: b.quantityReceived,
+        unitCost: b.unitCostPrice,
+        totalValue: b.quantityReceived * b.unitCostPrice,
+        loggedAt: receivedTime,
+      }))
+
+      // Journal entry header & lines
+      const entryNumber = `GRN/${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(10000 + Math.random() * 90000)}`
       const journalLines = []
       validLines.forEach(l => {
-        const item = pharmacyItems.find(i => i.id === l.itemId)
+        const item = itemsList.find(i => i.id === l.itemId)
         const rawHpp = parseFloat(l.unitCostPrice) || 0
         const qty = parseFloat(l.quantityReceived) || 0
         const invVal = ppnType === 'INCLUDE' ? (rawHpp * qty) / (1 + ppnRate) : (rawHpp * qty)
-        journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: item?.coaInventoryCode || '1-13-001', description: `GRN ${grnNumber} — ${item?.itemName || 'Obat'}`, debit: invVal, credit: 0 })
+        journalLines.push({
+          id: uuidv4(),
+          journalEntryId: entryId,
+          accountCode: item?.coaInventoryCode || '1-13-001',
+          description: `GRN ${grnNumber} — ${item?.itemName || 'Obat'}`,
+          debit: invVal,
+          credit: 0
+        })
       })
 
       if (ppnAmount > 0) {
-        journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: '1-14-002', description: `PPN Masukan (Input PPN 11%) — ${grnNumber}`, debit: ppnAmount, credit: 0 })
+        journalLines.push({
+          id: uuidv4(),
+          journalEntryId: entryId,
+          accountCode: '1-14-002',
+          description: `PPN Masukan (Input PPN 11%) — ${grnNumber}`,
+          debit: ppnAmount,
+          credit: 0
+        })
       }
 
-      journalLines.push({ id: uuidv4(), journalEntryId: entryId, accountCode: '2-11-001', description: `Utang Usaha / PBF — ${supplierName || 'Supplier'} (Faktur: ${invoiceRef || '-'})`, debit: 0, credit: totalValue })
+      journalLines.push({
+        id: uuidv4(),
+        journalEntryId: entryId,
+        accountCode: '2-11-001',
+        description: `Utang Usaha / PBF — ${supplierName || 'Supplier'} (Faktur: ${invoiceRef || '-'})`,
+        debit: 0,
+        credit: totalValue
+      })
 
       const header = {
-        id: entryId, branchId: activeBranchId, entryNumber,
-        transactionDate: grnDate, description: `Penerimaan Barang (GRN) ${grnNumber} — ${supplierName} (Faktur ${invoiceRef || '-'} tgl ${invoiceDate})`,
-        entryType: 'GRN', totalDebit: totalValue, totalCredit: totalValue,
+        id: entryId,
+        branchId: activeBranchId,
+        entryNumber,
+        transactionDate: grnDate,
+        description: `Penerimaan Barang (GRN) ${grnNumber} — ${supplierName} (Faktur ${invoiceRef || '-'} tgl ${invoiceDate})`,
+        entryType: 'GRN',
+        status: 'POSTED',
+        totalDebit: totalValue,
+        totalCredit: totalValue,
+        createdBy: 'System',
+        postedBy: 'System',
+        postedAt: now,
+        createdAt: now,
+        updatedAt: now,
       }
 
-      await saveJournalDraft(header, journalLines)
-      await receiveGRN({ grnNumber, supplierName, invoiceRef, grnDate, invoiceDate, totalValue, apStatus: 'UNPAID' }, batchesData)
-      await postJournalEntry(entryId, 'System-GRN')
+      // Direct Supabase DB inserts
+      await insertBatches(batchesData)
+      await insertStockLedger(ledgerEntries)
+      await upsertJournalEntry(header)
+      await insertJournalItems(journalLines)
 
+      // Update selling price of items in database
       for (const bd of batchesData) {
-        const { supabase: sb } = await import('../../lib/supabase')
-        await sb.from('pharmacy_items').update({ selling_price: bd.sellingPrice, updated_at: new Date().toISOString() }).eq('id', bd.itemId)
+        await supabase.from('pharmacy_items').update({
+          selling_price: bd.sellingPrice,
+          updated_at: now
+        }).eq('id', bd.itemId)
       }
 
-      toast.success(`GRN ${grnNumber} berhasil diproses!`)
+      toast.success(`GRN ${grnNumber} berhasil diproses & tersimpan di database!`)
       setLines([{ id: uuidv4(), itemId: '', batchNumber: '', expiryDate: '', unitCostPrice: '', sellingPrice: '', quantityReceived: '', notes: '' }])
       setInvoiceRef('')
+
+      // Reload live DB data immediately
+      await loadLiveDbData()
     } catch (err) {
       console.error('[GRN Submit Error]', err)
       toast.error(`Gagal menyimpan GRN: ${err.message || 'Terjadi kesalahan'}`)

@@ -1,7 +1,23 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useStore } from '../../store/useStore'
-import { fetchStockLedger, fetchStockOutflows, fetchBillings } from '../../lib/db'
-import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown, AlertCircle } from 'lucide-react'
+import {
+  fetchStockLedger,
+  fetchStockOutflows,
+  fetchStockOutflowItems,
+  insertStockOutflow,
+  insertStockOutflowItems,
+  updateStockOutflow,
+  fetchBillings,
+  fetchAllBillingItems,
+  fetchPharmacyItems,
+  fetchBatches,
+  updateBatchQty,
+  insertStockLedger,
+  upsertJournalEntry,
+  insertJournalItems,
+  fetchBranches,
+} from '../../lib/db'
+import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown } from 'lucide-react'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
 import SearchableSelect from '../../components/ui/SearchableSelect'
@@ -11,8 +27,7 @@ import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
 const OUTFLOW_TYPES = [
-  { value: 'INTERNAL_USE', label: 'Pemakaian Internal' },
-  { value: 'OVERHEAD', label: 'Overhead / Operasional' },
+  { value: 'INTERNAL_USE', label: 'Pemakaian Internal / Operasional' },
   { value: 'DONATION', label: 'Donasi' },
   { value: 'SAMPLE', label: 'Sampel Gratis' },
   { value: 'WASTE', label: 'Barang Rusak/Terbuang' },
@@ -22,9 +37,7 @@ const OUTFLOW_TYPES = [
 export default function StockOutflowPage() {
   const {
     pharmacyItems, invBatches, stockLedger, billings, billingItems,
-    activeBranchId, getItemStock,
-    saveStockOutflow, postStockOutflow,
-    generateOutflowNumber
+    branches, activeBranchId
   } = useStore()
 
   const [modal, setModal] = useState(null)
@@ -36,27 +49,38 @@ export default function StockOutflowPage() {
   const [dbBillings, setDbBillings] = useState([])
   const [dbBillingItems, setDbBillingItems] = useState([])
   const [dbOutflows, setDbOutflows] = useState([])
+  const [dbOutflowItems, setDbOutflowItems] = useState([])
+  const [dbPharmacyItems, setDbPharmacyItems] = useState([])
+  const [dbBatches, setDbBatches] = useState([])
+  const [dbBranches, setDbBranches] = useState([])
+
+  const loadLiveDbData = async () => {
+    try {
+      const [ledgerData, billingData, bItemsData, outflowData, outflowItemsData, pharmacyData, batchData, branchData] = await Promise.all([
+        fetchStockLedger().catch(() => []),
+        fetchBillings().catch(() => []),
+        fetchAllBillingItems().catch(() => []),
+        fetchStockOutflows().catch(() => []),
+        fetchStockOutflowItems().catch(() => []),
+        fetchPharmacyItems().catch(() => []),
+        fetchBatches().catch(() => []),
+        fetchBranches().catch(() => []),
+      ])
+      if (Array.isArray(ledgerData)) setDbStockLedger(ledgerData)
+      if (Array.isArray(billingData)) setDbBillings(billingData)
+      if (Array.isArray(bItemsData)) setDbBillingItems(bItemsData)
+      if (Array.isArray(outflowData)) setDbOutflows(outflowData)
+      if (Array.isArray(outflowItemsData)) setDbOutflowItems(outflowItemsData)
+      if (Array.isArray(pharmacyData)) setDbPharmacyItems(pharmacyData)
+      if (Array.isArray(batchData)) setDbBatches(batchData)
+      if (Array.isArray(branchData)) setDbBranches(branchData)
+    } catch (err) {
+      console.warn('[StockOutflowPage] Error loading live database:', err.message)
+    }
+  }
 
   useEffect(() => {
     let isMounted = true
-    const loadLiveDbData = async () => {
-      try {
-        const [ledgerData, billingData, bItemsData, outflowData] = await Promise.all([
-          fetchStockLedger(),
-          fetchBillings(),
-          fetchAllBillingItems().catch(() => []),
-          fetchStockOutflows(),
-        ])
-        if (isMounted) {
-          if (Array.isArray(ledgerData)) setDbStockLedger(ledgerData)
-          if (Array.isArray(billingData)) setDbBillings(billingData)
-          if (Array.isArray(bItemsData)) setDbBillingItems(bItemsData)
-          if (Array.isArray(outflowData)) setDbOutflows(outflowData)
-        }
-      } catch (err) {
-        console.warn('[StockOutflowPage] Error loading live database:', err.message)
-      }
-    }
     loadLiveDbData()
     return () => { isMounted = false }
   }, [])
@@ -67,40 +91,58 @@ export default function StockOutflowPage() {
   const [description, setDescription] = useState('')
   const [items, setItems] = useState([])
 
-  const outflowNumber = useMemo(() => generateOutflowNumber(), [])
+  const effectiveBranchId = useMemo(() => {
+    return activeBranchId || (dbBranches && dbBranches[0]?.id) || (branches && branches[0]?.id) || 'f265df27-e277-4775-8b1d-5f28e585599a'
+  }, [activeBranchId, dbBranches, branches])
+
+  const outflows = dbOutflows
+  const outflowItems = dbOutflowItems
+
+  const outflowNumber = useMemo(() => {
+    const d = new Date()
+    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
+    return `OUT/${ym}/${String((outflows || []).length + 1).padStart(5, '0')}`
+  }, [outflows])
+
+  const activePharmacyItems = useMemo(() => {
+    const list = dbPharmacyItems.length > 0 ? dbPharmacyItems : (pharmacyItems || [])
+    return list.filter(i => i.isActive !== false)
+  }, [dbPharmacyItems, pharmacyItems])
+
+  const activeBatches = useMemo(() => {
+    return dbBatches.length > 0 ? dbBatches : (invBatches || [])
+  }, [dbBatches, invBatches])
+
+  const getItemStock = (itemId) => {
+    return activeBatches
+      .filter(b => b.itemId === itemId && Number(b.quantityCurrent) > 0)
+      .reduce((sum, b) => sum + Number(b.quantityCurrent || 0), 0)
+  }
 
   const pharmacyOptions = useMemo(() =>
-    pharmacyItems
-      .filter(i => i.isActive !== false)
-      .sort((a, b) => a.itemName.localeCompare(b.itemName))
+    activePharmacyItems
+      .sort((a, b) => (a.itemName || '').localeCompare(b.itemName || ''))
       .map(i => {
         const stk = getItemStock(i.id)
         return {
           value: i.id,
-          label: `${i.itemCode || i.skuCode} — ${i.itemName} (Stok: ${stk})`,
+          label: `${i.itemCode || i.skuCode || 'ITEM'} — ${i.itemName} (Stok: ${stk})`,
           disabled: stk === 0
         }
       }),
-    [pharmacyItems, invBatches, getItemStock]
+    [activePharmacyItems, activeBatches]
   )
-
-  const stockOutflows = useStore(state => state.stockOutflows || [])
-  const stockOutflowItems = useStore(state => state.stockOutflowItems || [])
-
-  const outflows = dbOutflows.length > 0 ? dbOutflows : stockOutflows
-  const outflowItems = stockOutflowItems
 
   // Consolidate billing-related outflows from live database stock ledger & billing_items
   const billingOutflows = useMemo(() => {
     const ledgerSource = dbStockLedger.length > 0 ? dbStockLedger : (stockLedger || [])
     const billingSource = dbBillings.length > 0 ? dbBillings : (billings || [])
     const bItemsSource = dbBillingItems.length > 0 ? dbBillingItems : (billingItems || [])
-    const pharmacySource = pharmacyItems || []
+    const pharmacySource = activePharmacyItems
 
     const list = []
     const processedKeys = new Set()
 
-    // 1. Add entries from stock ledger cards
     if (Array.isArray(ledgerSource)) {
       ledgerSource
         .filter(s => s.transactionType === 'BILLING' && s.quantityOut > 0)
@@ -124,7 +166,6 @@ export default function StockOutflowPage() {
         })
     }
 
-    // 2. Reconcile with billing_items if missing from stock_ledger_cards
     if (Array.isArray(bItemsSource)) {
       bItemsSource
         .filter(bi => bi.itemType === 'PHARMACY' || bi.pharmacyItemId)
@@ -158,7 +199,7 @@ export default function StockOutflowPage() {
     }
 
     return list.sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [dbStockLedger, stockLedger, dbBillings, billings, dbBillingItems, billingItems, pharmacyItems])
+  }, [dbStockLedger, stockLedger, dbBillings, billings, dbBillingItems, billingItems, activePharmacyItems])
 
   const addItem = () => {
     setItems(prev => [...prev, {
@@ -183,15 +224,18 @@ export default function StockOutflowPage() {
       const updated = { ...item, [field]: value }
 
       if (field === 'itemId') {
-        const pharmacyItem = pharmacyItems.find(p => p.id === value)
+        const pharmacyItem = activePharmacyItems.find(p => p.id === value)
         if (pharmacyItem) {
           updated.itemName = pharmacyItem.itemName
-          // Calculate average unit cost from available batches
-          const batches = invBatches.filter(b => b.itemId === value && b.quantityCurrent > 0)
+          const batches = activeBatches.filter(b => b.itemId === value && Number(b.quantityCurrent) > 0)
           if (batches.length > 0) {
-            const avgCost = batches.reduce((sum, b) => sum + b.unitCostPrice, 0) / batches.length
+            const avgCost = batches.reduce((sum, b) => sum + Number(b.unitCostPrice || 0), 0) / batches.length
             updated.unitCost = avgCost
-            updated.totalCost = updated.quantity * avgCost
+            updated.totalCost = (parseFloat(updated.quantity) || 1) * avgCost
+          } else {
+            const defaultCost = Number(pharmacyItem.purchasePrice || pharmacyItem.hpp || 0)
+            updated.unitCost = defaultCost
+            updated.totalCost = (parseFloat(updated.quantity) || 1) * defaultCost
           }
         }
       }
@@ -211,19 +255,20 @@ export default function StockOutflowPage() {
     setItems([])
   }
 
+  // Direct database saving without relying on useStore
   const handleSave = async () => {
     if (!description.trim()) {
       toast.error('Deskripsi wajib diisi')
       return
     }
 
-    if (items.length === 0 || !items.some(i => i.itemId)) {
-      toast.error('Minimal harus ada 1 item')
+    const validItems = items.filter(i => i.itemId && Number(i.quantity) > 0)
+    if (validItems.length === 0) {
+      toast.error('Minimal harus ada 1 item valid')
       return
     }
 
-    // Validate stock availability
-    for (const item of items.filter(i => i.itemId)) {
+    for (const item of validItems) {
       const available = getItemStock(item.itemId)
       if (item.quantity > available) {
         toast.error(`Stok "${item.itemName}" tidak mencukupi. Tersedia: ${available}, Diminta: ${item.quantity}`)
@@ -231,30 +276,152 @@ export default function StockOutflowPage() {
       }
     }
 
-    const totalValue = items.reduce((sum, i) => sum + (i.totalCost || 0), 0)
+    const totalVal = validItems.reduce((sum, i) => sum + (Number(i.totalCost) || 0), 0)
+    const now = new Date().toISOString()
+    const outflowId = uuidv4()
+    const journalId = uuidv4()
 
     try {
-      await saveStockOutflow({
+      const outflowEntry = {
+        id: outflowId,
+        branchId: effectiveBranchId,
         outflowNumber,
         outflowDate,
         outflowType,
         description,
-        totalValue,
-        items: items.filter(i => i.itemId)
-      })
+        totalValue: totalVal,
+        status: 'POSTED',
+        journalEntryId: journalId,
+        createdBy: 'System',
+        createdAt: now,
+        updatedAt: now,
+      }
 
-      toast.success('Pengeluaran stok berhasil disimpan')
+      const outflowItemsList = validItems.map(item => ({
+        id: uuidv4(),
+        outflowId,
+        itemId: item.itemId,
+        itemName: item.itemName,
+        quantity: Number(item.quantity || 1),
+        unitCost: Number(item.unitCost || 0),
+        totalCost: Number(item.totalCost || 0),
+        notes: item.notes || '',
+      }))
+
+      // FIFO stock depletion directly against live database batches
+      const ledgerEntries = []
+      const currentBatches = [...activeBatches]
+
+      for (const item of validItems) {
+        let remaining = Number(item.quantity)
+        const itemBatches = currentBatches
+          .filter(b => b.itemId === item.itemId && Number(b.quantityCurrent) > 0)
+          .sort((a, b) => new Date(a.expiryDate || a.createdAt) - new Date(b.expiryDate || b.createdAt))
+
+        let currentItemBalance = currentBatches
+          .filter(b => b.itemId === item.itemId)
+          .reduce((sum, b) => sum + Number(b.quantityCurrent || 0), 0)
+
+        for (const batch of itemBatches) {
+          if (remaining <= 0) break
+          const take = Math.min(Number(batch.quantityCurrent), remaining)
+          remaining -= take
+          const newQty = Number(batch.quantityCurrent) - take
+          batch.quantityCurrent = newQty
+
+          await updateBatchQty(batch.id, newQty)
+
+          currentItemBalance -= take
+
+          ledgerEntries.push({
+            id: uuidv4(),
+            batchId: batch.id,
+            itemId: item.itemId,
+            transactionType: 'OUTFLOW',
+            referenceId: outflowId,
+            referenceNumber: outflowNumber,
+            quantityIn: 0,
+            quantityOut: take,
+            balanceAfter: Math.max(0, currentItemBalance),
+            unitCost: Number(batch.unitCostPrice || 0),
+            totalValue: take * Number(batch.unitCostPrice || 0),
+            notes: `Pengeluaran ${outflowType} (${outflowNumber})`,
+            loggedAt: now,
+          })
+        }
+      }
+
+      if (ledgerEntries.length > 0) {
+        await insertStockLedger(ledgerEntries)
+      }
+
+      // Journal entry creation
+      const OUTFLOW_EXPENSE_MAP = {
+        INTERNAL_USE: '6-18-001',
+        SAMPLE: '6-13-001',
+        DONATION: '6-91-002',
+        WASTE: '6-91-003',
+        OTHER: '6-18-001',
+      }
+      const targetExpenseAccount = OUTFLOW_EXPENSE_MAP[outflowType] || '6-18-001'
+      const entryNumber = `OUT/${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(10000 + Math.random() * 90000)}`
+
+      const journalItemsList = [
+        {
+          id: uuidv4(),
+          journalEntryId: journalId,
+          accountCode: targetExpenseAccount,
+          description: `Beban Pengeluaran Stok ${outflowType} — ${outflowNumber}`,
+          debit: totalVal,
+          credit: 0
+        },
+        {
+          id: uuidv4(),
+          journalEntryId: journalId,
+          accountCode: '1-13-001',
+          description: `Pengurangan Persediaan — ${outflowNumber}`,
+          debit: 0,
+          credit: totalVal
+        }
+      ]
+
+      const journalHeader = {
+        id: journalId,
+        branchId: effectiveBranchId,
+        entryNumber,
+        transactionDate: outflowDate,
+        description: `Pengeluaran Stok ${outflowType} — ${description}`,
+        entryType: 'STOCK_OUTFLOW',
+        status: 'POSTED',
+        totalDebit: totalVal,
+        totalCredit: totalVal,
+        createdBy: 'System',
+        postedBy: 'System',
+        postedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      // Persist directly to Supabase database tables stock_outflow_entries and stock_outflow_items
+      await insertStockOutflow(outflowEntry)
+      await insertStockOutflowItems(outflowItemsList)
+      await upsertJournalEntry(journalHeader)
+      await insertJournalItems(journalItemsList)
+
+      toast.success('Pengeluaran stok berhasil disimpan ke database Supabase!')
       setModal(null)
       resetForm()
+
+      // Reload live DB data to update UI instantly
+      await loadLiveDbData()
     } catch (err) {
+      console.error('[StockOutflow handleSave Error]', err)
       toast.error(err.message || 'Gagal menyimpan pengeluaran stok')
     }
   }
 
   const filtered = useMemo(() => {
-    // Ensure outflows is always an array
     const outflowsArray = Array.isArray(outflows) ? outflows : []
-
     let result = outflowsArray
 
     if (statusFilter !== 'ALL') {
@@ -268,13 +435,17 @@ export default function StockOutflowPage() {
       )
     }
 
-    // Safe sort with null check for createdAt
     return result.sort((a, b) => {
       const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0)
       const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0)
       return dateB - dateA
     })
   }, [outflows, statusFilter, search])
+
+  const selectedItems = useMemo(() => {
+    if (!selected?.id) return []
+    return (outflowItems || []).filter(i => String(i.outflowId) === String(selected.id))
+  }, [outflowItems, selected])
 
   const totalValue = items.reduce((sum, i) => sum + (i.totalCost || 0), 0)
 
@@ -293,8 +464,6 @@ export default function StockOutflowPage() {
         </button>
       </div>
 
-
-
       {/* Tabs */}
       <div className="card">
         <div className="border-b border-slate-200">
@@ -305,7 +474,7 @@ export default function StockOutflowPage() {
               onClick={() => setModal(null)}
             >
               <Package className="w-4 h-4 inline mr-2" />
-              Pengeluaran Manual
+              Pengeluaran Manual ({filtered.length})
             </button>
             <button
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${modal === 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -348,7 +517,7 @@ export default function StockOutflowPage() {
                   <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
                     <th className="py-2.5 px-2.5" style={{ width: '140px' }}>No. Pengeluaran</th>
                     <th className="py-2.5 px-2.5" style={{ width: '100px' }}>Tanggal</th>
-                    <th className="py-2.5 px-2.5" style={{ width: '120px' }}>Tipe</th>
+                    <th className="py-2.5 px-2.5" style={{ width: '150px' }}>Tipe</th>
                     <th className="py-2.5 px-2.5" style={{ minWidth: '180px' }}>Deskripsi</th>
                     <th className="py-2.5 px-2.5 text-right" style={{ width: '120px' }}>Total Nilai</th>
                     <th className="py-2.5 px-2.5" style={{ width: '90px' }}>Status</th>
@@ -359,7 +528,7 @@ export default function StockOutflowPage() {
                   {filtered.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="text-center py-12 text-slate-400">
-                        Belum ada pengeluaran stok manual
+                        Belum ada pengeluaran stok manual di database
                       </td>
                     </tr>
                   ) : (
@@ -626,7 +795,7 @@ export default function StockOutflowPage() {
                 </tr>
               </thead>
               <tbody>
-                {(!Array.isArray(outflowItems) ? [] : outflowItems.filter(i => i.outflowId === selected.id)).map(item => (
+                {selectedItems.map(item => (
                   <tr key={item.id}>
                     <td className="text-sm">{item.itemName}</td>
                     <td className="text-right text-sm">{item.quantity}</td>
@@ -634,7 +803,7 @@ export default function StockOutflowPage() {
                     <td className="text-right font-mono text-sm font-bold">{fmtIDR(item.totalCost)}</td>
                   </tr>
                 ))}
-                {(Array.isArray(outflowItems) && outflowItems.filter(i => i.outflowId === selected.id).length === 0) && (
+                {selectedItems.length === 0 && (
                   <tr>
                     <td colSpan={4} className="text-center py-6 text-slate-400">
                       Tidak ada item untuk pengeluaran ini

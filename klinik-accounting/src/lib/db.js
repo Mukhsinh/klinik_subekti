@@ -685,11 +685,12 @@ export async function updateStockOutflow(id, updates) {
   return norm(data)
 }
 
-export async function fetchStockOutflowItems(outflowIds = []) {
-  if (!outflowIds.length) return []
-  const { data, error } = await supabase
-    .from('stock_outflow_items').select('*')
-    .in('outflow_id', outflowIds)
+export async function fetchStockOutflowItems(outflowIds = null) {
+  let q = supabase.from('stock_outflow_items').select('*')
+  if (Array.isArray(outflowIds) && outflowIds.length > 0) {
+    q = q.in('outflow_id', outflowIds)
+  }
+  const { data, error } = await q
   handleError(error, 'fetchStockOutflowItems')
   return normArr(data)
 }
