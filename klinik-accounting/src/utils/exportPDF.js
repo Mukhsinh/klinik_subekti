@@ -6,24 +6,43 @@ const CLINIC_NAME = 'Klinik Medis Antigravity'
 const CLINIC_ADDR = 'Jl. Sudirman No. 1, Jakarta Pusat'
 const CLINIC_PHONE = '(021) 1234-5678'
 
-function addHeader(doc, title, subtitle = '', branchName = '') {
+function addHeader(doc, title, subtitle = '', branchName = '', appSettings = null) {
   const pageW = doc.internal.pageSize.getWidth()
-  // Logo placeholder box
-  doc.setFillColor(4, 100, 199)
-  doc.roundedRect(14, 12, 20, 20, 3, 3, 'F')
-  doc.setTextColor(255, 255, 255)
-  doc.setFontSize(14)
-  doc.setFont('helvetica', 'bold')
-  doc.text('K', 22, 25)
+  const cName = appSettings?.companyName || appSettings?.appName || CLINIC_NAME
+  const cAddr = appSettings?.address || CLINIC_ADDR
+  const cPhone = appSettings?.phone ? (appSettings.phone.startsWith('Telp:') ? appSettings.phone : `Telp: ${appSettings.phone}`) : CLINIC_PHONE
+
+  // Render Logo Image from appSettings if available, or default stylized badge
+  if (appSettings?.logoUrl) {
+    try {
+      doc.addImage(appSettings.logoUrl, 'PNG', 14, 12, 20, 20)
+    } catch (_) {
+      doc.setFillColor(4, 100, 199)
+      doc.roundedRect(14, 12, 20, 20, 3, 3, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFontSize(14)
+      doc.setFont('helvetica', 'bold')
+      doc.text((cName.charAt(0) || 'K').toUpperCase(), 22, 25)
+    }
+  } else {
+    doc.setFillColor(4, 100, 199)
+    doc.roundedRect(14, 12, 20, 20, 3, 3, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(14)
+    doc.setFont('helvetica', 'bold')
+    doc.text((cName.charAt(0) || 'K').toUpperCase(), 22, 25)
+  }
+
   // Clinic info
   doc.setTextColor(15, 23, 42)
   doc.setFontSize(13)
-  doc.text(CLINIC_NAME, 40, 19)
+  doc.text(cName, 40, 19)
   doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
   doc.setTextColor(71, 85, 105)
-  doc.text(CLINIC_ADDR, 40, 25)
-  doc.text(CLINIC_PHONE, 40, 30)
+  doc.text(cAddr, 40, 25)
+  doc.text(cPhone, 40, 30)
+
   // Report title
   doc.setDrawColor(226, 232, 240)
   doc.setLineWidth(0.5)
@@ -45,10 +64,13 @@ function addHeader(doc, title, subtitle = '', branchName = '') {
   return subtitle ? 62 : 50
 }
 
-function addFooter(doc) {
+function addFooter(doc, appSettings = null) {
   const pageCount = doc.internal.getNumberOfPages()
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
+  const cName = appSettings?.companyName || appSettings?.appName || CLINIC_NAME
+  const footerNote = appSettings?.footerText || `Dokumen ini digenerate secara otomatis oleh Sistem Akuntansi ${cName}`
+
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i)
     doc.setDrawColor(226, 232, 240)
@@ -58,14 +80,14 @@ function addFooter(doc) {
     doc.setTextColor(148, 163, 184)
     doc.text(`Dicetak: ${fmtDateTime(new Date())}`, 14, pageH - 8)
     doc.text(`Halaman ${i} dari ${pageCount}`, pageW - 14, pageH - 8, { align: 'right' })
-    doc.text('Dokumen ini digenerate secara otomatis oleh Sistem Akuntansi Klinik Medis Antigravity', pageW / 2, pageH - 8, { align: 'center' })
+    doc.text(footerNote, pageW / 2, pageH - 8, { align: 'center' })
   }
 }
 
 // ─── Trial Balance PDF ────────────────────────────────────────
-export function exportTrialBalancePDF(data, period, branchName) {
+export function exportTrialBalancePDF(data, period, branchName, appSettings = null) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const startY = addHeader(doc, 'NERACA SALDO (TRIAL BALANCE)', period, branchName)
+  const startY = addHeader(doc, 'NERACA SALDO (TRIAL BALANCE)', period, branchName, appSettings)
 
   const body = data.map(r => [
     r.accountCode,
@@ -91,14 +113,14 @@ export function exportTrialBalancePDF(data, period, branchName) {
       3: { cellWidth: 36, halign: 'right' },
     },
   })
-  addFooter(doc)
+  addFooter(doc, appSettings)
   doc.save(`NeracaSaldo_${period?.replace(/\s/g, '_') || 'export'}.pdf`)
 }
 
 // ─── General Ledger PDF ───────────────────────────────────────
-export function exportLedgerPDF(accountName, entries, period) {
+export function exportLedgerPDF(accountName, entries, period, appSettings = null) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-  const startY = addHeader(doc, `BUKU BESAR: ${accountName}`, period)
+  const startY = addHeader(doc, `BUKU BESAR: ${accountName}`, period, '', appSettings)
 
   const body = entries.map(r => [
     fmtDate(r.transactionDate),
@@ -124,14 +146,14 @@ export function exportLedgerPDF(accountName, entries, period) {
       5: { cellWidth: 38, halign: 'right' },
     },
   })
-  addFooter(doc)
+  addFooter(doc, appSettings)
   doc.save(`BukuBesar_${accountName}_${period || 'export'}.pdf`)
 }
 
 // ─── Income Statement PDF ─────────────────────────────────────
-export function exportIncomeStatementPDF(data, period, branchName) {
+export function exportIncomeStatementPDF(data, period, branchName, appSettings = null) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const startY = addHeader(doc, 'LAPORAN LABA RUGI', period, branchName)
+  const startY = addHeader(doc, 'LAPORAN LABA RUGI', period, branchName, appSettings)
 
   const body = data.map(r => [
     r.isGroup ? '' : r.accountCode,
@@ -159,14 +181,14 @@ export function exportIncomeStatementPDF(data, period, branchName) {
       3: { cellWidth: 40, halign: 'right' },
     },
   })
-  addFooter(doc)
+  addFooter(doc, appSettings)
   doc.save(`LabaRugi_${period?.replace(/\s/g, '_') || 'export'}.pdf`)
 }
 
 // ─── Journal Entry PDF ────────────────────────────────────────
-export function exportJournalPDF(entry, items, coa) {
+export function exportJournalPDF(entry, items, coa, appSettings = null) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const startY = addHeader(doc, 'BUKTI JURNAL UMUM')
+  const startY = addHeader(doc, 'BUKTI JURNAL UMUM', '', '', appSettings)
 
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
@@ -215,14 +237,14 @@ export function exportJournalPDF(entry, items, coa) {
       4: { cellWidth: 36, halign: 'right' },
     },
   })
-  addFooter(doc)
+  addFooter(doc, appSettings)
   doc.save(`Jurnal_${entry.entryNumber}.pdf`)
 }
 
 // ─── Billing / Receipt PDF (Nota Transaksi Kasir) ──────────────
-export function exportBillingReceiptPDF(billing, items = []) {
+export function exportBillingReceiptPDF(billing, items = [], appSettings = null) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const startY = addHeader(doc, 'NOTA TRANSAKSI / BUKTI PEMBAYARAN', `No. Nota: ${billing.billingNumber || '—'}`)
+  const startY = addHeader(doc, 'NOTA TRANSAKSI / BUKTI PEMBAYARAN', `No. Nota: ${billing.billingNumber || '—'}`, billing.branchName || '', appSettings)
 
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
@@ -361,7 +383,7 @@ export function exportBillingReceiptPDF(billing, items = []) {
   doc.text('Petugas Kasir', 160, sigY, { align: 'center' })
   doc.text(`( ${billing.createdBy || 'Kasir Klinik'} )`, 160, sigY + 18, { align: 'center' })
 
-  addFooter(doc)
+  addFooter(doc, appSettings)
   doc.save(`Nota_Billing_${billing.billingNumber || 'Receipt'}.pdf`)
 }
 

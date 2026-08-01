@@ -137,12 +137,25 @@ export default function BillingPage() {
   const subLab = labLines.reduce((s, l) => s + (parseFloat(l.qty) || 1) * (parseFloat(l.price) || 0), 0)
   const subPharmacy = pharmacyLines.reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0), 0)
   const discountAmt = parseFloat(discount) || 0
-  const ppnAmount = subPharmacy * PPN_RATE
-  const grandTotal = subService + subLab + subPharmacy + ppnAmount - discountAmt
+
+  // In Indonesia pharmacy retail, selling price is PPN inclusive (11%)
+  const dppPharmacy = Math.round(subPharmacy / (1 + PPN_RATE))
+  const ppnAmount = subPharmacy - dppPharmacy
+  const grandTotal = Math.max(0, subService + subLab + subPharmacy - discountAmt)
+
   const patientPortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? grandTotal * (1 - BPJS_RATIO) : grandTotal
   const insurancePortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? grandTotal * BPJS_RATIO : 0
-  const feeRate = selectedDoctor ? (selectedDoctor.feePercentage || 30) : 0
-  const grossDoctorFee = (subService + subLab) * (feeRate / 100)
+
+  // Doctor fee/commission applies ONLY to pure consultation service (4-11-001/4-11-002), excluding BHP/Actions (4-11-003)
+  const doctorConsultationSubtotal = serviceLines
+    .filter(l => {
+      const code = l.revenueAccountCode || '4-11-001'
+      return code === '4-11-001' || code === '4-11-002'
+    })
+    .reduce((s, l) => s + (parseFloat(l.qty) || 1) * (parseFloat(l.price) || 0), 0)
+
+  const feeRate = selectedDoctor ? (selectedDoctor.feePercentage || 70) : 0
+  const grossDoctorFee = doctorConsultationSubtotal * (feeRate / 100)
   const pph21Calc = calcPPh21Doctor(grossDoctorFee)
 
   const addSvc = (sId) => {
@@ -303,21 +316,41 @@ export default function BillingPage() {
       // Add revenue entries
       Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
         if (amount > 0) {
-          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `Pendapatan Layanan — ${billingNumber}`, debit: 0, credit: amount })
+          const accDesc = accCode === '4-11-003' ? 'Pendapatan Tindakan Medis & BHP' : accCode === '4-12-001' ? 'Pendapatan Laboratorium' : 'Pendapatan Konsultasi Dokter'
+          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `${accDesc} — ${billingNumber}`, debit: 0, credit: amount })
         }
       })
 
-      if (subPharmacy > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '4-13-001', description: `Penjualan Obat — ${billingNumber}`, debit: 0, credit: subPharmacy })
-      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-14-001', description: `PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
+      // Group pharmacy revenue by item master COA revenue account
+      const pharmacyRevAccounts = {}
+      pharmacyLines.filter(l => l.itemId).forEach(l => {
+        const lineVal = (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)
+        if (lineVal > 0) {
+          const item = pharmacyItems.find(p => p.id === l.itemId)
+          const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
+          const revAcc = item?.coaRevenueCode || item?.coa_revenue_code || (isBHP ? '4-13-003' : item?.category === 'GENERIK' ? '4-13-002' : '4-13-001')
+          const dppLine = Math.round(lineVal / 1.11)
+          pharmacyRevAccounts[revAcc] = (pharmacyRevAccounts[revAcc] || 0) + dppLine
+        }
+      })
+
+      Object.entries(pharmacyRevAccounts).forEach(([accCode, amount]) => {
+        if (amount > 0) {
+          const accDesc = accCode === '4-13-003' ? 'Pendapatan Penjualan BHP Medis (DPP)' : accCode === '4-13-002' ? 'Pendapatan Penjualan Obat OTC / Generik (DPP)' : 'Penjualan Obat Etikal (DPP)'
+          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `${accDesc} — ${billingNumber}`, debit: 0, credit: amount })
+        }
+      })
+
+      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-14-001', description: `Utang PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
       if (discountAmt > 0) {
         // Discount reduces the first revenue account
         const firstRevAccount = Object.keys(revenueByAccount)[0] || '4-11-001'
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon — ${billingNumber}`, debit: discountAmt, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon Billing — ${billingNumber}`, debit: discountAmt, credit: 0 })
       }
       if (grossDoctorFee > 0 && selectedDoctor) {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '6-12-001', description: `Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-13-001', description: `PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-12-001', description: `Net Fee ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '6-12-001', description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-13-001', description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-12-003', description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
       }
 
       // Append consolidated HPP / COGS journal entries

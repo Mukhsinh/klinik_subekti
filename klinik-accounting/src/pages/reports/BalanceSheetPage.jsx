@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Download, Printer } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { useAuth } from '../../store/useAuth'
 import { fmtIDR, fmtDate, monthEnd } from '../../utils/format'
 import { exportBalanceSheetExcel } from '../../utils/exportExcel'
 
@@ -18,8 +19,8 @@ function buildBalancesUpTo(coa, journalEntries, journalItems, asOf, branchFilter
     const d = parseFloat(item.debit || 0)
     const c = parseFloat(item.credit || 0)
     if (!balances[item.accountCode]) balances[item.accountCode] = 0
-    if (acc.naturalBalance === 'DEBIT')  balances[item.accountCode] += d - c
-    else                                  balances[item.accountCode] += c - d
+    if (acc.naturalBalance === 'DEBIT') balances[item.accountCode] += d - c
+    else balances[item.accountCode] += c - d
   })
   return balances
 }
@@ -56,12 +57,13 @@ function BSSection({ title, groups, total, colorClass = '' }) {
 
 export default function BalanceSheetPage() {
   const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
+  const { appSettings } = useAuth()
   const [asOf, setAsOf] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
 
   const balances = useMemo(() => {
     const fiscalYear = new Date(asOf).getFullYear()
-    
+
     // Get opening balances for the fiscal year
     const openingBalanceMap = {}
     openingBalances.forEach(ob => {
@@ -69,10 +71,10 @@ export default function BalanceSheetPage() {
         openingBalanceMap[ob.accountCode] = parseFloat(ob.openingBalance || 0)
       }
     })
-    
+
     // Calculate period balances
     const periodBalances = buildBalancesUpTo(coa, journalEntries, journalItems, asOf, branchFilter)
-    
+
     // Combine: opening + period movements
     const finalBalances = {}
     coa.filter(a => !a.isHeader).forEach(a => {
@@ -80,7 +82,7 @@ export default function BalanceSheetPage() {
       const period = periodBalances[a.accountCode] || 0
       finalBalances[a.accountCode] = opening + period
     })
-    
+
     return finalBalances
   }, [coa, journalEntries, journalItems, asOf, branchFilter, openingBalances])
 
@@ -91,15 +93,15 @@ export default function BalanceSheetPage() {
       .sort((a, b) => a.sortOrder - b.sortOrder)
 
   // Build asset groups
-  const currentAssets    = getBalanceItems('ASSET', 'ASET LANCAR')
+  const currentAssets = getBalanceItems('ASSET', 'ASET LANCAR')
   const nonCurrentAssets = getBalanceItems('ASSET', 'ASET TIDAK LANCAR')
-  const totalAssets      = [...currentAssets, ...nonCurrentAssets].reduce((s, a) => s + a.balance, 0)
+  const totalAssets = [...currentAssets, ...nonCurrentAssets].reduce((s, a) => s + a.balance, 0)
 
   // Build liability groups
-  const stLiab  = getBalanceItems('LIABILITY', 'LIABILITAS JANGKA PENDEK')
-  const ltLiab  = getBalanceItems('LIABILITY', 'LIABILITAS JANGKA PANJANG')
-  const equity  = getBalanceItems('EQUITY')
-  const totalLiab   = [...stLiab, ...ltLiab].reduce((s, a) => s + a.balance, 0)
+  const stLiab = getBalanceItems('LIABILITY', 'LIABILITAS JANGKA PENDEK')
+  const ltLiab = getBalanceItems('LIABILITY', 'LIABILITAS JANGKA PANJANG')
+  const equity = getBalanceItems('EQUITY')
+  const totalLiab = [...stLiab, ...ltLiab].reduce((s, a) => s + a.balance, 0)
   const totalEquity = equity.reduce((s, a) => s + a.balance, 0)
   const totalLiabEquity = totalLiab + totalEquity
 
@@ -129,7 +131,7 @@ export default function BalanceSheetPage() {
           <button className="btn-secondary" onClick={() => exportBalanceSheetExcel(
             currentAssets.concat(nonCurrentAssets).map(a => ({ accountCode: a.accountCode, accountName: a.accountName, balance: a.balance })),
             stLiab.concat(ltLiab).concat(equity).map(a => ({ accountCode: a.accountCode, accountName: a.accountName, balance: a.balance })),
-            periodLabel, branchName
+            periodLabel, branchName, appSettings
           )}><Download className="w-4 h-4" />Excel</button>
         </div>
       </div>
@@ -159,7 +161,7 @@ export default function BalanceSheetPage() {
             title="ASET"
             colorClass="bg-blue-700 text-white"
             groups={[
-              { label: 'Aset Lancar',      items: currentAssets },
+              { label: 'Aset Lancar', items: currentAssets },
               { label: 'Aset Tidak Lancar', items: nonCurrentAssets },
             ]}
             total={totalAssets}

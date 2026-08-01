@@ -23,7 +23,7 @@ const QUARTERS = ['Triwulan 1', 'Triwulan 2', 'Triwulan 3', 'Triwulan 4']
 const SEMESTERS = ['Semester 1', 'Semester 2']
 
 export default function BillingReportPage() {
-  const { billings, billingItems, branches, activeBranchId, doctors } = useStore()
+  const { billings, billingItems, branches, activeBranchId, doctors, appSettings } = useStore()
   const [filterType, setFilterType] = useState('DAILY')
   const [startDate, setStartDate] = useState(todayISO())
   const [endDate, setEndDate] = useState(todayISO())
@@ -745,7 +745,7 @@ export default function BillingReportPage() {
                 className="btn-primary flex items-center gap-2"
                 onClick={() => {
                   const items = effectiveBillingItems.filter(i => i.billingId === selectedBilling.id || i.billing_id === selectedBilling.id)
-                  exportBillingReceiptPDF(selectedBilling, items)
+                  exportBillingReceiptPDF(selectedBilling, items, appSettings)
                   toast.success(`Nota ${selectedBilling.billingNumber} berhasil dicetak.`)
                 }}
               >

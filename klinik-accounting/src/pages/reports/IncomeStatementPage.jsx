@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { Download, Printer } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { useAuth } from '../../store/useAuth'
 import { fmtIDR, fmtDate, monthStart, monthEnd, fmtPct } from '../../utils/format'
 import { exportIncomeStatementPDF } from '../../utils/exportPDF'
 import { exportIncomeStatementExcel } from '../../utils/exportExcel'
@@ -45,6 +46,7 @@ function SectionRow({ label, value, indent = 0, isTotal = false, isGrandTotal = 
 
 export default function IncomeStatementPage() {
   const { coa, journalEntries, journalItems, branches, activeBranchId } = useStore()
+  const { appSettings } = useAuth()
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
@@ -55,21 +57,25 @@ export default function IncomeStatementPage() {
 
   const getBalance = (code) => balances[code] || 0
 
-  // Revenue groups
+  // Revenue groups — sorted by sortOrder so subgroups display in correct order
   const revGroups = useMemo(() => {
     const groups = {}
     coa.filter(a => a.accountType === 'REVENUE' && !a.isHeader).forEach(a => {
       const g = a.accountSubgroup || a.accountGroup
-      if (!groups[g]) groups[g] = { label: g, items: [] }
+      if (!groups[g]) groups[g] = { label: g, items: [], minSort: a.sortOrder || 999 }
       groups[g].items.push({ ...a, amount: getBalance(a.accountCode) })
+      groups[g].minSort = Math.min(groups[g].minSort, a.sortOrder || 999)
     })
     return Object.values(groups)
+      .sort((a, b) => a.minSort - b.minSort)
+      .map(g => ({ ...g, items: g.items.sort((a, b) => (a.accountCode || '').localeCompare(b.accountCode || '')) }))
   }, [coa, balances])
 
   const totalRevenue = revGroups.reduce((s, g) => s + g.items.reduce((ss, i) => ss + i.amount, 0), 0)
 
   // HPP
   const hppItems = useMemo(() => coa.filter(a => a.accountType === 'EXPENSE' && a.accountGroup === 'HARGA POKOK' && !a.isHeader)
+    .sort((a, b) => (a.accountCode || '').localeCompare(b.accountCode || ''))
     .map(a => ({ ...a, amount: getBalance(a.accountCode) })), [coa, balances])
   const totalHPP = hppItems.reduce((s, i) => s + i.amount, 0)
   const grossProfit = totalRevenue - totalHPP
@@ -79,10 +85,13 @@ export default function IncomeStatementPage() {
     const groups = {}
     coa.filter(a => a.accountType === 'EXPENSE' && a.accountGroup !== 'HARGA POKOK' && !a.isHeader).forEach(a => {
       const g = a.accountSubgroup || a.accountGroup
-      if (!groups[g]) groups[g] = { label: g, items: [] }
+      if (!groups[g]) groups[g] = { label: g, items: [], minSort: a.sortOrder || 999 }
       groups[g].items.push({ ...a, amount: getBalance(a.accountCode) })
+      groups[g].minSort = Math.min(groups[g].minSort, a.sortOrder || 999)
     })
     return Object.values(groups)
+      .sort((a, b) => a.minSort - b.minSort)
+      .map(g => ({ ...g, items: g.items.sort((a, b) => (a.accountCode || '').localeCompare(b.accountCode || '')) }))
   }, [coa, balances])
 
   const totalOpEx = expGroups.reduce((s, g) => s + g.items.reduce((ss, i) => ss + i.amount, 0), 0)
@@ -93,24 +102,34 @@ export default function IncomeStatementPage() {
   const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
   const branchName = branches.find(b => b.id === branchFilter)?.entityName || 'Semua Cabang'
 
-  // For export
+  // For export (PDF & Excel)
   const exportData = useMemo(() => {
     const rows = []
     rows.push({ accountCode: '', accountName: 'PENDAPATAN', isGroup: true, subtotal: totalRevenue })
     revGroups.forEach(g => {
-      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: g.items.reduce((s, i) => s + i.amount, 0) })
-      g.items.forEach(i => rows.push({ accountCode: i.accountCode, accountName: i.accountName, isGroup: false, amount: i.amount }))
+      const sub = g.items.reduce((s, i) => s + i.amount, 0)
+      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: null })
+      g.items.forEach(i => rows.push({ accountCode: i.accountCode, accountName: `${i.accountCode} — ${i.accountName}`, isGroup: false, amount: i.amount }))
+      rows.push({ accountCode: '', accountName: `Total ${g.label}`, isGroup: true, subtotal: sub })
     })
+    rows.push({ accountCode: '', accountName: 'TOTAL PENDAPATAN', isGroup: true, subtotal: totalRevenue })
+
     rows.push({ accountCode: '', accountName: 'HARGA POKOK PENJUALAN', isGroup: true, subtotal: totalHPP })
-    hppItems.forEach(i => rows.push({ accountCode: i.accountCode, accountName: i.accountName, isGroup: false, amount: i.amount }))
+    hppItems.forEach(i => rows.push({ accountCode: i.accountCode, accountName: `${i.accountCode} — ${i.accountName}`, isGroup: false, amount: i.amount }))
+    rows.push({ accountCode: '', accountName: 'TOTAL HARGA POKOK PENJUALAN', isGroup: true, subtotal: totalHPP })
     rows.push({ accountCode: '', accountName: 'LABA KOTOR', isGroup: true, subtotal: grossProfit })
+
+    rows.push({ accountCode: '', accountName: 'BEBAN OPERASIONAL', isGroup: true, subtotal: totalOpEx })
     expGroups.forEach(g => {
-      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: g.items.reduce((s, i) => s + i.amount, 0) })
-      g.items.forEach(i => rows.push({ accountCode: i.accountCode, accountName: i.accountName, isGroup: false, amount: i.amount }))
+      const sub = g.items.reduce((s, i) => s + i.amount, 0)
+      rows.push({ accountCode: '', accountName: g.label, isGroup: true, subtotal: null })
+      g.items.forEach(i => rows.push({ accountCode: i.accountCode, accountName: `${i.accountCode} — ${i.accountName}`, isGroup: false, amount: i.amount }))
+      rows.push({ accountCode: '', accountName: `Total ${g.label}`, isGroup: true, subtotal: sub })
     })
-    rows.push({ accountCode: '', accountName: 'LABA BERSIH', isGroup: true, subtotal: netProfit })
+    rows.push({ accountCode: '', accountName: 'TOTAL BEBAN OPERASIONAL', isGroup: true, subtotal: totalOpEx })
+    rows.push({ accountCode: '', accountName: 'LABA BERSIH SEBELUM PAJAK', isGroup: true, subtotal: netProfit })
     return rows
-  }, [revGroups, hppItems, expGroups, totalRevenue, totalHPP, grossProfit, netProfit])
+  }, [revGroups, hppItems, expGroups, totalRevenue, totalHPP, grossProfit, totalOpEx, netProfit])
 
   return (
     <div className="space-y-5">
@@ -120,8 +139,8 @@ export default function IncomeStatementPage() {
           <p className="text-sm text-slate-400 mt-0.5">Income Statement — PSAK 1 / ISAK 35</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn-secondary" onClick={() => exportIncomeStatementExcel(exportData, periodLabel, branchName)}><Download className="w-4 h-4" />Excel</button>
-          <button className="btn-secondary" onClick={() => exportIncomeStatementPDF(exportData, periodLabel, branchName)}><Printer className="w-4 h-4" />PDF</button>
+          <button className="btn-secondary" onClick={() => exportIncomeStatementExcel(exportData, periodLabel, branchName, appSettings)}><Download className="w-4 h-4" />Excel</button>
+          <button className="btn-secondary" onClick={() => exportIncomeStatementPDF(exportData, periodLabel, branchName, appSettings)}><Printer className="w-4 h-4" />PDF</button>
         </div>
       </div>
 
@@ -181,10 +200,11 @@ export default function IncomeStatementPage() {
               {revGroups.map(g => {
                 const sub = g.items.reduce((s, i) => s + i.amount, 0)
                 return (
-                  <>
+                  <Fragment key={`rev-grp-${g.label}`}>
+                    <SectionRow label={g.label} value={null} indent={1} isTotal />
                     {g.items.map(i => <SectionRow key={i.accountCode} label={`${i.accountCode} — ${i.accountName}`} value={i.amount > 0 ? i.amount : null} indent={2} />)}
                     <SectionRow label={`Total ${g.label}`} value={sub} indent={1} isTotal />
-                  </>
+                  </Fragment>
                 )
               })}
               <SectionRow label="TOTAL PENDAPATAN" value={totalRevenue} isTotal />
@@ -202,10 +222,11 @@ export default function IncomeStatementPage() {
               {expGroups.map(g => {
                 const sub = g.items.reduce((s, i) => s + i.amount, 0)
                 return (
-                  <>
-                    {g.items.filter(i => i.amount > 0).map(i => <SectionRow key={i.accountCode} label={`${i.accountCode} — ${i.accountName}`} value={i.amount} indent={2} />)}
-                    {sub > 0 && <SectionRow label={`Total ${g.label}`} value={sub} indent={1} isTotal />}
-                  </>
+                  <Fragment key={`exp-grp-${g.label}`}>
+                    <SectionRow label={g.label} value={null} indent={1} isTotal />
+                    {g.items.map(i => <SectionRow key={i.accountCode} label={`${i.accountCode} — ${i.accountName}`} value={i.amount > 0 ? i.amount : null} indent={2} />)}
+                    <SectionRow label={`Total ${g.label}`} value={sub} indent={1} isTotal />
+                  </Fragment>
                 )
               })}
               <SectionRow label="TOTAL BEBAN OPERASIONAL" value={totalOpEx} isTotal />

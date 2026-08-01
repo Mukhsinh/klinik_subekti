@@ -17,12 +17,13 @@ import {
   insertJournalItems,
   fetchBranches,
 } from '../../lib/db'
-import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown } from 'lucide-react'
+import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown, Layers } from 'lucide-react'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import { StatusBadge } from '../../components/ui/Badge'
-import { fmtIDR, fmtDate, todayISO } from '../../utils/format'
+import { fmtIDR, fmtDate, fmtNum, todayISO } from '../../utils/format'
+import { calculateFifoValuation, depleteFefoPhysicalStock } from '../../lib/inventoryEngine'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -106,7 +107,7 @@ export default function StockOutflowPage() {
 
   const activePharmacyItems = useMemo(() => {
     const list = dbPharmacyItems.length > 0 ? dbPharmacyItems : (pharmacyItems || [])
-    return list.filter(i => i.isActive !== false)
+    return list.filter(i => (i.isActive !== false && i.is_active !== false))
   }, [dbPharmacyItems, pharmacyItems])
 
   const activeBatches = useMemo(() => {
@@ -114,23 +115,88 @@ export default function StockOutflowPage() {
   }, [dbBatches, invBatches])
 
   const getItemStock = (itemId) => {
-    return activeBatches
-      .filter(b => b.itemId === itemId && Number(b.quantityCurrent) > 0)
-      .reduce((sum, b) => sum + Number(b.quantityCurrent || 0), 0)
+    if (!itemId) return 0
+
+    // 1. Calculate stock from inventory batches
+    const batchList = activeBatches || []
+    const batchStock = batchList
+      .filter(b => (b.itemId === itemId || b.item_id === itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
+      .reduce((sum, b) => sum + Number(b.quantityCurrent ?? b.quantity_current ?? 0), 0)
+
+    // 2. Calculate stock from stock ledger cards (Kartu Stok)
+    const ledgerSource = dbStockLedger.length > 0 ? dbStockLedger : (stockLedger || [])
+    const bItemsSource = dbBillingItems.length > 0 ? dbBillingItems : (billingItems || [])
+
+    const itemLedger = ledgerSource.filter(l => (l.itemId === itemId || l.item_id === itemId))
+
+    const saldoAwal = itemLedger
+      .filter(l => (l.transactionType === 'SALDO_AWAL' || l.transaction_type === 'SALDO_AWAL'))
+      .reduce((sum, l) => sum + Number(l.quantityIn ?? l.quantity_in ?? 0), 0)
+
+    const penerimaan = itemLedger
+      .filter(l => (l.transactionType !== 'SALDO_AWAL' && l.transaction_type !== 'SALDO_AWAL'))
+      .reduce((sum, l) => sum + Number(l.quantityIn ?? l.quantity_in ?? 0), 0)
+
+    const pengeluaran = itemLedger
+      .reduce((sum, l) => sum + Number(l.quantityOut ?? l.quantity_out ?? 0), 0)
+
+    const processedBillingKeys = new Set(
+      itemLedger.filter(l => (l.transactionType === 'BILLING' || l.transaction_type === 'BILLING')).map(l => l.referenceNumber || l.reference_number)
+    )
+
+    let extraBillingOut = 0
+    if (Array.isArray(bItemsSource)) {
+      bItemsSource.forEach(bi => {
+        const biItemId = bi.pharmacyItemId || bi.pharmacy_item_id || bi.itemId || bi.item_id
+        if (biItemId === itemId) {
+          const billing = (dbBillings || []).find(b => b.id === (bi.billingId || bi.billing_id))
+          const refNo = billing?.billingNumber || billing?.billing_number
+          if (!refNo || !processedBillingKeys.has(refNo)) {
+            extraBillingOut += Number(bi.quantity || 1)
+          }
+        }
+      })
+    }
+
+    const ledgerBalance = Math.max(0, saldoAwal + penerimaan - (pengeluaran + extraBillingOut))
+
+    return batchStock > 0 ? batchStock : ledgerBalance
   }
 
   const pharmacyOptions = useMemo(() =>
-    activePharmacyItems
-      .sort((a, b) => (a.itemName || '').localeCompare(b.itemName || ''))
+    [...activePharmacyItems]
+      .sort((a, b) => {
+        const stkA = getItemStock(a.id)
+        const stkB = getItemStock(b.id)
+        if (stkA > 0 && stkB === 0) return -1
+        if (stkA === 0 && stkB > 0) return 1
+        const nameA = a.itemName || a.item_name || ''
+        const nameB = b.itemName || b.item_name || ''
+        return nameA.localeCompare(nameB)
+      })
       .map(i => {
+        const name = i.itemName || i.item_name || 'Item Tanpa Nama'
+        const code = i.itemCode || i.item_code || i.skuCode || i.sku_code || '—'
+        const cat = i.category || 'Obat'
+        const unit = i.baseUnit || i.base_unit || 'Unit'
         const stk = getItemStock(i.id)
         return {
           value: i.id,
-          label: `${i.itemCode || i.skuCode || 'ITEM'} — ${i.itemName} (Stok: ${stk})`,
-          disabled: stk === 0
+          label: name,
+          sub: `Kode: ${code} | Kat: ${cat} | Satuan: ${unit}`,
+          group: stk > 0 ? 'Item Tersedia (Kartu Stok)' : 'Stok Kosong (0 Unit)',
+          stock: stk,
+          unit: unit,
+          stockBadge: (
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${stk > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'
+              }`}>
+              {stk > 0 ? `Stok: ${fmtNum(stk)} ${unit}` : `Stok: 0 ${unit}`}
+            </span>
+          ),
+          disabled: false
         }
       }),
-    [activePharmacyItems, activeBatches]
+    [activePharmacyItems, activeBatches, dbStockLedger, stockLedger, dbBillingItems, dbBillings]
   )
 
   // Consolidate billing-related outflows from live database stock ledger & billing_items
@@ -145,54 +211,61 @@ export default function StockOutflowPage() {
 
     if (Array.isArray(ledgerSource)) {
       ledgerSource
-        .filter(s => s.transactionType === 'BILLING' && s.quantityOut > 0)
+        .filter(s => s.transactionType === 'BILLING' && (s.quantityOut || s.quantity_out) > 0)
         .forEach(s => {
-          const item = pharmacySource.find(p => p.id === s.itemId)
-          const billing = billingSource.find(b => b.billingNumber === s.referenceNumber)
-          const key = `${s.referenceNumber}_${s.itemId}`
+          const sItemId = s.itemId || s.item_id
+          const item = pharmacySource.find(p => p.id === sItemId)
+          const sRef = s.referenceNumber || s.reference_number || '-'
+          const billing = billingSource.find(b => b.billingNumber === sRef || b.billing_number === sRef)
+          const key = `${sRef}_${sItemId}`
           processedKeys.add(key)
+
+          const qOut = Number(s.quantityOut ?? s.quantity_out ?? 0)
+          const uCost = Number(s.unitCost ?? s.unit_cost ?? 0)
 
           list.push({
             id: s.id,
-            date: s.loggedAt || s.transactionDate,
-            referenceNumber: s.referenceNumber || '-',
-            itemName: item?.itemName || 'Obat / BHP Kasir',
-            quantity: s.quantityOut || 0,
-            unitCost: s.unitCost || 0,
-            totalValue: s.totalValue || (s.quantityOut * (s.unitCost || 0)),
+            date: s.loggedAt || s.logged_at || s.transactionDate || s.transaction_date,
+            referenceNumber: sRef,
+            itemName: item?.itemName || item?.item_name || 'Obat / BHP Kasir',
+            quantity: qOut,
+            unitCost: uCost,
+            totalValue: Number(s.totalValue ?? s.total_value ?? (qOut * uCost)),
             source: 'BILLING',
-            patientName: billing?.patientName || '-'
+            patientName: billing?.patientName || billing?.patient_name || '-'
           })
         })
     }
 
     if (Array.isArray(bItemsSource)) {
       bItemsSource
-        .filter(bi => bi.itemType === 'PHARMACY' || bi.pharmacyItemId)
+        .filter(bi => bi.itemType === 'PHARMACY' || bi.item_type === 'PHARMACY' || bi.pharmacyItemId || bi.pharmacy_item_id)
         .forEach(bi => {
-          const billing = billingSource.find(b => b.id === bi.billingId)
+          const biBillingId = bi.billingId || bi.billing_id
+          const billing = billingSource.find(b => b.id === biBillingId)
           if (!billing) return
 
-          const itemId = bi.pharmacyItemId || bi.itemId
-          const key = `${billing.billingNumber}_${itemId}`
+          const itemId = bi.pharmacyItemId || bi.pharmacy_item_id || bi.itemId || bi.item_id
+          const bNum = billing.billingNumber || billing.billing_number || '-'
+          const key = `${bNum}_${itemId}`
 
           if (!processedKeys.has(key)) {
             processedKeys.add(key)
             const item = pharmacySource.find(p => p.id === itemId)
-            const qty = bi.quantity || 1
-            const unitPrice = bi.unitPrice || bi.price || 0
-            const itemCost = item?.purchasePrice || item?.hpp || unitPrice
+            const qty = Number(bi.quantity || 1)
+            const unitPrice = Number(bi.unitPrice ?? bi.unit_price ?? bi.price ?? 0)
+            const itemCost = Number(item?.purchasePrice || item?.purchase_price || item?.hpp || unitPrice)
 
             list.push({
               id: bi.id,
-              date: billing.visitDate || billing.createdAt,
-              referenceNumber: billing.billingNumber || '-',
-              itemName: bi.itemName || item?.itemName || 'Obat / BHP Kasir',
+              date: billing.visitDate || billing.visit_date || billing.createdAt || billing.created_at,
+              referenceNumber: bNum,
+              itemName: bi.itemName || bi.item_name || item?.itemName || item?.item_name || 'Obat / BHP Kasir',
               quantity: qty,
               unitCost: itemCost,
               totalValue: qty * itemCost,
               source: 'BILLING',
-              patientName: billing.patientName || '-'
+              patientName: billing.patientName || billing.patient_name || '-'
             })
           }
         })
@@ -209,6 +282,7 @@ export default function StockOutflowPage() {
       quantity: 1,
       unitCost: 0,
       totalCost: 0,
+      unit: 'Unit',
       notes: ''
     }])
   }
@@ -222,26 +296,29 @@ export default function StockOutflowPage() {
       if (item.id !== id) return item
 
       const updated = { ...item, [field]: value }
+      const targetItemId = field === 'itemId' ? value : updated.itemId
+      const reqQty = field === 'quantity' ? Math.max(1, parseInt(value) || 1) : Math.max(1, parseInt(updated.quantity) || 1)
 
-      if (field === 'itemId') {
-        const pharmacyItem = activePharmacyItems.find(p => p.id === value)
+      if (targetItemId) {
+        const pharmacyItem = activePharmacyItems.find(p => p.id === targetItemId)
         if (pharmacyItem) {
-          updated.itemName = pharmacyItem.itemName
-          const batches = activeBatches.filter(b => b.itemId === value && Number(b.quantityCurrent) > 0)
-          if (batches.length > 0) {
-            const avgCost = batches.reduce((sum, b) => sum + Number(b.unitCostPrice || 0), 0) / batches.length
-            updated.unitCost = avgCost
-            updated.totalCost = (parseFloat(updated.quantity) || 1) * avgCost
-          } else {
-            const defaultCost = Number(pharmacyItem.purchasePrice || pharmacyItem.hpp || 0)
-            updated.unitCost = defaultCost
-            updated.totalCost = (parseFloat(updated.quantity) || 1) * defaultCost
-          }
+          updated.itemName = pharmacyItem.itemName || pharmacyItem.item_name
+          updated.unit = pharmacyItem.baseUnit || pharmacyItem.base_unit || 'Unit'
+          const defaultCost = Number(pharmacyItem.purchasePrice || pharmacyItem.purchase_price || pharmacyItem.hpp || 0)
+
+          const itemBatches = activeBatches.filter(b => (b.itemId === targetItemId || b.item_id === targetItemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
+
+          const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, reqQty, defaultCost)
+          updated.quantity = reqQty
+          updated.unitCost = avgUnitCost
+          updated.totalCost = totalValuation
         }
       }
 
-      if (field === 'quantity' || field === 'unitCost') {
-        updated.totalCost = (parseFloat(updated.quantity) || 0) * (parseFloat(updated.unitCost) || 0)
+      if (field === 'unitCost') {
+        const cost = parseFloat(value) || 0
+        updated.unitCost = cost
+        updated.totalCost = (parseFloat(updated.quantity) || 0) * cost
       }
 
       return updated
@@ -252,10 +329,19 @@ export default function StockOutflowPage() {
     setOutflowDate(todayISO())
     setOutflowType('INTERNAL_USE')
     setDescription('')
-    setItems([])
+    setItems([{
+      id: uuidv4(),
+      itemId: '',
+      itemName: '',
+      quantity: 1,
+      unitCost: 0,
+      totalCost: 0,
+      unit: 'Unit',
+      notes: ''
+    }])
   }
 
-  // Direct database saving without relying on useStore
+  // Direct database saving with FEFO physical stock depletion + FIFO accounting valuation
   const handleSave = async () => {
     if (!description.trim()) {
       toast.error('Deskripsi wajib diisi')
@@ -270,13 +356,34 @@ export default function StockOutflowPage() {
 
     for (const item of validItems) {
       const available = getItemStock(item.itemId)
+      if (available === 0) {
+        toast.error(`Stok "${item.itemName}" kosong (0 unit). Tidak dapat mengeluarkan barang ini.`)
+        return
+      }
       if (item.quantity > available) {
-        toast.error(`Stok "${item.itemName}" tidak mencukupi. Tersedia: ${available}, Diminta: ${item.quantity}`)
+        toast.error(`Stok "${item.itemName}" tidak mencukupi. Stok Tersedia: ${available}, Diminta: ${item.quantity}`)
         return
       }
     }
 
-    const totalVal = validItems.reduce((sum, i) => sum + (Number(i.totalCost) || 0), 0)
+    // Calculate total value using FIFO accounting valuation
+    let totalVal = 0
+    const processedItems = validItems.map(item => {
+      const pharmacyItem = activePharmacyItems.find(p => p.id === item.itemId)
+      const defaultCost = Number(pharmacyItem?.purchasePrice || pharmacyItem?.purchase_price || pharmacyItem?.hpp || item.unitCost || 0)
+      const itemBatches = activeBatches.filter(b => (b.itemId === item.itemId || b.item_id === item.itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
+
+      const { totalValuation, avgUnitCost, fifoBreakdown } = calculateFifoValuation(itemBatches, item.quantity, defaultCost)
+      totalVal += totalValuation
+
+      return {
+        ...item,
+        unitCost: avgUnitCost,
+        totalCost: totalValuation,
+        fifoBreakdown
+      }
+    })
+
     const now = new Date().toISOString()
     const outflowId = uuidv4()
     const journalId = uuidv4()
@@ -297,7 +404,7 @@ export default function StockOutflowPage() {
         updatedAt: now,
       }
 
-      const outflowItemsList = validItems.map(item => ({
+      const outflowItemsList = processedItems.map(item => ({
         id: uuidv4(),
         outflowId,
         itemId: item.itemId,
@@ -308,44 +415,38 @@ export default function StockOutflowPage() {
         notes: item.notes || '',
       }))
 
-      // FIFO stock depletion directly against live database batches
+      // 1. FEFO Physical Stock Depletion
+      // 2. FIFO Stock Ledger Entry Logging
       const ledgerEntries = []
-      const currentBatches = [...activeBatches]
 
-      for (const item of validItems) {
-        let remaining = Number(item.quantity)
-        const itemBatches = currentBatches
-          .filter(b => b.itemId === item.itemId && Number(b.quantityCurrent) > 0)
-          .sort((a, b) => new Date(a.expiryDate || a.createdAt) - new Date(b.expiryDate || b.createdAt))
+      for (const item of processedItems) {
+        const itemBatches = activeBatches.filter(b => (b.itemId === item.itemId || b.item_id === item.itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
 
-        let currentItemBalance = currentBatches
-          .filter(b => b.itemId === item.itemId)
-          .reduce((sum, b) => sum + Number(b.quantityCurrent || 0), 0)
+        // Physical Depletion via FEFO (earliest expiry date)
+        const physicalUpdates = depleteFefoPhysicalStock(itemBatches, item.quantity)
+        for (const update of physicalUpdates) {
+          if (update.batchId) {
+            await updateBatchQty(update.batchId, update.newQtyCurrent)
+          }
+        }
 
-        for (const batch of itemBatches) {
-          if (remaining <= 0) break
-          const take = Math.min(Number(batch.quantityCurrent), remaining)
-          remaining -= take
-          const newQty = Number(batch.quantityCurrent) - take
-          batch.quantityCurrent = newQty
-
-          await updateBatchQty(batch.id, newQty)
-
-          currentItemBalance -= take
-
+        // Ledger logging using FIFO valuation breakdown
+        let currentItemBalance = getItemStock(item.itemId)
+        for (const fifoPart of item.fifoBreakdown) {
+          currentItemBalance -= fifoPart.qty
           ledgerEntries.push({
             id: uuidv4(),
-            batchId: batch.id,
+            batchId: fifoPart.batchId,
             itemId: item.itemId,
             transactionType: 'OUTFLOW',
             referenceId: outflowId,
             referenceNumber: outflowNumber,
             quantityIn: 0,
-            quantityOut: take,
+            quantityOut: fifoPart.qty,
             balanceAfter: Math.max(0, currentItemBalance),
-            unitCost: Number(batch.unitCostPrice || 0),
-            totalValue: take * Number(batch.unitCostPrice || 0),
-            notes: `Pengeluaran ${outflowType} (${outflowNumber})`,
+            unitCost: Number(fifoPart.unitCost || 0),
+            totalValue: Number(fifoPart.totalCost || 0),
+            notes: `Pengeluaran ${outflowType} (${outflowNumber}) [FEFO Physical / FIFO Cost]`,
             loggedAt: now,
           })
         }
@@ -366,6 +467,14 @@ export default function StockOutflowPage() {
       const targetExpenseAccount = OUTFLOW_EXPENSE_MAP[outflowType] || '6-18-001'
       const entryNumber = `OUT/${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(10000 + Math.random() * 90000)}`
 
+      const inventoryCredits = {}
+      processedItems.forEach(item => {
+        const pharmacyItem = activePharmacyItems.find(p => p.id === item.itemId)
+        const isBHP = pharmacyItem?.category === 'BHP' || pharmacyItem?.category === 'PEMAKAIAN BHP' || (pharmacyItem?.itemCode || pharmacyItem?.item_code || '').startsWith('BHP-')
+        const accCode = pharmacyItem?.coaInventoryCode || pharmacyItem?.coa_inventory_code || (isBHP ? '1-13-003' : '1-13-001')
+        inventoryCredits[accCode] = (inventoryCredits[accCode] || 0) + (item.totalCost || 0)
+      })
+
       const journalItemsList = [
         {
           id: uuidv4(),
@@ -374,16 +483,21 @@ export default function StockOutflowPage() {
           description: `Beban Pengeluaran Stok ${outflowType} — ${outflowNumber}`,
           debit: totalVal,
           credit: 0
-        },
-        {
-          id: uuidv4(),
-          journalEntryId: journalId,
-          accountCode: '1-13-001',
-          description: `Pengurangan Persediaan — ${outflowNumber}`,
-          debit: 0,
-          credit: totalVal
         }
       ]
+
+      Object.entries(inventoryCredits).forEach(([accCode, val]) => {
+        if (val > 0) {
+          journalItemsList.push({
+            id: uuidv4(),
+            journalEntryId: journalId,
+            accountCode: accCode,
+            description: `Pengurangan Persediaan — ${outflowNumber}`,
+            debit: 0,
+            credit: val
+          })
+        }
+      })
 
       const journalHeader = {
         id: journalId,
@@ -402,11 +516,11 @@ export default function StockOutflowPage() {
         updatedAt: now,
       }
 
-      // Persist directly to Supabase database tables stock_outflow_entries and stock_outflow_items
-      await insertStockOutflow(outflowEntry)
-      await insertStockOutflowItems(outflowItemsList)
+      // Persist directly to Supabase database (Strict Foreign Key Dependency Order)
       await upsertJournalEntry(journalHeader)
       await insertJournalItems(journalItemsList)
+      await insertStockOutflow(outflowEntry)
+      await insertStockOutflowItems(outflowItemsList)
 
       toast.success('Pengeluaran stok berhasil disimpan ke database Supabase!')
       setModal(null)
@@ -447,6 +561,18 @@ export default function StockOutflowPage() {
     return (outflowItems || []).filter(i => String(i.outflowId) === String(selected.id))
   }, [outflowItems, selected])
 
+  const totalQtyOut = useMemo(() => {
+    const manualQty = (outflowItems || []).reduce((sum, i) => sum + (parseFloat(i.quantity) || 0), 0)
+    const billingQty = (billingOutflows || []).reduce((sum, i) => sum + (parseFloat(i.quantity) || 0), 0)
+    return manualQty + billingQty
+  }, [outflowItems, billingOutflows])
+
+  const totalValueOut = useMemo(() => {
+    const manualVal = (outflows || []).reduce((sum, o) => sum + (parseFloat(o.totalValue) || 0), 0)
+    const billingVal = (billingOutflows || []).reduce((sum, o) => sum + (parseFloat(o.totalValue) || 0), 0)
+    return manualVal + billingVal
+  }, [outflows, billingOutflows])
+
   const totalValue = items.reduce((sum, i) => sum + (i.totalCost || 0), 0)
 
   return (
@@ -454,14 +580,73 @@ export default function StockOutflowPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="page-title">Pengeluaran Stok</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <h1 className="page-title font-sans">Pengeluaran Stok</h1>
+          <p className="text-sm text-slate-400 mt-0.5 font-sans">
             Pencatatan pengeluaran stok non-billing dan riwayat dari transaksi kasir
           </p>
         </div>
-        <button className="btn-primary" onClick={() => { resetForm(); setModal('new') }}>
+        <button className="btn-primary font-sans" onClick={() => { resetForm(); setModal('new') }}>
           <Plus className="w-4 h-4" />Pengeluaran Baru
         </button>
+      </div>
+
+      {/* Modern Compact Score Cards — Model Angka Terintegrasi */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-sans">Total Outflow Manual</p>
+              <p className="text-xl font-extrabold text-slate-800 tracking-tight font-sans mt-0.5">
+                {fmtNum((outflows || []).length)} <span className="text-xs font-semibold text-slate-400 font-sans">transaksi</span>
+              </p>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <Package className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-sans">Total Kuantitas Outflow</p>
+              <p className="text-xl font-extrabold text-blue-700 tracking-tight font-sans mt-0.5">
+                {fmtNum(totalQtyOut)} <span className="text-xs font-semibold text-slate-400 font-sans">unit</span>
+              </p>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <TrendingDown className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-sans">Total Nilai HPP</p>
+              <p className="text-xl font-extrabold text-purple-700 tracking-tight font-mono mt-0.5">
+                {fmtIDR(totalValueOut)}
+              </p>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+              <Layers className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-sans">Riwayat Billing Kasir</p>
+              <p className="text-xl font-extrabold text-emerald-700 tracking-tight font-sans mt-0.5">
+                {fmtNum(billingOutflows.length)} <span className="text-xs font-semibold text-slate-400 font-sans">item</span>
+              </p>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <CheckCircle className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -469,20 +654,20 @@ export default function StockOutflowPage() {
         <div className="border-b border-slate-200">
           <div className="flex gap-1 px-4">
             <button
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${modal !== 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors font-sans ${modal !== 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               onClick={() => setModal(null)}
             >
               <Package className="w-4 h-4 inline mr-2" />
-              Pengeluaran Manual ({filtered.length})
+              Pengeluaran Manual ({fmtNum(filtered.length)})
             </button>
             <button
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${modal === 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors font-sans ${modal === 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               onClick={() => setModal('billing')}
             >
               <TrendingDown className="w-4 h-4 inline mr-2" />
-              Riwayat dari Billing ({billingOutflows.length})
+              Riwayat dari Billing ({fmtNum(billingOutflows.length)})
             </button>
           </div>
         </div>
@@ -508,7 +693,7 @@ export default function StockOutflowPage() {
                   <option value="POSTED">Posted</option>
                   <option value="CANCELLED">Cancelled</option>
                 </select>
-                <span className="ml-auto text-sm text-slate-400">{filtered.length} pengeluaran</span>
+                <span className="ml-auto text-sm text-slate-400 font-sans">{fmtNum(filtered.length)} pengeluaran</span>
               </div>
             </div>
             <div className="w-full">
@@ -542,7 +727,7 @@ export default function StockOutflowPage() {
                           </span>
                         </td>
                         <td className="py-2 px-2.5 text-[11px] text-slate-700">{o.description}</td>
-                        <td className="py-2 px-2.5 text-right font-mono text-[11px] font-bold whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
+                        <td className="py-2 px-2.5 text-right font-sans text-[11px] font-extrabold text-slate-800 whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
                         <td className="py-2 px-2.5 whitespace-nowrap"><StatusBadge status={o.status} /></td>
                         <td className="py-2 px-1 text-center whitespace-nowrap">
                           <button
@@ -590,9 +775,9 @@ export default function StockOutflowPage() {
                       <td className="py-2 px-2.5 font-mono text-[11px] text-primary-700 font-bold whitespace-nowrap">{o.referenceNumber}</td>
                       <td className="py-2 px-2.5 text-[11px] font-medium text-slate-800">{o.patientName}</td>
                       <td className="py-2 px-2.5 text-[11px] text-slate-700">{o.itemName}</td>
-                      <td className="py-2 px-2.5 text-right text-[11px] whitespace-nowrap">{o.quantity}</td>
-                      <td className="py-2 px-2.5 text-right font-mono text-[11px] whitespace-nowrap">{fmtIDR(o.unitCost)}</td>
-                      <td className="py-2 px-2.5 text-right font-mono text-[11px] font-bold text-slate-800 whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
+                      <td className="py-2 px-2.5 text-right font-sans text-[11px] font-bold text-slate-800 whitespace-nowrap">{fmtNum(o.quantity)}</td>
+                      <td className="py-2 px-2.5 text-right font-sans text-[11px] font-medium text-slate-700 whitespace-nowrap">{fmtIDR(o.unitCost)}</td>
+                      <td className="py-2 px-2.5 text-right font-sans text-[11px] font-extrabold text-slate-800 whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
                     </tr>
                   ))
                 )}
@@ -683,7 +868,7 @@ export default function StockOutflowPage() {
             </div>
 
             {items.length > 0 && (
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <div className="border border-slate-200 rounded-xl overflow-visible">
                 <table className="table-base">
                   <thead>
                     <tr>
@@ -695,52 +880,66 @@ export default function StockOutflowPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map(item => (
-                      <tr key={item.id}>
-                        <td>
-                          <div>
-                            <SearchableSelect
-                              value={item.itemId}
-                              onChange={val => updateItem(item.id, 'itemId', val)}
-                              options={pharmacyOptions}
-                              placeholder="— Pilih Item —"
-                              hideValue={true}
-                              searchPlaceholder="Ketik nama item..."
+                    {items.map(item => {
+                      const avail = getItemStock(item.itemId)
+                      const isOver = item.itemId && item.quantity > avail
+
+                      return (
+                        <tr key={item.id}>
+                          <td>
+                            <div>
+                              <SearchableSelect
+                                value={item.itemId}
+                                onChange={val => updateItem(item.id, 'itemId', val)}
+                                options={pharmacyOptions}
+                                placeholder="— Pilih Item Farmasi / Medis —"
+                                hideValue={true}
+                                searchPlaceholder="Ketik nama item, kode, atau SKU..."
+                              />
+                              {item.itemId && (
+                                <div className={`flex items-center gap-1.5 mt-1 text-[11px] font-semibold px-2 py-0.5 rounded border ${avail > 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-amber-700 bg-amber-50 border-amber-200'
+                                  }`}>
+                                  <Package className="w-3.5 h-3.5" />
+                                  <span>Stok Tersedia di Kartu Stok: <strong>{fmtNum(avail)} {item.unit || 'unit'}</strong></span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              className={`form-input text-right text-xs py-1 w-24 font-bold ${isOver ? 'border-red-500 text-red-600 bg-red-50 ring-2 ring-red-200' : ''
+                                }`}
+                              value={item.quantity}
+                              min={1}
+                              max={avail > 0 ? avail : 1}
+                              onChange={e => updateItem(item.id, 'quantity', e.target.value)}
                             />
-                            {item.itemId && (
-                              <p className="text-[10px] text-blue-600 mt-1 font-medium">
-                                Stok Tersedia di Database: <strong>{getItemStock(item.itemId)} unit</strong>
+                            {isOver && (
+                              <p className="text-[10px] text-red-600 font-bold mt-1 text-right">
+                                Melebihi stok ({fmtNum(avail)})
                               </p>
                             )}
-                          </div>
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            className="form-input text-right text-xs py-1 w-20"
-                            value={item.quantity}
-                            min={1}
-                            onChange={e => updateItem(item.id, 'quantity', parseInt(e.target.value) || 1)}
-                          />
-                        </td>
-                        <td className="text-right font-mono text-sm">{fmtIDR(item.unitCost)}</td>
-                        <td className="text-right font-mono text-sm font-bold">{fmtIDR(item.totalCost)}</td>
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() => removeItem(item.id)}
-                            className="p-1 text-slate-300 hover:text-red-500"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="text-right font-sans font-bold text-slate-700 text-sm">{fmtIDR(item.unitCost)}</td>
+                          <td className="text-right font-sans font-extrabold text-slate-900 text-sm">{fmtIDR(item.totalCost)}</td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => removeItem(item.id)}
+                              className="p-1 text-slate-300 hover:text-red-500"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-50">
-                      <td colSpan={3} className="text-right font-semibold pr-4">Total Nilai</td>
-                      <td className="text-right font-mono font-bold text-primary-700">{fmtIDR(totalValue)}</td>
+                      <td colSpan={3} className="text-right font-sans font-bold text-slate-700 pr-4">Total Nilai</td>
+                      <td className="text-right font-sans font-extrabold text-primary-700 text-base">{fmtIDR(totalValue)}</td>
                       <td></td>
                     </tr>
                   </tfoot>
@@ -797,10 +996,10 @@ export default function StockOutflowPage() {
               <tbody>
                 {selectedItems.map(item => (
                   <tr key={item.id}>
-                    <td className="text-sm">{item.itemName}</td>
-                    <td className="text-right text-sm">{item.quantity}</td>
-                    <td className="text-right font-mono text-sm">{fmtIDR(item.unitCost)}</td>
-                    <td className="text-right font-mono text-sm font-bold">{fmtIDR(item.totalCost)}</td>
+                    <td className="text-sm font-medium text-slate-800">{item.itemName}</td>
+                    <td className="text-right font-sans font-bold text-slate-800 text-sm">{fmtNum(item.quantity)}</td>
+                    <td className="text-right font-sans font-medium text-slate-700 text-sm">{fmtIDR(item.unitCost)}</td>
+                    <td className="text-right font-sans font-extrabold text-slate-900 text-sm">{fmtIDR(item.totalCost)}</td>
                   </tr>
                 ))}
                 {selectedItems.length === 0 && (
@@ -813,8 +1012,8 @@ export default function StockOutflowPage() {
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50 font-semibold">
-                  <td colSpan={3} className="text-right pr-4">Total</td>
-                  <td className="text-right font-mono text-primary-700">{fmtIDR(selected.totalValue)}</td>
+                  <td colSpan={3} className="text-right font-sans font-bold text-slate-700 pr-4">Total</td>
+                  <td className="text-right font-sans font-extrabold text-primary-700 text-base">{fmtIDR(selected.totalValue)}</td>
                 </tr>
               </tfoot>
             </table>

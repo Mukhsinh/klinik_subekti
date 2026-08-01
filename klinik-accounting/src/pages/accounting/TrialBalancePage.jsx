@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Download, Printer, RefreshCw } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { useAuth } from '../../store/useAuth'
 import { fmtIDR, fmtDate, monthStart, monthEnd, accountTypeLabel, accountTypeBadge } from '../../utils/format'
 import { exportTrialBalancePDF } from '../../utils/exportPDF'
 import { exportTrialBalanceExcel } from '../../utils/exportExcel'
@@ -8,14 +9,15 @@ import Alert from '../../components/ui/Alert'
 
 export default function TrialBalancePage() {
   const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
+  const { appSettings } = useAuth()
   const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(monthEnd())
+  const [dateTo, setDateTo] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
   const [hideZero, setHideZero] = useState(true)
 
   const trialBalance = useMemo(() => {
     const fiscalYear = new Date(dateFrom).getFullYear()
-    
+
     // Get opening balances for the fiscal year
     const openingBalanceMap = {}
     openingBalances.forEach(ob => {
@@ -39,7 +41,7 @@ export default function TrialBalancePage() {
     journalItems.forEach(item => {
       if (!postedIds.has(item.journalEntryId)) return
       if (!balances[item.accountCode]) balances[item.accountCode] = { totalDebit: 0, totalCredit: 0 }
-      balances[item.accountCode].totalDebit  += parseFloat(item.debit  || 0)
+      balances[item.accountCode].totalDebit += parseFloat(item.debit || 0)
       balances[item.accountCode].totalCredit += parseFloat(item.credit || 0)
     })
 
@@ -48,7 +50,7 @@ export default function TrialBalancePage() {
       .map(a => {
         const b = balances[a.accountCode] || { totalDebit: 0, totalCredit: 0 }
         const openingBalance = openingBalanceMap[a.accountCode] || 0
-        
+
         // Calculate ending balance: opening + period movements
         let endingBalance = openingBalance
         if (a.normalBalance === 'DEBIT') {
@@ -56,23 +58,23 @@ export default function TrialBalancePage() {
         } else {
           endingBalance += b.totalCredit - b.totalDebit
         }
-        
-        const finalDebit  = (a.normalBalance === 'DEBIT'  && endingBalance > 0) ? endingBalance : 0
+
+        const finalDebit = (a.normalBalance === 'DEBIT' && endingBalance > 0) ? endingBalance : 0
         const finalCredit = (a.normalBalance === 'CREDIT' && endingBalance > 0) ? endingBalance : 0
-        
-        return { 
-          ...a, 
-          ...b, 
+
+        return {
+          ...a,
+          ...b,
           openingBalance,
-          finalDebit, 
-          finalCredit 
+          finalDebit,
+          finalCredit
         }
       })
       .filter(a => !hideZero || (a.totalDebit > 0 || a.totalCredit > 0 || a.openingBalance !== 0))
       .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
   }, [coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter, hideZero, openingBalances])
 
-  const totDebit  = trialBalance.reduce((s, a) => s + (a.finalDebit  || 0), 0)
+  const totDebit = trialBalance.reduce((s, a) => s + (a.finalDebit || 0), 0)
   const totCredit = trialBalance.reduce((s, a) => s + (a.finalCredit || 0), 0)
   const isBalanced = Math.abs(totDebit - totCredit) < 0.01
   const selBranch = branches.find(b => b.id === branchFilter)
@@ -86,10 +88,10 @@ export default function TrialBalancePage() {
           <p className="text-sm text-slate-400 mt-0.5">Rekap saldo semua akun pada periode tertentu</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn-secondary" onClick={() => exportTrialBalanceExcel(trialBalance, periodLabel, selBranch?.entityName || 'Semua Cabang')}>
+          <button className="btn-secondary" onClick={() => exportTrialBalanceExcel(trialBalance, periodLabel, selBranch?.entityName || 'Semua Cabang', appSettings)}>
             <Download className="w-4 h-4" />Excel
           </button>
-          <button className="btn-secondary" onClick={() => exportTrialBalancePDF(trialBalance, periodLabel, selBranch?.entityName || 'Semua Cabang')}>
+          <button className="btn-secondary" onClick={() => exportTrialBalancePDF(trialBalance, periodLabel, selBranch?.entityName || 'Semua Cabang', appSettings)}>
             <Printer className="w-4 h-4" />PDF
           </button>
         </div>
@@ -135,7 +137,7 @@ export default function TrialBalancePage() {
       {/* Summary cards */}
       {trialBalance.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {['ASSET','LIABILITY','EQUITY','REVENUE','EXPENSE'].slice(0,4).map(type => {
+          {['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'].slice(0, 4).map(type => {
             const typeRows = trialBalance.filter(a => a.accountType === type)
             const total = typeRows.reduce((s, a) => s + (a.naturalBalance === 'DEBIT' ? a.finalDebit : a.finalCredit), 0)
             return (
@@ -158,7 +160,7 @@ export default function TrialBalancePage() {
           <table className="table-base">
             <thead>
               <tr>
-                <th style={{width:120}}>Kode Akun</th>
+                <th style={{ width: 120 }}>Kode Akun</th>
                 <th>Nama Akun</th>
                 <th>Tipe</th>
                 <th className="text-right">Saldo Awal</th>
@@ -190,9 +192,9 @@ export default function TrialBalancePage() {
             <tfoot>
               <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
                 <td colSpan={3} className="text-right py-3 pr-4">GRAND TOTAL</td>
-                <td className="text-right font-mono text-blue-700 py-3">{fmtIDR(trialBalance.reduce((s,a) => s + Math.abs(a.openingBalance || 0), 0))}</td>
-                <td className="text-right font-mono amount-debit py-3">{fmtIDR(trialBalance.reduce((s,a) => s + (a.totalDebit  || 0), 0))}</td>
-                <td className="text-right font-mono amount-credit py-3">{fmtIDR(trialBalance.reduce((s,a) => s + (a.totalCredit || 0), 0))}</td>
+                <td className="text-right font-mono text-blue-700 py-3">{fmtIDR(trialBalance.reduce((s, a) => s + Math.abs(a.openingBalance || 0), 0))}</td>
+                <td className="text-right font-mono amount-debit py-3">{fmtIDR(trialBalance.reduce((s, a) => s + (a.totalDebit || 0), 0))}</td>
+                <td className="text-right font-mono amount-credit py-3">{fmtIDR(trialBalance.reduce((s, a) => s + (a.totalCredit || 0), 0))}</td>
                 <td className="text-right font-mono amount-debit py-3">{fmtIDR(totDebit)}</td>
                 <td className="text-right font-mono amount-credit py-3">{fmtIDR(totCredit)}</td>
               </tr>

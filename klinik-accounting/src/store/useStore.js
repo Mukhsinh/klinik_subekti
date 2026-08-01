@@ -681,9 +681,25 @@ export function useStore() {
     [s.invBatches])
 
   const depleteInventoryFIFO = useCallback(async (itemId, qtyNeeded, referenceNumber, branchId) => {
-    const item = s.pharmacyItems.find(p => p.id === itemId)
-    const coaCOGSCode = item?.coaCOGSCode || '5-11-001'
-    const coaInventoryCode = item?.coaInventoryCode || '1-13-001'
+    let item = s.pharmacyItems.find(p => p.id === itemId)
+    try {
+      const { data: dbItem } = await supabase.from('pharmacy_items').select('*').eq('id', itemId).maybeSingle()
+      if (dbItem) {
+        item = {
+          ...item,
+          ...norm(dbItem),
+          coaInventoryCode: dbItem.coa_inventory_code || item?.coaInventoryCode,
+          coaCOGSCode: dbItem.coa_cogs_code || item?.coaCOGSCode || item?.coaCogsCode,
+          coaCogsCode: dbItem.coa_cogs_code || item?.coaCogsCode,
+          category: dbItem.category || item?.category
+        }
+      }
+    } catch (_) { }
+
+    const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || item?.itemCategory === 'BHP' || item?.item_category === 'BHP' || item?.category === 'BHP_MEDIS' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
+    // DB column coa_cogs_code → toCamel → coaCogsCode (lowercase), also check legacy coaCOGSCode
+    const coaCOGSCode = item?.coaCogsCode || item?.coaCOGSCode || item?.coa_cogs_code || (isBHP ? '5-11-003' : '5-11-001')
+    const coaInventoryCode = item?.coaInventoryCode || item?.coa_inventory_code || (isBHP ? '1-13-003' : '1-13-001')
 
     const activeBatches = [...s.invBatches]
       .filter(b => b.itemId === itemId && b.quantityCurrent > 0)

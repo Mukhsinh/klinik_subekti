@@ -383,6 +383,37 @@ export async function updateBatchQty(id, qty) {
   handleError(error, 'updateBatchQty')
 }
 
+export async function deleteGRNByRef(grnReference, journalEntryId = null) {
+  let targetJournalId = journalEntryId
+  if (!targetJournalId) {
+    const { data: batchData } = await supabase
+      .from('inventory_batches')
+      .select('journal_entry_id')
+      .eq('grn_reference', grnReference)
+      .limit(1)
+    if (batchData && batchData.length > 0 && batchData[0].journal_entry_id) {
+      targetJournalId = batchData[0].journal_entry_id
+    }
+  }
+
+  // Delete stock ledger cards
+  const { error: err1 } = await supabase.from('stock_ledger_cards').delete().eq('reference_number', grnReference)
+  handleError(err1, 'deleteGRNByRef.stockLedger')
+
+  // Delete inventory batches
+  const { error: err2 } = await supabase.from('inventory_batches').delete().eq('grn_reference', grnReference)
+  handleError(err2, 'deleteGRNByRef.inventoryBatches')
+
+  // Delete journal items & entries
+  if (targetJournalId) {
+    const { error: err3 } = await supabase.from('journal_items').delete().eq('journal_entry_id', targetJournalId)
+    handleError(err3, 'deleteGRNByRef.journalItems')
+
+    const { error: err4 } = await supabase.from('journal_entries').delete().eq('id', targetJournalId)
+    handleError(err4, 'deleteGRNByRef.journalEntries')
+  }
+}
+
 // ══════════════════════════════════════════════════════════════
 // STOCK LEDGER
 // ══════════════════════════════════════════════════════════════
@@ -723,20 +754,7 @@ export async function insertStockOutflowItems(items) {
 export async function fetchOpeningBalances(filters = {}) {
   let q = supabase
     .from('opening_balances')
-    .select(`
-      *,
-      chart_of_accounts:account_code (
-        account_code,
-        account_name,
-        account_type,
-        natural_balance
-      ),
-      clinic_entities:branch_id (
-        id,
-        branch_code,
-        branch_name
-      )
-    `)
+    .select('*')
     .order('account_code')
 
   if (filters.branchId) q = q.eq('branch_id', filters.branchId)

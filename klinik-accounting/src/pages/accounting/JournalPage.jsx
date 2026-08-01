@@ -18,6 +18,8 @@ const ENTRY_TYPES = [
   { value: 'BILLING', label: 'Tagihan Kasir' },
   { value: 'EXPENSE', label: 'Pengeluaran' },
   { value: 'GRN', label: 'Penerimaan Barang' },
+  { value: 'STOCK_OUTFLOW', label: 'Pengeluaran Stok' },
+  { value: 'OUTFLOW', label: 'Pengeluaran Barang' },
   { value: 'ADJUSTMENT', label: 'Penyesuaian Stok' },
   { value: 'CLOSING', label: 'Penutupan Periode' },
   { value: 'REVERSAL', label: 'Jurnal Pembalik' },
@@ -86,20 +88,20 @@ function JournalForm({ initial, onSave, onClose }) {
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <div>
           <label className="form-label">No. Jurnal</label>
-          <input className="form-input font-mono bg-slate-50" value={header.entryNumber} readOnly />
+          <input className="form-input font-mono text-sm text-slate-700 bg-slate-50" value={header.entryNumber} readOnly />
         </div>
         <div>
           <label className="form-label">Tanggal *</label>
-          <input type="date" className="form-input" value={header.transactionDate} onChange={e => setHeader(h => ({ ...h, transactionDate: e.target.value }))} required />
+          <input type="date" className="form-input font-mono text-sm text-slate-700" value={header.transactionDate} onChange={e => setHeader(h => ({ ...h, transactionDate: e.target.value }))} required />
         </div>
         <div>
           <label className="form-label">Tipe Jurnal</label>
-          <input className="form-input bg-slate-50 font-medium font-mono" value="Manual" readOnly />
+          <input className="form-input bg-slate-50 font-mono text-sm text-slate-700" value="Manual" readOnly />
         </div>
       </div>
       <div>
         <label className="form-label">Keterangan Jurnal *</label>
-        <input className="form-input" value={header.description} onChange={e => setHeader(h => ({ ...h, description: e.target.value }))} placeholder="Deskripsi transaksi…" required />
+        <input className="form-input font-mono text-sm text-slate-700" value={header.description} onChange={e => setHeader(h => ({ ...h, description: e.target.value }))} placeholder="Deskripsi transaksi…" required />
       </div>
 
       {/* Journal lines */}
@@ -131,14 +133,14 @@ function JournalForm({ initial, onSave, onClose }) {
                     />
                   </td>
                   <td>
-                    <input className="form-input text-xs py-1" value={it.description} onChange={e => setItem(it.id, 'description', e.target.value)} placeholder="Keterangan…" />
+                    <input className="form-input font-mono text-xs py-1 text-slate-700" value={it.description} onChange={e => setItem(it.id, 'description', e.target.value)} placeholder="Keterangan…" />
                   </td>
                   <td>
-                    <input type="number" min="0" step="0.01" className="form-input text-xs py-1 text-right font-mono"
+                    <input type="number" min="0" step="0.01" className="form-input font-mono text-xs py-1 text-right text-slate-700"
                       value={it.debit} onChange={e => { setItem(it.id, 'debit', e.target.value); if (e.target.value) setItem(it.id, 'credit', '') }} />
                   </td>
                   <td>
-                    <input type="number" min="0" step="0.01" className="form-input text-xs py-1 text-right font-mono"
+                    <input type="number" min="0" step="0.01" className="form-input font-mono text-xs py-1 text-right text-slate-700"
                       value={it.credit} onChange={e => { setItem(it.id, 'credit', e.target.value); if (e.target.value) setItem(it.id, 'debit', '') }} />
                   </td>
                   <td>
@@ -150,7 +152,7 @@ function JournalForm({ initial, onSave, onClose }) {
               ))}
               {/* Totals row */}
               <tr className="bg-slate-50 font-semibold">
-                <td colSpan={2} className="text-right text-sm pr-4">TOTAL</td>
+                <td colSpan={2} className="text-right text-sm pr-4 font-mono text-slate-700">TOTAL</td>
                 <td className={`text-right font-mono text-sm ${isBalanced ? 'text-emerald-600' : 'text-red-600'}`}>{fmtIDR(totalDebit)}</td>
                 <td className={`text-right font-mono text-sm ${isBalanced ? 'text-emerald-600' : 'text-red-600'}`}>{fmtIDR(totalCredit)}</td>
                 <td />
@@ -159,9 +161,9 @@ function JournalForm({ initial, onSave, onClose }) {
           </table>
         </div>
         {!isBalanced && totalDebit > 0 && (
-          <p className="text-xs text-red-600 mt-1.5">⚠ Selisih: {fmtIDR(Math.abs(totalDebit - totalCredit))} — Jurnal harus balance sebelum disimpan.</p>
+          <p className="text-xs text-red-600 mt-1.5 font-mono">⚠ Selisih: {fmtIDR(Math.abs(totalDebit - totalCredit))} — Jurnal harus balance sebelum disimpan.</p>
         )}
-        {isBalanced && <p className="text-xs text-emerald-600 mt-1.5">✓ Jurnal balance.</p>}
+        {isBalanced && <p className="text-xs text-emerald-600 mt-1.5 font-mono">✓ Jurnal balance.</p>}
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
@@ -174,7 +176,7 @@ function JournalForm({ initial, onSave, onClose }) {
 
 export default function JournalPage() {
   const { journalEntries, journalItems, coa, activeBranchId, saveJournalDraft, postJournalEntry, reverseJournal } = useStore()
-  const { logActivity } = useAuth()
+  const { logActivity, appSettings } = useAuth()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [dateFrom, setDateFrom] = useState('')
@@ -233,7 +235,7 @@ export default function JournalPage() {
           <p className="text-sm text-slate-400 mt-0.5">Entri double-entry — semua transaksi keuangan klinik</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn-secondary" onClick={() => exportJournalExcel(filtered, journalItems, coa, 'Export')}>
+          <button className="btn-secondary" onClick={() => exportJournalExcel(filtered, journalItems, coa, 'Export', appSettings)}>
             <Download className="w-4 h-4" />Excel
           </button>
           <button className="btn-primary" onClick={() => { setSelected(null); setModal('add') }}>
@@ -245,17 +247,17 @@ export default function JournalPage() {
       {/* Filters */}
       <div className="card card-body">
         <div className="flex flex-wrap gap-3 items-center">
-          <SearchInput value={search} onChange={setSearch} placeholder="Cari no. jurnal atau keterangan…" className="w-64" />
-          <select className="form-select w-40" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <SearchInput value={search} onChange={setSearch} placeholder="Cari no. jurnal atau keterangan…" className="w-64 font-mono text-sm" />
+          <select className="form-select w-40 font-mono text-sm text-slate-700" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="ALL">Semua Status</option>
             <option value="DRAFT">Draft</option>
             <option value="POSTED">Diposting</option>
             <option value="REVERSED">Dibalik</option>
           </select>
-          <input type="date" className="form-input w-40" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
-          <span className="text-slate-400 text-sm">s/d</span>
-          <input type="date" className="form-input w-40" value={dateTo} onChange={e => setDateTo(e.target.value)} />
-          <span className="text-sm text-slate-400 ml-auto">{filtered.length} entri</span>
+          <input type="date" className="form-input w-40 font-mono text-sm text-slate-700" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+          <span className="text-slate-400 text-sm font-mono">s/d</span>
+          <input type="date" className="form-input w-40 font-mono text-sm text-slate-700" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+          <span className="text-sm text-slate-400 ml-auto font-mono">{filtered.length} entri</span>
         </div>
       </div>
 
@@ -271,20 +273,20 @@ export default function JournalPage() {
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-slate-400">Tidak ada jurnal ditemukan</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-slate-400 font-mono">Tidak ada jurnal ditemukan</td></tr>
               ) : filtered.map(j => (
                 <tr key={j.id}>
                   <td className="font-mono text-xs text-primary-700 font-medium">{j.entryNumber}</td>
-                  <td className="text-sm">{fmtDate(j.transactionDate)}</td>
-                  <td className="max-w-[200px] truncate text-sm">{j.description}</td>
+                  <td className="text-sm font-mono text-slate-700">{fmtDate(j.transactionDate)}</td>
+                  <td className="max-w-[200px] truncate text-sm font-mono text-slate-700">{j.description}</td>
                   <td>
-                    <span className="badge badge-gray text-xs flex items-center gap-1 w-fit">
+                    <span className="badge badge-gray text-xs font-mono flex items-center gap-1 w-fit">
                       {ENTRY_TYPE_LABEL[j.entryType] || j.entryType}
                       {j.entryType !== 'MANUAL' && j.entryType !== 'REVERSAL' && ' 🔒'}
                     </span>
                   </td>
-                  <td className="text-right amount-debit text-xs">{fmtIDR(j.totalDebit || 0)}</td>
-                  <td className="text-right amount-credit text-xs">{fmtIDR(j.totalCredit || 0)}</td>
+                  <td className="text-right amount-debit font-mono text-xs text-slate-700">{fmtIDR(j.totalDebit || 0)}</td>
+                  <td className="text-right amount-credit font-mono text-xs text-slate-700">{fmtIDR(j.totalCredit || 0)}</td>
                   <td className="text-center"><StatusBadge status={j.status} /></td>
                   <td>
                     <div className="flex items-center gap-1">
@@ -308,17 +310,17 @@ export default function JournalPage() {
       {/* View Modal */}
       <Modal open={modal === 'view'} onClose={() => setModal(null)} title={`Detail Jurnal — ${selected?.entryNumber}`} size="lg"
         footer={<>
-          <button className="btn-secondary" onClick={() => exportJournalPDF(selected, viewItems, coa)}><Printer className="w-4 h-4" />Cetak PDF</button>
+          <button className="btn-secondary" onClick={() => exportJournalPDF(selected, viewItems, coa, appSettings)}><Printer className="w-4 h-4" />Cetak PDF</button>
           {selected?.status === 'DRAFT' && <button className="btn-success" onClick={() => { handlePost(selected); setModal(null) }}><CheckCircle className="w-4 h-4" />Posting</button>}
         </>}>
         {selected && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-              <div><span className="text-slate-500">No. Jurnal:</span> <span className="font-mono font-medium ml-2">{selected.entryNumber}</span></div>
-              <div><span className="text-slate-500">Tanggal:</span> <span className="ml-2">{fmtDate(selected.transactionDate)}</span></div>
-              <div><span className="text-slate-500">Tipe:</span> <span className="ml-2">{ENTRY_TYPE_LABEL[selected.entryType] || selected.entryType}</span></div>
-              <div><span className="text-slate-500">Status:</span> <StatusBadge status={selected.status} /></div>
-              <div className="col-span-2"><span className="text-slate-500">Keterangan:</span> <span className="ml-2">{selected.description}</span></div>
+          <div className="space-y-4 font-mono text-slate-700">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div><span className="text-slate-500 font-sans">No. Jurnal:</span> <span className="font-mono font-medium ml-2 text-slate-800">{selected.entryNumber}</span></div>
+              <div><span className="text-slate-500 font-sans">Tanggal:</span> <span className="font-mono ml-2 text-slate-800">{fmtDate(selected.transactionDate)}</span></div>
+              <div><span className="text-slate-500 font-sans">Tipe:</span> <span className="font-mono ml-2 text-slate-800">{ENTRY_TYPE_LABEL[selected.entryType] || selected.entryType}</span></div>
+              <div><span className="text-slate-500 font-sans">Status:</span> <StatusBadge status={selected.status} /></div>
+              <div className="col-span-2"><span className="text-slate-500 font-sans">Keterangan:</span> <span className="font-mono ml-2 text-slate-800">{selected.description}</span></div>
             </div>
             <div className="border border-slate-200 rounded-xl overflow-hidden">
               <table className="table-base">
@@ -328,16 +330,16 @@ export default function JournalPage() {
                     const acc = coa.find(a => a.accountCode === it.accountCode)
                     return (
                       <tr key={it.id}>
-                        <td className="font-mono text-xs">{it.accountCode}</td>
-                        <td className="text-sm">{acc?.accountName || it.accountCode}</td>
-                        <td className="text-xs text-slate-500">{it.description || '—'}</td>
-                        <td className="text-right amount-debit text-sm">{parseFloat(it.debit) > 0 ? fmtIDR(it.debit) : ''}</td>
-                        <td className="text-right amount-credit text-sm">{parseFloat(it.credit) > 0 ? fmtIDR(it.credit) : ''}</td>
+                        <td className="font-mono text-xs text-slate-700">{it.accountCode}</td>
+                        <td className="text-sm font-sans text-slate-800 font-medium">{acc?.accountName || it.accountCode}</td>
+                        <td className="text-xs font-mono text-slate-500">{it.description || '—'}</td>
+                        <td className="text-right amount-debit font-mono text-sm">{parseFloat(it.debit) > 0 ? fmtIDR(it.debit) : ''}</td>
+                        <td className="text-right amount-credit font-mono text-sm">{parseFloat(it.credit) > 0 ? fmtIDR(it.credit) : ''}</td>
                       </tr>
                     )
                   })}
                   <tr className="bg-slate-50 font-semibold">
-                    <td colSpan={3} className="text-right text-sm">TOTAL</td>
+                    <td colSpan={3} className="text-right text-sm font-mono">TOTAL</td>
                     <td className="text-right font-mono text-sm text-blue-700">{fmtIDR(selected.totalDebit || 0)}</td>
                     <td className="text-right font-mono text-sm text-emerald-700">{fmtIDR(selected.totalCredit || 0)}</td>
                   </tr>

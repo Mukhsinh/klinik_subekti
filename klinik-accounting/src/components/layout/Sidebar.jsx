@@ -13,7 +13,7 @@ import { useAuth } from '../../store/useAuth'
 // ── Role-based menu visibility ──────────────────────────────
 // roles: admin | keuangan | gudang
 const NAV = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'keuangan', 'gudang'] },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'keuangan', 'gudang'] },
   {
     label: 'Akuntansi', icon: BookOpen, roles: ['admin', 'keuangan'], children: [
       { to: '/coa', icon: Layers, label: 'Bagan Akun (COA)' },

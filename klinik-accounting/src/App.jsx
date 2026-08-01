@@ -66,7 +66,8 @@ export default function App() {
 
         {/* Protected routes (AppLayout handles auth guard) */}
         <Route element={<AppLayout />}>
-          <Route index element={<Dashboard />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
           <Route path="coa" element={<COAPage />} />
           <Route path="opening-balance" element={<OpeningBalancePage />} />
           <Route path="journal" element={<JournalPage />} />
@@ -77,6 +78,7 @@ export default function App() {
           <Route path="cash-flow" element={<CashFlowPage />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="inventory/opening-balance" element={<InventoryOpeningBalancePage />} />
+          <Route path="inventory/item-opening" element={<InventoryItemOpeningBalancePage />} />
           <Route path="inventory/item-opening-balance" element={<InventoryItemOpeningBalancePage />} />
           <Route path="grn" element={<GRNPage />} />
           <Route path="stock-outflow" element={<StockOutflowPage />} />

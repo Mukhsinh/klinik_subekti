@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useStore } from '../store/useStore'
 import KpiCard from '../components/ui/KpiCard'
-import { fmtIDR, fmtDate, monthStart, monthEnd, todayISO } from '../utils/format'
+import { fmtIDR, fmtNum, fmtDate, monthStart, monthEnd, todayISO } from '../utils/format'
 import { StatusBadge } from '../components/ui/Badge'
 import {
   TrendingUp, Wallet, Package, AlertTriangle,
@@ -91,18 +91,18 @@ export default function Dashboard() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard title="Pendapatan Bulan Ini" value={fmtIDR(totalRevenue)} sub="Seluruh cabang" icon={TrendingUp} color="green" />
-        <KpiCard title="Beban Bulan Ini" value={fmtIDR(totalExpense)} sub="Total operasional" icon={Wallet} color="amber" />
-        <KpiCard title="Laba Bersih Bulan Ini" value={fmtIDR(netProfit)} sub={netProfit >= 0 ? 'Surplus' : 'Defisit'} icon={Activity} color={netProfit >= 0 ? 'teal' : 'red'} />
-        <KpiCard title="Transaksi Kasir Hari Ini" value={fmtIDR(todayRevenue)} sub={`${todayBillings.length} pasien`} icon={ShoppingCart} color="blue" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <KpiCard title="Pendapatan Bulan Ini" value={fmtNum(totalRevenue)} icon={TrendingUp} color="green" variant="solid" />
+        <KpiCard title="Beban Bulan Ini" value={fmtNum(totalExpense)} icon={Wallet} color="amber" variant="solid" />
+        <KpiCard title="Laba Bersih Bulan Ini" value={fmtNum(netProfit)} sub={netProfit >= 0 ? 'Surplus' : 'Defisit'} icon={Activity} color={netProfit >= 0 ? 'teal' : 'red'} variant="solid" />
+        <KpiCard title="Transaksi Kasir Hari Ini" value={fmtNum(todayRevenue)} icon={ShoppingCart} color="blue" variant="solid" />
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard title="Stok Kritis" value={criticalStock.length} sub="Item di bawah safety stock" icon={AlertTriangle} color="red" />
-        <KpiCard title="Hampir Kadaluarsa" value={expiringBatches.length} sub="Batch ≤ 90 hari" icon={Clock} color="amber" />
-        <KpiCard title="Jurnal Draft" value={journalEntries.filter(j => j.status === 'DRAFT').length} sub="Belum diposting" icon={FileText} color="purple" />
-        <KpiCard title="Tagihan Pending" value={pendingBilling} sub="Belum dilunasi" icon={ShoppingCart} color="blue" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <KpiCard title="Stok Kritis" value={fmtNum(criticalStock.length)} icon={AlertTriangle} color="red" variant="solid" />
+        <KpiCard title="Hampir Kadaluarsa" value={fmtNum(expiringBatches.length)} icon={Clock} color="orange" variant="solid" />
+        <KpiCard title="Jurnal Draft" value={fmtNum(journalEntries.filter(j => j.status === 'DRAFT').length)} icon={FileText} color="purple" variant="solid" />
+        <KpiCard title="Tagihan Pending" value={fmtNum(pendingBilling)} icon={ShoppingCart} color="indigo" variant="solid" />
       </div>
 
       {/* Charts */}

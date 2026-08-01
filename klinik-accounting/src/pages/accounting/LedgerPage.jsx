@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Download, Printer, Filter } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { useAuth } from '../../store/useAuth'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import { fmtIDR, fmtDate, calcBalance, monthStart, monthEnd } from '../../utils/format'
 import { exportLedgerPDF } from '../../utils/exportPDF'
@@ -8,6 +9,7 @@ import { exportLedgerExcel } from '../../utils/exportExcel'
 
 export default function LedgerPage() {
   const { coa, journalEntries, journalItems, activeBranchId, openingBalances } = useStore()
+  const { appSettings } = useAuth()
 
   const [selectedCode, setSelectedCode] = useState('')
   const [dateFrom, setDateFrom] = useState(monthStart())
@@ -28,9 +30,9 @@ export default function LedgerPage() {
     // Get opening balance for the selected account
     const fiscalYear = new Date(dateFrom).getFullYear()
     const openingBalance = openingBalances.find(
-      ob => ob.accountCode === selectedCode && 
-            ob.fiscalYear === fiscalYear &&
-            (activeBranchId ? ob.branchId === activeBranchId : true)
+      ob => ob.accountCode === selectedCode &&
+        ob.fiscalYear === fiscalYear &&
+        (activeBranchId ? ob.branchId === activeBranchId : true)
     )
 
     const relevantEntries = journalEntries.filter(j =>
@@ -61,7 +63,7 @@ export default function LedgerPage() {
     if (openingBalance && parseFloat(openingBalance.openingBalance || 0) !== 0) {
       const obAmount = parseFloat(openingBalance.openingBalance || 0)
       const isDebitNormal = selectedAccount?.normalBalance === 'DEBIT'
-      
+
       // Opening balance entry
       const openingEntry = {
         id: `opening-${selectedCode}`,
@@ -75,7 +77,7 @@ export default function LedgerPage() {
         balanceSide: selectedAccount?.normalBalance || 'DEBIT',
         isOpeningBalance: true,
       }
-      
+
       balance = obAmount
       allLines.push(openingEntry)
     }
@@ -103,8 +105,8 @@ export default function LedgerPage() {
   const endingBalance = ledgerEntries.at(-1)?.runningBalance || 0
   const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
 
-  const doExportPDF = () => exportLedgerPDF(selectedAccount?.accountName || selectedCode, ledgerEntries, periodLabel)
-  const doExportExcel = () => exportLedgerExcel(selectedAccount?.accountName || selectedCode, ledgerEntries, periodLabel)
+  const doExportPDF = () => exportLedgerPDF(selectedAccount?.accountName || selectedCode, ledgerEntries, periodLabel, appSettings)
+  const doExportExcel = () => exportLedgerExcel(selectedAccount?.accountName || selectedCode, ledgerEntries, periodLabel, appSettings)
 
   return (
     <div className="space-y-5">
