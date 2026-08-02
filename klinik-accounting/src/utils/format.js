@@ -14,20 +14,20 @@ export const fmtIDR = (v) => {
 
   // If value has non-zero decimals, format with NUM2 (2 decimal places)
   const formatted = (absVal % 1 !== 0) ? NUM2.format(absVal) : NUM.format(absVal)
-  if (isNegative) return `-Rp ${formatted}`
-  return `Rp ${formatted}`
+  if (isNegative) return `-${formatted}`
+  return formatted
 }
 
 export const fmtIDR2 = (v) => {
   const n = Number(v) || 0
-  if (n < 0) return `-Rp ${NUM2.format(Math.abs(n))}`
-  return `Rp ${NUM2.format(n)}`
+  if (n < 0) return `-${NUM2.format(Math.abs(n))}`
+  return NUM2.format(n)
 }
 
 export const fmtIDR4 = (v) => {
   const n = Number(v) || 0
-  if (n < 0) return `-Rp ${NUM4.format(Math.abs(n))}`
-  return `Rp ${NUM4.format(n)}`
+  if (n < 0) return `-${NUM4.format(Math.abs(n))}`
+  return NUM4.format(n)
 }
 
 export const fmtPct = (v) => `${Number(v || 0).toFixed(2)}%`

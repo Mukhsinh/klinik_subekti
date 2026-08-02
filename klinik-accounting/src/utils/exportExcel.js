@@ -469,3 +469,31 @@ export function exportStockLedgerDetailExcel(item, ledgerLines, itemBatches, app
 
   XLSX.writeFile(wb, fileName)
 }
+
+// ─── Statement of Changes in Equity (Perubahan Ekuitas) Excel ───
+export function exportEquityChangesExcel(data, period, branchName, appSettings = null) {
+  const CLINIC = getClinicName(appSettings)
+  const rows = data.map(r => ({
+    'Kode Akun': r.isHeader || r.isTotal ? '' : (r.accountCode || ''),
+    'Keterangan': r.description || r.accountName || '',
+    'Jumlah (Rp)': r.amount === '' || r.amount === undefined ? '' : Number(r.amount || 0),
+  }))
+
+  const wb = XLSX.utils.book_new()
+  const info = XLSX.utils.aoa_to_sheet([
+    [CLINIC],
+    ['LAPORAN PERUBAHAN EKUITAS (STATEMENT OF CHANGES IN EQUITY)'],
+    [`Periode: ${period}`],
+    [`Cabang: ${branchName}`],
+    [`Dicetak: ${getFormalTimestamp()} WIB`],
+    [],
+    [getFooterText(appSettings)],
+  ])
+  XLSX.utils.book_append_sheet(wb, info, 'Info')
+
+  const ws = XLSX.utils.json_to_sheet(rows)
+  autoWidth(ws, rows)
+  XLSX.utils.book_append_sheet(wb, ws, 'Perubahan Ekuitas')
+  XLSX.writeFile(wb, `Perubahan_Ekuitas_${period?.replace(/\s/g, '_') || 'export'}.xlsx`)
+}
+

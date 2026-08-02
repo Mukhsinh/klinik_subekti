@@ -497,6 +497,30 @@ export async function insertBillingItems(items) {
   handleError(error, 'insertBillingItems')
   return normArr(data)
 }
+export async function deleteBillingItemsByBilling(billingId) {
+  const { error } = await supabase
+    .from('billing_items').delete().eq('billing_id', billingId)
+  handleError(error, 'deleteBillingItemsByBilling')
+}
+export async function updateBilling(id, updates) {
+  const row = snake(updates)
+  if (!row.updated_at) row.updated_at = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('patient_billings')
+    .update(row)
+    .eq('id', id)
+    .select().single()
+  handleError(error, 'updateBilling')
+  return norm(data)
+}
+export async function deleteDoctorFeeRecordByBilling(billingId) {
+  const { error } = await supabase
+    .from('doctor_fee_records')
+    .delete()
+    .eq('billing_id', billingId)
+  handleError(error, 'deleteDoctorFeeRecordByBilling')
+}
+
 
 // ══════════════════════════════════════════════════════════════
 // EXPENSES

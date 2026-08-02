@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Plus, Pencil, PowerOff, ShieldCheck, DollarSign } from 'lucide-react'
+import { Plus, Pencil, PowerOff, ShieldCheck, Tag } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
@@ -224,7 +224,7 @@ export default function TarifLayananPage() {
                             {filtered.length === 0 ? (
                                 <tr>
                                     <td colSpan={7} className="text-center py-16 text-slate-400">
-                                        <DollarSign className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                                        <Tag className="w-8 h-8 mx-auto mb-2 opacity-30" />
                                         {search ? 'Layanan tidak ditemukan' : 'Belum ada tarif layanan — klik Tambah Layanan untuk memulai'}
                                     </td>
                                 </tr>

@@ -354,60 +354,60 @@ export default function StockLedgerPage() {
         </button>
       </div>
 
-      {/* Modern Compact Score Cards — Without "Rp" prefix */}
+      {/* Modern Compact Score Cards — Vibrant Solid Colors */}
       {selectedItem === 'ALL_ITEMS' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#2563EB' }}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Jenis Item</p>
-                <p className="text-xl font-extrabold text-slate-800 tracking-tight font-sans mt-0.5">
-                  {fmtNum(recapData.length)} <span className="text-xs font-semibold text-slate-400">item</span>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100">Total Jenis Item</p>
+                <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
+                  {fmtNum(recapData.length)} <span className="text-xs font-semibold text-blue-200">item</span>
                 </p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
                 <Package className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#059669' }}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Kuantitas Stok</p>
-                <p className="text-xl font-extrabold text-blue-700 tracking-tight font-sans mt-0.5">
-                  {fmtNum(globalTotalQty)} <span className="text-xs font-semibold text-slate-400">unit</span>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Total Kuantitas Stok</p>
+                <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
+                  {fmtNum(globalTotalQty)} <span className="text-xs font-semibold text-emerald-200">unit</span>
                 </p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
                 <CheckCircle className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#D97706' }}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Batch Aktif</p>
-                <p className="text-xl font-extrabold text-amber-700 tracking-tight font-sans mt-0.5">
-                  {fmtNum(globalActiveBatchesCount)} <span className="text-xs font-semibold text-slate-400">batch</span>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-100">Total Batch Aktif</p>
+                <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
+                  {fmtNum(globalActiveBatchesCount)} <span className="text-xs font-semibold text-amber-200">batch</span>
                 </p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
                 <Layers className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#7C3AED' }}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Nilai HPP Total Persediaan</p>
-                <p className="text-xl font-extrabold text-purple-700 tracking-tight font-sans mt-0.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-purple-100">Nilai HPP Total Persediaan</p>
+                <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
                   {fmtNum(Math.round(globalTotalValue))}
                 </p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
                 <TrendingUp className="w-4 h-4" />
               </div>
             </div>
@@ -415,57 +415,57 @@ export default function StockLedgerPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#2563EB' }}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Stok Tersedia</p>
-                <p className="text-xl font-extrabold text-blue-700 tracking-tight font-sans mt-0.5">
-                  {fmtNum(totalStockSingle)} <span className="text-xs font-semibold text-slate-400">{selectedItemObj?.baseUnit || selectedItemObj?.unit || 'unit'}</span>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100">Stok Tersedia</p>
+                <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
+                  {fmtNum(totalStockSingle)} <span className="text-xs font-semibold text-blue-200">{selectedItemObj?.baseUnit || selectedItemObj?.unit || 'unit'}</span>
                 </p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
                 <Package className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#059669' }}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Batch Aktif</p>
-                <p className="text-xl font-extrabold text-emerald-700 tracking-tight font-sans mt-0.5">
-                  {fmtNum(itemBatches.filter(b => b.quantityCurrent > 0).length)} <span className="text-xs font-semibold text-slate-400">batch</span>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Batch Aktif</p>
+                <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
+                  {fmtNum(itemBatches.filter(b => b.quantityCurrent > 0).length)} <span className="text-xs font-semibold text-emerald-200">batch</span>
                 </p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
                 <CheckCircle className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#D97706' }}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Batch Hampir ED</p>
-                <p className="text-xl font-extrabold text-amber-700 tracking-tight font-sans mt-0.5">
-                  {fmtNum(itemBatches.filter(b => b.quantityCurrent > 0 && isExpiringSoon(b.expiryDate)).length)} <span className="text-xs font-semibold text-slate-400">batch</span>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-100">Batch Hampir ED</p>
+                <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
+                  {fmtNum(itemBatches.filter(b => b.quantityCurrent > 0 && isExpiringSoon(b.expiryDate)).length)} <span className="text-xs font-semibold text-amber-200">batch</span>
                 </p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
                 <AlertTriangle className="w-4 h-4" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+          <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#7C3AED' }}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Nilai Stok (HPP)</p>
-                <p className="text-xl font-extrabold text-purple-700 tracking-tight font-sans mt-0.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-purple-100">Nilai Stok (HPP)</p>
+                <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
                   {fmtNum(Math.round(totalValueSingle))}
                 </p>
               </div>
-              <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
                 <TrendingUp className="w-4 h-4" />
               </div>
             </div>

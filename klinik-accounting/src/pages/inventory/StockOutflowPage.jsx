@@ -590,59 +590,59 @@ export default function StockOutflowPage() {
         </button>
       </div>
 
-      {/* Modern Compact Score Cards — Model Angka Terintegrasi */}
+      {/* Modern Compact Score Cards — Vibrant Solid Colors */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+        <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#2563EB' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-sans">Total Outflow Manual</p>
-              <p className="text-xl font-extrabold text-slate-800 tracking-tight font-sans mt-0.5">
-                {fmtNum((outflows || []).length)} <span className="text-xs font-semibold text-slate-400 font-sans">transaksi</span>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100 font-sans">Total Outflow Manual</p>
+              <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
+                {fmtNum((outflows || []).length)} <span className="text-xs font-semibold text-blue-200 font-sans">transaksi</span>
               </p>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
               <Package className="w-4 h-4" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+        <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#059669' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-sans">Total Kuantitas Outflow</p>
-              <p className="text-xl font-extrabold text-blue-700 tracking-tight font-sans mt-0.5">
-                {fmtNum(totalQtyOut)} <span className="text-xs font-semibold text-slate-400 font-sans">unit</span>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100 font-sans">Total Kuantitas Outflow</p>
+              <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
+                {fmtNum(totalQtyOut)} <span className="text-xs font-semibold text-emerald-200 font-sans">unit</span>
               </p>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
               <TrendingDown className="w-4 h-4" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+        <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#7C3AED' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-sans">Total Nilai HPP</p>
-              <p className="text-xl font-extrabold text-purple-700 tracking-tight font-mono mt-0.5">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-purple-100 font-sans">Total Nilai HPP</p>
+              <p className="text-xl font-extrabold text-white tracking-tight font-mono mt-0.5">
                 {fmtIDR(totalValueOut)}
               </p>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
               <Layers className="w-4 h-4" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+        <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#D97706' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 font-sans">Riwayat Billing Kasir</p>
-              <p className="text-xl font-extrabold text-emerald-700 tracking-tight font-sans mt-0.5">
-                {fmtNum(billingOutflows.length)} <span className="text-xs font-semibold text-slate-400 font-sans">item</span>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-amber-100 font-sans">Riwayat Billing Kasir</p>
+              <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">
+                {fmtNum(billingOutflows.length)} <span className="text-xs font-semibold text-amber-200 font-sans">item</span>
               </p>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
               <CheckCircle className="w-4 h-4" />
             </div>
           </div>

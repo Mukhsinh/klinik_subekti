@@ -8,7 +8,7 @@ import toast from 'react-hot-toast'
 export default function PPNPage() {
   const { billings, expenses, journalItems, journalEntries, branches, activeBranchId } = useStore()
   const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(monthEnd())
+  const [dateTo, setDateTo] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
 
   const periodBillings = useMemo(() =>
@@ -17,17 +17,17 @@ export default function PPNPage() {
       b.visitDate >= dateFrom && b.visitDate <= dateTo &&
       (branchFilter === 'ALL' || b.branchId === branchFilter)
     ),
-  [billings, dateFrom, dateTo, branchFilter])
+    [billings, dateFrom, dateTo, branchFilter])
 
   // PPN Keluaran (Output Tax) — from pharmacy sales
   const ppnKeluaran = useMemo(() =>
     periodBillings.reduce((s, b) => s + (b.ppnAmount || 0), 0),
-  [periodBillings])
+    [periodBillings])
 
   // DPP Penjualan Obat
   const dppFarmasi = useMemo(() =>
     periodBillings.reduce((s, b) => s + (b.subtotalPharmacy || 0), 0),
-  [periodBillings])
+    [periodBillings])
 
   // PPN Masukan (Input Tax) — from expense PPN
   const periodExpenses = expenses.filter(e =>
@@ -42,9 +42,9 @@ export default function PPNPage() {
 
   const exportXLSX = () => {
     const outRows = periodBillings.map(b => ({
-      'No. Billing':      b.billingNumber,
-      'Tanggal':          fmtDate(b.visitDate),
-      'DPP Farmasi':      Number(b.subtotalPharmacy || 0),
+      'No. Billing': b.billingNumber,
+      'Tanggal': fmtDate(b.visitDate),
+      'DPP Farmasi': Number(b.subtotalPharmacy || 0),
       'PPN Keluaran 11%': Number(b.ppnAmount || 0),
     }))
     const wb = XLSX.utils.book_new()
@@ -53,11 +53,11 @@ export default function PPNPage() {
 
     const inRows = periodExpenses.map(e => ({
       'No. Pengeluaran': e.expenseNumber,
-      'Tanggal':         fmtDate(e.expenseDate),
-      'Keterangan':      e.description,
-      'Vendor':          e.vendorName || '—',
-      'DPP':             Number(e.grossAmount || 0),
-      'PPN Masukan':     Number(e.ppnAmount || 0),
+      'Tanggal': fmtDate(e.expenseDate),
+      'Keterangan': e.description,
+      'Vendor': e.vendorName || '—',
+      'DPP': Number(e.grossAmount || 0),
+      'PPN Masukan': Number(e.ppnAmount || 0),
     }))
     const ws2 = XLSX.utils.json_to_sheet(inRows)
     XLSX.utils.book_append_sheet(wb, ws2, 'PPN Masukan')
@@ -102,22 +102,22 @@ export default function PPNPage() {
         </ul>
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="card card-body bg-emerald-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">PPN Keluaran (Output)</p>
-          <p className="text-xs text-slate-400">DPP Farmasi {fmtIDR(dppFarmasi)}</p>
-          <p className="font-bold text-xl text-emerald-700 mt-1">{fmtIDR(ppnKeluaran)}</p>
+      {/* Summary — Vibrant Solid Colors */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-sans">
+        <div className="rounded-xl p-4 shadow-sm" style={{ background: '#059669' }}>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100 font-sans">PPN Keluaran (Output)</p>
+          <p className="text-xs text-emerald-200 mt-0.5">DPP Farmasi: {fmtIDR(dppFarmasi)}</p>
+          <p className="font-extrabold text-2xl text-white tracking-tight font-sans mt-2">{fmtIDR(ppnKeluaran)}</p>
         </div>
-        <div className="card card-body bg-blue-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">PPN Masukan (Input)</p>
-          <p className="text-xs text-slate-400">{periodExpenses.length} faktur pembelian</p>
-          <p className="font-bold text-xl text-blue-700 mt-1">{fmtIDR(ppnMasukan)}</p>
+        <div className="rounded-xl p-4 shadow-sm" style={{ background: '#2563EB' }}>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100 font-sans">PPN Masukan (Input)</p>
+          <p className="text-xs text-blue-200 mt-0.5">{periodExpenses.length} faktur pembelian</p>
+          <p className="font-extrabold text-2xl text-white tracking-tight font-sans mt-2">{fmtIDR(ppnMasukan)}</p>
         </div>
-        <div className={`card card-body border-0 ${ppnTerutang >= 0 ? 'bg-red-50' : 'bg-teal-50'}`}>
-          <p className="text-xs text-slate-500 mb-1">{ppnTerutang >= 0 ? 'PPN Kurang Bayar (Setor)' : 'PPN Lebih Bayar (Kredit)'}</p>
-          <p className={`font-bold text-xl ${ppnTerutang >= 0 ? 'text-red-700' : 'text-teal-700'}`}>{fmtIDR(Math.abs(ppnTerutang))}</p>
-          {ppnTerutang >= 0 && <p className="text-xs text-red-600 mt-1">⚠ Wajib disetorkan ke DJP</p>}
+        <div className="rounded-xl p-4 shadow-sm" style={{ background: ppnTerutang >= 0 ? '#DC2626' : '#0D9488' }}>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-white/90 font-sans">{ppnTerutang >= 0 ? 'PPN Kurang Bayar (Setor)' : 'PPN Lebih Bayar (Kredit)'}</p>
+          <p className="text-xs text-white/80 mt-0.5">{ppnTerutang >= 0 ? '⚠ Wajib disetorkan ke DJP' : 'Dapat dikreditkan'}</p>
+          <p className="font-extrabold text-2xl text-white tracking-tight font-sans mt-2">{fmtIDR(Math.abs(ppnTerutang))}</p>
         </div>
       </div>
 
@@ -136,14 +136,14 @@ export default function PPNPage() {
               <tbody>
                 {periodBillings.filter(b => (b.ppnAmount || 0) > 0).length === 0
                   ? <tr><td colSpan={4} className="text-center py-6 text-slate-400">Belum ada data</td></tr>
-                  : periodBillings.filter(b => (b.ppnAmount||0) > 0).map(b => (
-                  <tr key={b.id}>
-                    <td className="font-mono text-xs text-primary-700">{b.billingNumber}</td>
-                    <td className="text-xs">{fmtDate(b.visitDate)}</td>
-                    <td className="text-right font-mono text-xs">{fmtIDR(b.subtotalPharmacy)}</td>
-                    <td className="text-right font-mono text-xs font-bold text-emerald-700">{fmtIDR(b.ppnAmount)}</td>
-                  </tr>
-                ))}
+                  : periodBillings.filter(b => (b.ppnAmount || 0) > 0).map(b => (
+                    <tr key={b.id}>
+                      <td className="font-mono text-xs text-primary-700">{b.billingNumber}</td>
+                      <td className="text-xs">{fmtDate(b.visitDate)}</td>
+                      <td className="text-right font-mono text-xs">{fmtIDR(b.subtotalPharmacy)}</td>
+                      <td className="text-right font-mono text-xs font-bold text-emerald-700">{fmtIDR(b.ppnAmount)}</td>
+                    </tr>
+                  ))}
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50 font-semibold">
@@ -168,21 +168,21 @@ export default function PPNPage() {
                 <tr><th>No. Exp</th><th>Vendor</th><th className="text-right">DPP</th><th className="text-right">PPN</th></tr>
               </thead>
               <tbody>
-                {periodExpenses.filter(e => (e.ppnAmount||0) > 0).length === 0
+                {periodExpenses.filter(e => (e.ppnAmount || 0) > 0).length === 0
                   ? <tr><td colSpan={4} className="text-center py-6 text-slate-400">Belum ada faktur masukan</td></tr>
-                  : periodExpenses.filter(e => (e.ppnAmount||0) > 0).map(e => (
-                  <tr key={e.id}>
-                    <td className="font-mono text-xs text-primary-700">{e.expenseNumber}</td>
-                    <td className="text-xs truncate max-w-[120px]">{e.vendorName || '—'}</td>
-                    <td className="text-right font-mono text-xs">{fmtIDR(e.grossAmount)}</td>
-                    <td className="text-right font-mono text-xs font-bold text-blue-700">{fmtIDR(e.ppnAmount)}</td>
-                  </tr>
-                ))}
+                  : periodExpenses.filter(e => (e.ppnAmount || 0) > 0).map(e => (
+                    <tr key={e.id}>
+                      <td className="font-mono text-xs text-primary-700">{e.expenseNumber}</td>
+                      <td className="text-xs truncate max-w-[120px]">{e.vendorName || '—'}</td>
+                      <td className="text-right font-mono text-xs">{fmtIDR(e.grossAmount)}</td>
+                      <td className="text-right font-mono text-xs font-bold text-blue-700">{fmtIDR(e.ppnAmount)}</td>
+                    </tr>
+                  ))}
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50 font-semibold">
                   <td colSpan={2}>TOTAL</td>
-                  <td className="text-right font-mono text-sm">{fmtIDR(periodExpenses.reduce((s,e)=>s+(e.grossAmount||0),0))}</td>
+                  <td className="text-right font-mono text-sm">{fmtIDR(periodExpenses.reduce((s, e) => s + (e.grossAmount || 0), 0))}</td>
                   <td className="text-right font-mono text-sm text-blue-700">{fmtIDR(ppnMasukan)}</td>
                 </tr>
               </tfoot>

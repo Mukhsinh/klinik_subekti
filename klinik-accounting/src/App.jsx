@@ -9,6 +9,7 @@ import JournalPage from './pages/accounting/JournalPage'
 import LedgerPage from './pages/accounting/LedgerPage'
 import TrialBalancePage from './pages/accounting/TrialBalancePage'
 import IncomeStatementPage from './pages/reports/IncomeStatementPage'
+import EquityChangesPage from './pages/reports/EquityChangesPage'
 import BalanceSheetPage from './pages/reports/BalanceSheetPage'
 import CashFlowPage from './pages/reports/CashFlowPage'
 import InventoryPage from './pages/inventory/InventoryPage'
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="ledger" element={<LedgerPage />} />
           <Route path="trial-balance" element={<TrialBalancePage />} />
           <Route path="income-statement" element={<IncomeStatementPage />} />
+          <Route path="equity-changes" element={<EquityChangesPage />} />
           <Route path="balance-sheet" element={<BalanceSheetPage />} />
           <Route path="cash-flow" element={<CashFlowPage />} />
           <Route path="inventory" element={<InventoryPage />} />

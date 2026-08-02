@@ -5,7 +5,7 @@ import {
   Building2, Users, ChevronDown, ChevronRight,
   Scale, FileBarChart, Layers, Wallet, ArrowRightLeft,
   Settings, UserCog, ClipboardList, Activity, LogOut, Stethoscope,
-  Boxes, FolderInput, ClipboardCheck, Calculator, CreditCard, FileSpreadsheet, TrendingDown, BookMarked
+  Boxes, FolderInput, ClipboardCheck, Calculator, CreditCard, FileSpreadsheet, TrendingDown, BookMarked, RefreshCw
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../../store/useAuth'
@@ -26,6 +26,7 @@ const NAV = [
   {
     label: 'Laporan Keuangan', icon: BarChart3, roles: ['admin', 'keuangan'], children: [
       { to: '/income-statement', icon: TrendingUp, label: 'Laba Rugi' },
+      { to: '/equity-changes', icon: RefreshCw, label: 'Perubahan Ekuitas' },
       { to: '/balance-sheet', icon: FileBarChart, label: 'Neraca' },
       { to: '/cash-flow', icon: ArrowRightLeft, label: 'Arus Kas' },
     ]

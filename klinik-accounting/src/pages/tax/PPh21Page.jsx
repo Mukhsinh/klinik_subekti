@@ -8,7 +8,7 @@ import toast from 'react-hot-toast'
 export default function PPh21Page() {
   const { billings, activeBranchId, branches } = useStore()
   const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo,   setDateTo]   = useState(monthEnd())
+  const [dateTo, setDateTo] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
 
   // Aggregate doctor fees from billing
@@ -37,17 +37,17 @@ export default function PPh21Page() {
 
   const totalGross = doctorData.reduce((s, d) => s + d.grossAmount, 0)
   const totalPPh21 = doctorData.reduce((s, d) => s + d.pph21Amount, 0)
-  const totalNet   = doctorData.reduce((s, d) => s + d.netToDoctor, 0)
+  const totalNet = doctorData.reduce((s, d) => s + d.netToDoctor, 0)
 
   const exportXLSX = () => {
     const rows = doctorData.map(d => ({
-      'Nama Dokter':         d.doctorName,
-      'Jasa Medis Bruto':    Number(d.grossAmount.toFixed(2)),
-      'DPP (50%)':           Number(d.dpp.toFixed(2)),
-      'Tarif PPh 21 (%)':    Number((d.rate * 100).toFixed(2)),
-      'PPh 21 Dipotong':     Number(d.pph21Amount.toFixed(2)),
-      'Neto ke Dokter':      Number(d.netToDoctor.toFixed(2)),
-      'Jumlah Transaksi':    d.transactions.length,
+      'Nama Dokter': d.doctorName,
+      'Jasa Medis Bruto': Number(d.grossAmount.toFixed(2)),
+      'DPP (50%)': Number(d.dpp.toFixed(2)),
+      'Tarif PPh 21 (%)': Number((d.rate * 100).toFixed(2)),
+      'PPh 21 Dipotong': Number(d.pph21Amount.toFixed(2)),
+      'Neto ke Dokter': Number(d.netToDoctor.toFixed(2)),
+      'Jumlah Transaksi': d.transactions.length,
     }))
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(rows)
@@ -82,19 +82,19 @@ export default function PPh21Page() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="card card-body bg-blue-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Total Jasa Medis Bruto</p>
-          <p className="font-bold text-xl text-blue-700">{fmtIDR(totalGross)}</p>
+      {/* Summary cards — Vibrant Solid Colors */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-sans">
+        <div className="rounded-xl p-4 shadow-sm" style={{ background: '#2563EB' }}>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100 font-sans">Total Jasa Medis Bruto</p>
+          <p className="font-extrabold text-2xl text-white tracking-tight font-sans mt-2">{fmtIDR(totalGross)}</p>
         </div>
-        <div className="card card-body bg-red-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Total PPh 21 Dipotong</p>
-          <p className="font-bold text-xl text-red-700">{fmtIDR(totalPPh21)}</p>
+        <div className="rounded-xl p-4 shadow-sm" style={{ background: '#DC2626' }}>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-red-100 font-sans">Total PPh 21 Dipotong</p>
+          <p className="font-extrabold text-2xl text-white tracking-tight font-sans mt-2">{fmtIDR(totalPPh21)}</p>
         </div>
-        <div className="card card-body bg-emerald-50 border-0">
-          <p className="text-xs text-slate-500 mb-1">Total Neto ke Dokter</p>
-          <p className="font-bold text-xl text-emerald-700">{fmtIDR(totalNet)}</p>
+        <div className="rounded-xl p-4 shadow-sm" style={{ background: '#059669' }}>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100 font-sans">Total Neto ke Dokter</p>
+          <p className="font-extrabold text-2xl text-white tracking-tight font-sans mt-2">{fmtIDR(totalNet)}</p>
         </div>
       </div>
 
@@ -148,11 +148,11 @@ export default function PPh21Page() {
               <tr className="bg-slate-100 font-bold">
                 <td>TOTAL</td>
                 <td className="text-right font-mono amount-debit">{fmtIDR(totalGross)}</td>
-                <td className="text-right font-mono">{fmtIDR(doctorData.reduce((s,d) => s+d.dpp,0))}</td>
+                <td className="text-right font-mono">{fmtIDR(doctorData.reduce((s, d) => s + d.dpp, 0))}</td>
                 <td />
                 <td className="text-right font-mono text-red-700">{fmtIDR(totalPPh21)}</td>
                 <td className="text-right font-mono text-emerald-700">{fmtIDR(totalNet)}</td>
-                <td className="text-right">{doctorData.reduce((s,d)=>s+d.transactions.length,0)}</td>
+                <td className="text-right">{doctorData.reduce((s, d) => s + d.transactions.length, 0)}</td>
               </tr>
             </tfoot>
           </table>

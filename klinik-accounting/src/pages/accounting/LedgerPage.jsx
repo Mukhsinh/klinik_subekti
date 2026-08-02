@@ -187,8 +187,8 @@ export default function LedgerPage() {
                   <th>Tanggal</th>
                   <th>No. Jurnal</th>
                   <th>Keterangan</th>
-                  <th className="text-right">Debit (Rp)</th>
-                  <th className="text-right">Kredit (Rp)</th>
+                  <th className="text-right">Debit</th>
+                  <th className="text-right">Kredit</th>
                   <th className="text-right">Saldo</th>
                   <th>D/K</th>
                 </tr>

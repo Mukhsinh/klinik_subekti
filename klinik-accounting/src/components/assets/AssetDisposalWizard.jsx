@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { Trash2, DollarSign, FileText, CheckCircle, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react'
+import { Trash2, Tag, FileText, CheckCircle, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react'
 import { fmtIDR, fmtDate, todayISO } from '../../utils/format'
 import toast from 'react-hot-toast'
 
 const DISPOSAL_METHODS = [
-  { value: 'SALE', label: 'Penjualan', icon: DollarSign, description: 'Aset dijual ke pihak ketiga' },
+  { value: 'SALE', label: 'Penjualan', icon: Tag, description: 'Aset dijual ke pihak ketiga' },
   { value: 'DISPOSAL', label: 'Penghapusan', icon: Trash2, description: 'Aset dihapus karena rusak/kadaluarsa' },
   { value: 'DONATION', label: 'Hibah', icon: FileText, description: 'Aset dihibahkan ke pihak lain' },
 ]
@@ -12,7 +12,7 @@ const DISPOSAL_METHODS = [
 const STEPS = [
   { id: 1, title: 'Pilih Aset', icon: FileText },
   { id: 2, title: 'Metode Pelepasan', icon: Trash2 },
-  { id: 3, title: 'Nilai & Perhitungan', icon: DollarSign },
+  { id: 3, title: 'Nilai & Perhitungan', icon: Tag },
   { id: 4, title: 'Review & Konfirmasi', icon: CheckCircle },
 ]
 
@@ -34,7 +34,7 @@ export default function AssetDisposalWizard({ assets, onComplete, onCancel }) {
   })
 
   const selectedAsset = assets.find(a => a.id === formData.assetId)
-  
+
   // Calculate gain/loss
   const bookValue = selectedAsset ? (selectedAsset.bookValue || selectedAsset.acquisitionCost) : 0
   const disposalValue = parseFloat(formData.disposalValue || 0)
@@ -113,13 +113,12 @@ export default function AssetDisposalWizard({ assets, onComplete, onCancel }) {
             <div key={step.id} className="flex items-center flex-1">
               <div className="flex flex-col items-center flex-1">
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-                    isCompleted
-                      ? 'bg-green-600 text-white'
-                      : isActive
+                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isCompleted
+                    ? 'bg-green-600 text-white'
+                    : isActive
                       ? 'bg-primary-600 text-white ring-4 ring-primary-100'
                       : 'bg-slate-200 text-slate-400'
-                  }`}
+                    }`}
                 >
                   {isCompleted ? (
                     <CheckCircle className="w-5 h-5" />
@@ -128,18 +127,16 @@ export default function AssetDisposalWizard({ assets, onComplete, onCancel }) {
                   )}
                 </div>
                 <p
-                  className={`text-xs mt-2 font-medium ${
-                    isActive ? 'text-primary-700' : isCompleted ? 'text-green-700' : 'text-slate-400'
-                  }`}
+                  className={`text-xs mt-2 font-medium ${isActive ? 'text-primary-700' : isCompleted ? 'text-green-700' : 'text-slate-400'
+                    }`}
                 >
                   {step.title}
                 </p>
               </div>
               {index < STEPS.length - 1 && (
                 <div
-                  className={`h-1 flex-1 mx-2 transition-all ${
-                    isCompleted ? 'bg-green-600' : 'bg-slate-200'
-                  }`}
+                  className={`h-1 flex-1 mx-2 transition-all ${isCompleted ? 'bg-green-600' : 'bg-slate-200'
+                    }`}
                 />
               )}
             </div>
@@ -233,17 +230,15 @@ export default function AssetDisposalWizard({ assets, onComplete, onCancel }) {
                     key={method.value}
                     type="button"
                     onClick={() => set('disposalMethod', method.value)}
-                    className={`p-4 rounded-lg border-2 text-left transition-all ${
-                      isSelected
-                        ? 'border-primary-600 bg-primary-50'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
-                    }`}
+                    className={`p-4 rounded-lg border-2 text-left transition-all ${isSelected
+                      ? 'border-primary-600 bg-primary-50'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
                   >
                     <div className="flex items-start gap-3">
                       <div
-                        className={`p-2 rounded-lg ${
-                          isSelected ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600'
-                        }`}
+                        className={`p-2 rounded-lg ${isSelected ? 'bg-primary-600 text-white' : 'bg-slate-100 text-slate-600'
+                          }`}
                       >
                         <Icon className="w-5 h-5" />
                       </div>
@@ -338,7 +333,7 @@ export default function AssetDisposalWizard({ assets, onComplete, onCancel }) {
             {formData.disposalValue && selectedAsset && (
               <div className="bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 rounded-lg p-4">
                 <h4 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                  <DollarSign className="w-5 h-5" />
+                  <Tag className="w-5 h-5" />
                   Perhitungan Laba/Rugi Pelepasan
                 </h4>
                 <div className="space-y-2 text-sm">
@@ -368,9 +363,8 @@ export default function AssetDisposalWizard({ assets, onComplete, onCancel }) {
                         )}
                       </span>
                       <span
-                        className={`font-mono font-bold text-lg ${
-                          isGain ? 'text-green-700' : isLoss ? 'text-red-700' : 'text-slate-700'
-                        }`}
+                        className={`font-mono font-bold text-lg ${isGain ? 'text-green-700' : isLoss ? 'text-red-700' : 'text-slate-700'
+                          }`}
                       >
                         {fmtIDR(Math.abs(gainLoss))}
                       </span>
@@ -461,9 +455,8 @@ export default function AssetDisposalWizard({ assets, onComplete, onCancel }) {
                     {isGain ? 'Laba Pelepasan' : isLoss ? 'Rugi Pelepasan' : 'Impas'}:
                   </span>
                   <span
-                    className={`font-mono font-bold text-lg ${
-                      isGain ? 'text-green-700' : isLoss ? 'text-red-700' : 'text-slate-700'
-                    }`}
+                    className={`font-mono font-bold text-lg ${isGain ? 'text-green-700' : isLoss ? 'text-red-700' : 'text-slate-700'
+                      }`}
                   >
                     {fmtIDR(Math.abs(gainLoss))}
                   </span>

@@ -1,11 +1,17 @@
 import { useState, useMemo } from 'react'
-import { Plus, Eye, CheckCircle, Trash2, Stethoscope, Package } from 'lucide-react'
+import { Plus, Eye, CheckCircle, Trash2, Stethoscope, Package, Printer, Pencil } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
 import { StatusBadge } from '../../components/ui/Badge'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import AddPharmacyItemModal from '../../components/billing/AddPharmacyItemModal'
+import { exportBillingReceiptPDF } from '../../utils/exportPDF'
+import {
+  updateBilling, deleteBillingItemsByBilling, insertBillingItems,
+  deleteDoctorFeeRecordByBilling, updateBatchQty, insertStockLedger, fetchStockLedger,
+  insertAuditLog
+} from '../../lib/db'
 import {
   fmtIDR, fmtDate, todayISO,
   calcPPh21Doctor, PPN_RATE, paymentMethodLabel,
@@ -20,12 +26,13 @@ export default function BillingPage() {
   const {
     pharmacyItems, invBatches, billings, billingItems, doctors, serviceTariffs,
     generateBillingNumber, saveBilling,
-    activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber,
-    getItemStock, depleteInventoryFIFO,
+    activeBranchId, saveJournalDraft, postJournalEntry, reverseJournal, generateEntryNumber,
+    getItemStock, depleteInventoryFIFO, refreshAll, appSettings,
   } = useStore()
 
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
+  const [editingBilling, setEditingBilling] = useState(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [patientName, setPatientName] = useState('')
@@ -74,7 +81,13 @@ export default function BillingPage() {
   )
 
   const activeServices = useMemo(() =>
-    (serviceTariffs || []).filter(s => (s.isActive !== false && s.is_active !== false) && s.serviceCategory !== 'LABORATORIUM' && s.service_category !== 'LABORATORIUM'),
+    (serviceTariffs || [])
+      .filter(s => (s.isActive !== false && s.is_active !== false) && s.serviceCategory !== 'LABORATORIUM' && s.service_category !== 'LABORATORIUM')
+      .sort((a, b) => {
+        const codeA = String(a.code || a.service_code || '')
+        const codeB = String(b.code || b.service_code || '')
+        return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' })
+      }),
     [serviceTariffs]
   )
   const serviceOptions = useMemo(() =>
@@ -89,7 +102,13 @@ export default function BillingPage() {
   )
 
   const labServices = useMemo(() =>
-    (serviceTariffs || []).filter(s => (s.isActive !== false && s.is_active !== false) && (s.serviceCategory === 'LABORATORIUM' || s.service_category === 'LABORATORIUM' || (s.name || '').toLowerCase().includes('lab'))),
+    (serviceTariffs || [])
+      .filter(s => (s.isActive !== false && s.is_active !== false) && (s.serviceCategory === 'LABORATORIUM' || s.service_category === 'LABORATORIUM' || (s.name || '').toLowerCase().includes('lab')))
+      .sort((a, b) => {
+        const codeA = String(a.code || a.service_code || '')
+        const codeB = String(b.code || b.service_code || '')
+        return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' })
+      }),
     [serviceTariffs]
   )
   const labOptions = useMemo(() =>
@@ -377,6 +396,260 @@ export default function BillingPage() {
     }
   }
 
+  const handlePrintReceipt = (b) => {
+    const bItems = billingItems.filter(i => i.billingId === b.id)
+    exportBillingReceiptPDF(b, bItems, appSettings)
+  }
+
+  const handleOpenEditModal = (b) => {
+    setEditingBilling(b)
+    const bItems = billingItems.filter(i => i.billingId === b.id)
+
+    setPatientName(b.patientName || '')
+    setPatientMRN(b.patientMRN || '')
+    setVisitDate(b.visitDate || todayISO())
+    setPayMethod(b.paymentMethod || 'TUNAI')
+    setBpjsClaimNo(b.bpjsClaimNumber || '')
+    setSelectedDoctor(doctors.find(d => d.id === b.doctorId) || null)
+    setDiscount(b.discountAmount || 0)
+
+    const svcs = bItems.filter(i => i.itemType === 'SERVICE').map(i => ({
+      id: i.serviceTariffId || i.id,
+      name: i.itemName,
+      price: i.unitPrice,
+      qty: i.quantity,
+      revenueAccountCode: i.revenueAccountCode || '4-11-001'
+    }))
+    const labs = bItems.filter(i => i.itemType === 'LAB').map(i => ({
+      id: i.serviceTariffId || i.id,
+      name: i.itemName,
+      price: i.unitPrice,
+      qty: i.quantity,
+      revenueAccountCode: i.revenueAccountCode || '4-12-001'
+    }))
+    const pharms = bItems.filter(i => i.itemType === 'PHARMACY').map(i => ({
+      itemId: i.pharmacyItemId || i.itemId,
+      name: i.itemName,
+      price: i.unitPrice,
+      qty: i.quantity,
+    }))
+
+    setServiceLines(svcs)
+    setLabLines(labs)
+    setPharmacyLines(pharms)
+    setModal('edit')
+  }
+
+  const handleSaveEditBilling = async () => {
+    if (!editingBilling) return
+    if (!patientName.trim()) { toast.error('Nama pasien wajib diisi'); return }
+    setIsSubmitting(true)
+    try {
+      if (editingBilling.journalEntryId) {
+        await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Billing ${editingBilling.billingNumber}`)
+      }
+
+      const stockLedgers = await fetchStockLedger()
+      const oldLedgerForBilling = stockLedgers.filter(l => l.referenceNumber === editingBilling.billingNumber && l.quantityOut > 0)
+
+      for (const lEntry of oldLedgerForBilling) {
+        if (lEntry.batchId) {
+          const batch = invBatches.find(b => b.id === lEntry.batchId)
+          if (batch) {
+            const restoredQty = batch.quantityCurrent + lEntry.quantityOut
+            await updateBatchQty(lEntry.batchId, restoredQty)
+            await insertStockLedger([{
+              id: uuidv4(),
+              batchId: lEntry.batchId,
+              itemId: lEntry.itemId,
+              transactionType: 'REVISION_RESTORE',
+              referenceId: editingBilling.id,
+              referenceNumber: editingBilling.billingNumber,
+              quantityIn: lEntry.quantityOut,
+              quantityOut: 0,
+              balanceAfter: restoredQty,
+              unitCost: lEntry.unitCost,
+              totalValue: lEntry.quantityOut * lEntry.unitCost,
+              notes: `Restok revisi billing ${editingBilling.billingNumber}`,
+              loggedAt: new Date().toISOString()
+            }])
+          }
+        }
+      }
+
+      await deleteDoctorFeeRecordByBilling(editingBilling.id)
+
+      const subService = serviceLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
+      const subLab = labLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
+      const subPharmacy = pharmacyLines.reduce((sum, l) => sum + ((parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)), 0)
+      const grossRev = subService + subLab + subPharmacy
+      const discountAmt = Math.min(Number(discount) || 0, grossRev)
+      const netRevBeforeTax = Math.max(0, grossRev - discountAmt)
+      const ppnAmount = Math.round(subPharmacy / 1.11 * PPN_RATE)
+      const grandTotal = netRevBeforeTax + ppnAmount
+
+      let patientPortion = grandTotal
+      let insurancePortion = 0
+      if (payMethod === 'BPJS') {
+        insurancePortion = Math.round(grandTotal * BPJS_RATIO)
+        patientPortion = grandTotal - insurancePortion
+      } else if (payMethod === 'ASURANSI') {
+        insurancePortion = grandTotal
+        patientPortion = 0
+      }
+
+      const docFeePct = selectedDoctor?.feePercentage || 30
+      const docName = selectedDoctor?.fullName || selectedDoctor?.name || 'Dokter'
+      const grossDoctorFee = selectedDoctor ? Math.round((subService + subLab) * (docFeePct / 100)) : 0
+      const pph21Calc = calcPPh21Doctor(grossDoctorFee, true)
+
+      const newJournalId = uuidv4()
+      const updatedBillingObj = {
+        id: editingBilling.id,
+        patientName,
+        patientMRN,
+        doctorId: selectedDoctor?.id || null,
+        doctorName: docName,
+        visitDate,
+        paymentMethod: payMethod,
+        bpjsClaimNumber: bpjsClaimNo,
+        subtotalServices: subService + subLab,
+        subtotalPharmacy,
+        discountAmount: discountAmt,
+        ppnAmount,
+        grandTotal,
+        patientPortion,
+        insurancePortion,
+        journalEntryId: newJournalId,
+        updatedAt: new Date().toISOString()
+      }
+      await updateBilling(editingBilling.id, updatedBillingObj)
+
+      await deleteBillingItemsByBilling(editingBilling.id)
+      const items = [
+        ...serviceLines.map(l => ({
+          id: uuidv4(), billingId: editingBilling.id, itemType: 'SERVICE',
+          serviceTariffId: l.id, itemName: l.name, quantity: l.qty,
+          unitPrice: l.price, totalPrice: l.qty * l.price
+        })),
+        ...labLines.map(l => ({
+          id: uuidv4(), billingId: editingBilling.id, itemType: 'LAB',
+          serviceTariffId: l.id, itemName: l.name, quantity: l.qty,
+          unitPrice: l.price, totalPrice: l.qty * l.price
+        })),
+        ...pharmacyLines.filter(l => l.itemId).map(l => ({
+          id: uuidv4(), billingId: editingBilling.id, itemType: 'PHARMACY',
+          pharmacyItemId: l.itemId, itemName: l.name, quantity: parseInt(l.qty) || 1,
+          unitPrice: parseFloat(l.price) || 0, totalPrice: (parseInt(l.qty) || 1) * (parseFloat(l.price) || 0)
+        })),
+      ]
+      await insertBillingItems(items)
+
+      const hppDebits = {}
+      const hppCredits = {}
+      for (const line of pharmacyLines.filter(l => l.itemId)) {
+        const qtyToDeplete = parseInt(line.qty) || 0
+        const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, editingBilling.billingNumber, activeBranchId)
+        cogsDetails.forEach(d => {
+          const val = d.qty * d.unitCostPrice
+          if (val > 0) {
+            hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
+            hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
+          }
+        })
+      }
+
+      const eNum = generateEntryNumber('BILLING')
+      const journalItems = []
+      if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Kas Tunai (Revisi) — ${editingBilling.billingNumber}`, debit: grandTotal, credit: 0 })
+      } else if (payMethod === 'BPJS') {
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Bayar Pasien BPJS (Revisi) — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-12-001', description: `Piutang BPJS (Revisi) — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+      } else {
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Bayar Pasien Asuransi (Revisi) — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-12-002', description: `Piutang Asuransi (Revisi) — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+      }
+
+      const revenueByAccount = {}
+      serviceLines.forEach(l => {
+        const accCode = l.revenueAccountCode || '4-11-001'
+        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+      })
+      labLines.forEach(l => {
+        const accCode = l.revenueAccountCode || '4-12-001'
+        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+      })
+      Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
+        if (amount > 0) {
+          const accDesc = accCode === '4-11-003' ? 'Pendapatan Tindakan Medis & BHP' : accCode === '4-12-001' ? 'Pendapatan Laboratorium' : 'Pendapatan Konsultasi Dokter'
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: accCode, description: `${accDesc} — ${editingBilling.billingNumber}`, debit: 0, credit: amount })
+        }
+      })
+
+      const pharmacyRevAccounts = {}
+      pharmacyLines.filter(l => l.itemId).forEach(l => {
+        const lineVal = (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)
+        if (lineVal > 0) {
+          const item = pharmacyItems.find(p => p.id === l.itemId)
+          const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
+          const revAcc = item?.coaRevenueCode || item?.coa_revenue_code || (isBHP ? '4-13-003' : item?.category === 'GENERIK' ? '4-13-002' : '4-13-001')
+          const dppLine = Math.round(lineVal / 1.11)
+          pharmacyRevAccounts[revAcc] = (pharmacyRevAccounts[revAcc] || 0) + dppLine
+        }
+      })
+
+      Object.entries(pharmacyRevAccounts).forEach(([accCode, amount]) => {
+        if (amount > 0) {
+          const accDesc = accCode === '4-13-003' ? 'Pendapatan Penjualan BHP Medis (DPP)' : accCode === '4-13-002' ? 'Pendapatan Penjualan Obat OTC / Generik (DPP)' : 'Penjualan Obat Etikal (DPP)'
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: accCode, description: `${accDesc} — ${editingBilling.billingNumber}`, debit: 0, credit: amount })
+        }
+      })
+
+      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '2-14-001', description: `Utang PPN 11% — ${editingBilling.billingNumber}`, debit: 0, credit: ppnAmount })
+      if (discountAmt > 0) {
+        const firstRevAccount = Object.keys(revenueByAccount)[0] || '4-11-001'
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: firstRevAccount, description: `Diskon Billing — ${editingBilling.billingNumber}`, debit: discountAmt, credit: 0 })
+      }
+      if (grossDoctorFee > 0 && selectedDoctor) {
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '6-12-001', description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '2-13-001', description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '2-12-003', description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
+      }
+
+      Object.entries(hppDebits).forEach(([coaCode, val]) => {
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: coaCode, description: `HPP Penjualan Obat — ${editingBilling.billingNumber}`, debit: val, credit: 0 })
+      })
+      Object.entries(hppCredits).forEach(([coaCode, val]) => {
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${editingBilling.billingNumber}`, debit: 0, credit: val })
+      })
+
+      const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
+      const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
+
+      await saveJournalDraft({ id: newJournalId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${editingBilling.billingNumber} (Revisi)`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
+      await postJournalEntry(newJournalId, 'System-Billing')
+
+      await insertAuditLog({
+        id: uuidv4(), user_id: 'system', user_name: 'Kasir', user_role: 'system',
+        action: 'EDIT_BILLING_REVISION', module: 'BILLING',
+        detail: `Revisi billing ${editingBilling.billingNumber} (${patientName})`,
+        created_at: new Date().toISOString()
+      })
+
+      await refreshAll()
+      toast.success(`Billing ${editingBilling.billingNumber} berhasil direvisi & jurnal diposting ulang!`)
+      setModal(null)
+      setEditingBilling(null)
+      resetForm()
+    } catch (err) {
+      console.error('[handleSaveEditBilling] Error:', err.message)
+      toast.error(`Gagal merevisi billing: ${err.message}`)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const filtered = useMemo(() =>
     billings
       .filter(b => statusFilter === 'ALL' || b.status === statusFilter)
@@ -438,9 +711,17 @@ export default function BillingPage() {
                   <td className="text-right font-mono text-sm">{fmtIDR(b.patientPortion)}</td>
                   <td><StatusBadge status={b.status} /></td>
                   <td className="text-center">
-                    <button className="btn-action-edit" onClick={() => { setSelected(b); setModal('view') }} title="Lihat Detail">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <button className="btn-action-edit" onClick={() => { setSelected(b); setModal('view') }} title="Lihat Detail">
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors" onClick={() => handlePrintReceipt(b)} title="Cetak Nota (PDF)">
+                        <Printer className="w-3.5 h-3.5" />
+                      </button>
+                      <button className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors" onClick={() => handleOpenEditModal(b)} title="Edit & Revisi Billing">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -449,13 +730,13 @@ export default function BillingPage() {
         </div>
       </div>
 
-      {/* ── New Billing Modal ────────────────────────────────── */}
-      <Modal open={modal === 'new'} onClose={() => setModal(null)} title={`Billing Baru — ${billingNumber}`} size="xl"
+      {/* ── New / Edit Billing Modal ─────────────────────────── */}
+      <Modal open={modal === 'new' || modal === 'edit'} onClose={() => { setModal(null); setEditingBilling(null) }} title={modal === 'edit' ? `Edit & Revisi Billing — ${editingBilling?.billingNumber}` : `Billing Baru — ${billingNumber}`} size="xl"
         footer={
           <>
-            <button className="btn-secondary" onClick={() => setModal(null)}>Batal</button>
-            <button className="btn-success px-6" onClick={handleCheckout}>
-              <CheckCircle className="w-4 h-4" />Proses Pembayaran
+            <button className="btn-secondary" onClick={() => { setModal(null); setEditingBilling(null) }}>Batal</button>
+            <button className="btn-success px-6" onClick={modal === 'edit' ? handleSaveEditBilling : handleCheckout} disabled={isSubmitting}>
+              <CheckCircle className="w-4 h-4" />{modal === 'edit' ? 'Simpan Revisi' : 'Proses Pembayaran'}
             </button>
           </>
         }
@@ -707,7 +988,7 @@ export default function BillingPage() {
             <div className="flex justify-between text-sm"><span className="text-slate-600">Sub-total Farmasi</span><span className="font-mono">{fmtIDR(subPharmacy)}</span></div>
             <div className="flex justify-between text-sm"><span className="text-slate-500">PPN 11% (Farmasi)</span><span className="font-mono">{fmtIDR(ppnAmount)}</span></div>
             <div className="flex items-center gap-3 text-sm">
-              <span className="text-slate-500">Diskon (Rp)</span>
+              <span className="text-slate-500">Diskon</span>
               <input type="number" className="form-input text-right w-40 py-1" value={discount} min={0} step={1000}
                 onChange={e => setDiscount(parseFloat(e.target.value) || 0)} />
             </div>

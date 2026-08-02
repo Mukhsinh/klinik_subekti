@@ -226,15 +226,15 @@ export function exportJournalPDF(entry, items, coa, appSettings = null) {
     head: [['Kode', 'Nama Akun', 'Keterangan', 'Debit (Rp)', 'Kredit (Rp)']],
     body,
     foot: [['', '', 'TOTAL', fmtIDR(totD), fmtIDR(totC)]],
-    styles: { font: 'courier', fontSize: 8, cellPadding: 2 },
-    headStyles: { fillColor: [4, 100, 199], textColor: 255 },
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [4, 100, 199], textColor: 255, fontStyle: 'bold' },
     footStyles: { fillColor: [241, 245, 249], fontStyle: 'bold' },
     columnStyles: {
-      0: { cellWidth: 24 },
+      0: { cellWidth: 24, fontStyle: 'bold' },
       1: { cellWidth: 70 },
       2: { cellWidth: 58 },
-      3: { cellWidth: 36, halign: 'right' },
-      4: { cellWidth: 36, halign: 'right' },
+      3: { cellWidth: 36, halign: 'right', fontStyle: 'bold' },
+      4: { cellWidth: 36, halign: 'right', fontStyle: 'bold' },
     },
   })
   addFooter(doc, appSettings)
@@ -386,4 +386,38 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null)
   addFooter(doc, appSettings)
   doc.save(`Nota_Billing_${billing.billingNumber || 'Receipt'}.pdf`)
 }
+
+// ─── Statement of Changes in Equity (Laporan Perubahan Ekuitas) PDF ───
+export function exportEquityChangesPDF(data, period, branchName, appSettings = null) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const startY = addHeader(doc, 'LAPORAN PERUBAHAN EKUITAS', period, branchName, appSettings)
+
+  const body = data.map(r => [
+    r.isHeader || r.isTotal ? '' : (r.accountCode || ''),
+    r.description || r.accountName,
+    r.amount === '' || r.amount === undefined ? '' : fmtIDR(r.amount)
+  ])
+
+  doc.autoTable({
+    startY,
+    head: [['Kode Akun', 'Keterangan', 'Jumlah (Rp)']],
+    body,
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.5 },
+    headStyles: { fillColor: [4, 100, 199], textColor: 255, fontStyle: 'bold' },
+    didParseCell(hookData) {
+      if (hookData.row.raw?.[0] === '' && hookData.row.raw?.[2] !== '') {
+        hookData.cell.styles.fontStyle = 'bold'
+        hookData.cell.styles.fillColor = [241, 245, 249]
+      }
+    },
+    columnStyles: {
+      0: { cellWidth: 35 },
+      1: { cellWidth: 110 },
+      2: { cellWidth: 40, halign: 'right' },
+    },
+  })
+  addFooter(doc, appSettings)
+  doc.save(`Perubahan_Ekuitas_${period?.replace(/\s/g, '_') || 'export'}.pdf`)
+}
+
 

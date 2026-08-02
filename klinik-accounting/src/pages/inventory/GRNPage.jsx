@@ -518,51 +518,51 @@ export default function GRNPage() {
         </div>
       </div>
 
-      {/* KPI Cards — Compact, without "Rp" prefix */}
+      {/* KPI Cards — Vibrant Solid Colors, Database-driven metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+        <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#2563EB' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Item Terisi</p>
-              <p className="text-xl font-extrabold text-slate-800 tracking-tight font-sans mt-0.5">{totalItems} <span className="text-xs font-semibold text-slate-400">item</span></p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100">Total GRN Tersimpan</p>
+              <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">{fmtNum(groupedGRNs.length)} <span className="text-xs font-semibold text-blue-200">dokumen</span></p>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
               <Package className="w-4 h-4" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+        <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#059669' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Kuantitas</p>
-              <p className="text-xl font-extrabold text-slate-800 tracking-tight font-sans mt-0.5">{fmtNum(totalQty)} <span className="text-xs font-semibold text-slate-400">unit</span></p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">Total Batch Aktif</p>
+              <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">{fmtNum(batchesList.filter(b => (b.quantityCurrent ?? b.quantity_current ?? 0) > 0).length)} <span className="text-xs font-semibold text-emerald-200">batch</span></p>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
               <CheckCircle className="w-4 h-4" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+        <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#D97706' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Estimasi PPN 11%</p>
-              <p className="text-xl font-extrabold text-emerald-700 tracking-tight font-sans mt-0.5">{fmtNum(Math.round(ppnAmount))}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-amber-100">Total Kuantitas Stok</p>
+              <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">{fmtNum(batchesList.reduce((s, b) => s + (Number(b.quantityCurrent ?? b.quantity_current ?? 0)), 0))} <span className="text-xs font-semibold text-amber-200">unit</span></p>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-sm">
+        <div className="rounded-xl p-3.5 shadow-sm" style={{ background: '#7C3AED' }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Nilai HPP</p>
-              <p className="text-xl font-extrabold text-purple-700 tracking-tight font-sans mt-0.5">{fmtNum(Math.round(totalValue))}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-purple-100">Total Nilai HPP</p>
+              <p className="text-xl font-extrabold text-white tracking-tight font-sans mt-0.5">{fmtNum(Math.round(batchesList.reduce((s, b) => s + (Number(b.quantityCurrent ?? b.quantity_current ?? 0) * Number(b.unitCostPrice ?? b.unit_cost_price ?? 0)), 0)))}</p>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-white/20 text-white flex items-center justify-center">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>

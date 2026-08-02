@@ -191,7 +191,7 @@ export default function IncomeStatementPage() {
             <thead>
               <tr className="bg-primary-700 text-white">
                 <th className="px-4 py-3 text-left font-semibold">Keterangan</th>
-                <th className="px-4 py-3 text-right font-semibold pr-4">Jumlah (Rp)</th>
+                <th className="px-4 py-3 text-right font-semibold pr-4">Jumlah</th>
               </tr>
             </thead>
             <tbody>
