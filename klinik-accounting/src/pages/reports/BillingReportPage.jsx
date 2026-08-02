@@ -253,15 +253,40 @@ export default function BillingReportPage() {
   // Export to PDF
   const exportPDF = () => {
     const doc = new jsPDF()
+    const pageW = doc.internal.pageSize.getWidth()
 
-    // Header
-    doc.setFontSize(16)
-    doc.setFont('helvetica', 'bold')
-    doc.text('LAPORAN BILLING KASIR', 105, 15, { align: 'center' })
+    // ── KOP SURAT from appSettings ──
+    const cName = appSettings?.companyName || appSettings?.appName || activeBranch?.entityName || 'Klinik Medis'
+    const cAddr = appSettings?.address || ''
+    const cPhone = appSettings?.phone ? (appSettings.phone.startsWith('Telp:') ? appSettings.phone : `Telp: ${appSettings.phone}`) : ''
+    const footerNote = appSettings?.footerText || `Dokumen ini digenerate secara otomatis oleh Sistem Akuntansi ${cName}`
 
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'normal')
-    doc.text(activeBranch?.entityName || 'Klinik Antigravity', 105, 22, { align: 'center' })
+    // Logo or badge
+    if (appSettings?.logoUrl) {
+      try { doc.addImage(appSettings.logoUrl, 'PNG', 14, 12, 20, 20) } catch (_) {
+        doc.setFillColor(4, 100, 199); doc.roundedRect(14, 12, 20, 20, 3, 3, 'F')
+        doc.setTextColor(255, 255, 255); doc.setFontSize(14); doc.setFont('helvetica', 'bold')
+        doc.text((cName.charAt(0) || 'K').toUpperCase(), 22, 25)
+      }
+    } else {
+      doc.setFillColor(4, 100, 199); doc.roundedRect(14, 12, 20, 20, 3, 3, 'F')
+      doc.setTextColor(255, 255, 255); doc.setFontSize(14); doc.setFont('helvetica', 'bold')
+      doc.text((cName.charAt(0) || 'K').toUpperCase(), 22, 25)
+    }
+
+    // Company info
+    doc.setTextColor(15, 23, 42); doc.setFontSize(13); doc.text(cName, 40, 19)
+    doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(71, 85, 105)
+    if (cAddr) doc.text(cAddr, 40, 25)
+    if (cPhone) doc.text(cPhone, 40, 30)
+
+    // Separator line
+    doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.5)
+    doc.line(14, 36, pageW - 14, 36)
+
+    // Report title
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold'); doc.setTextColor(4, 100, 199)
+    doc.text('LAPORAN BILLING KASIR', pageW / 2, 44, { align: 'center' })
 
     // Filter info
     let periodText = ''
@@ -276,21 +301,20 @@ export default function BillingReportPage() {
     } else {
       periodText = `Tahun ${selectedYear}`
     }
-    doc.text(`Periode: ${periodText}`, 105, 28, { align: 'center' })
-    doc.text(`Tanggal Cetak: ${fmtDate(new Date())}`, 105, 33, { align: 'center' })
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 116, 139)
+    doc.text(`Periode: ${periodText}`, pageW / 2, 51, { align: 'center' })
+    doc.text(`Tanggal Cetak: ${fmtDate(new Date())}`, pageW / 2, 57, { align: 'center' })
 
     // KPI Summary
-    doc.setFontSize(11)
-    doc.setFont('helvetica', 'bold')
-    doc.text('RINGKASAN', 14, 42)
+    doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(15, 23, 42)
+    doc.text('RINGKASAN', 14, 66)
 
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Total Pendapatan: ${fmtIDR(kpis.totalRevenue)}`, 14, 48)
-    doc.text(`Total Jasa Medis: ${fmtIDR(kpis.totalServices)}`, 14, 53)
-    doc.text(`Total Farmasi: ${fmtIDR(kpis.totalPharmacy)}`, 14, 58)
-    doc.text(`Total Pasien: ${kpis.totalPatients} transaksi`, 110, 48)
-    doc.text(`Rata-rata/Transaksi: ${fmtIDR(kpis.avgTransaction)}`, 110, 53)
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal')
+    doc.text(`Total Pendapatan: ${fmtIDR(kpis.totalRevenue)}`, 14, 72)
+    doc.text(`Total Jasa Medis: ${fmtIDR(kpis.totalServices)}`, 14, 77)
+    doc.text(`Total Farmasi: ${fmtIDR(kpis.totalPharmacy)}`, 14, 82)
+    doc.text(`Total Pasien: ${kpis.totalPatients} transaksi`, 110, 72)
+    doc.text(`Rata-rata/Transaksi: ${fmtIDR(kpis.avgTransaction)}`, 110, 77)
 
     // Table
     const tableData = filteredBillings.map(b => [
@@ -303,12 +327,12 @@ export default function BillingReportPage() {
     ])
 
     doc.autoTable({
-      startY: 65,
+      startY: 88,
       head: [['No. Billing', 'Tanggal', 'Pasien', 'Dokter', 'Metode', 'Total']],
       body: tableData,
       theme: 'striped',
       styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
+      headStyles: { fillColor: [4, 100, 199], textColor: 255, fontStyle: 'bold' },
       columnStyles: {
         0: { cellWidth: 30 },
         1: { cellWidth: 25 },
@@ -319,14 +343,17 @@ export default function BillingReportPage() {
       }
     })
 
-    // Footer
+    // Footer from appSettings
     const pageCount = doc.internal.getNumberOfPages()
+    const pageH = doc.internal.pageSize.getHeight()
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i)
-      doc.setFontSize(8)
-      doc.setTextColor(150)
-      doc.text(`Halaman ${i} dari ${pageCount}`, 105, 285, { align: 'center' })
-      doc.text('Sistem Akuntansi Klinik Antigravity', 105, 290, { align: 'center' })
+      doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.3)
+      doc.line(14, pageH - 14, pageW - 14, pageH - 14)
+      doc.setFontSize(7); doc.setTextColor(148, 163, 184)
+      doc.text(`Dicetak: ${fmtDate(new Date())}`, 14, pageH - 8)
+      doc.text(`Halaman ${i} dari ${pageCount}`, pageW - 14, pageH - 8, { align: 'right' })
+      doc.text(footerNote, pageW / 2, pageH - 8, { align: 'center' })
     }
 
     doc.save(`Laporan-Billing-${periodText.replace(/\s+/g, '-')}.pdf`)
@@ -335,10 +362,16 @@ export default function BillingReportPage() {
 
   // Export to Excel
   const exportExcel = () => {
+    const cNameExcel = (appSettings?.companyName || appSettings?.appName || activeBranch?.entityName || 'Klinik Medis').toUpperCase()
+    const cAddrExcel = appSettings?.address || ''
+    const cPhoneExcel = appSettings?.phone || ''
+    const footerExcel = appSettings?.footerText || `Dokumen ini digenerate secara otomatis oleh Sistem Akuntansi ${cNameExcel}`
+
     const ws_data = [
-      ['LAPORAN BILLING KASIR'],
-      [activeBranch?.entityName || 'Klinik Antigravity'],
+      [cNameExcel],
+      [cAddrExcel + (cPhoneExcel ? ` | ${cPhoneExcel}` : '')],
       [],
+      ['LAPORAN BILLING KASIR'],
       ['Periode:', filterType === 'DAILY' ? (startDate === endDate ? fmtDate(startDate) : `${fmtDate(startDate)} - ${fmtDate(endDate)}`) : filterType === 'MONTHLY' ? `${MONTHS[selectedMonth - 1]} ${selectedYear}` : filterType === 'QUARTERLY' ? `${QUARTERS[selectedQuarter - 1]} ${selectedYear}` : filterType === 'SEMESTER' ? `${SEMESTERS[selectedSemester - 1]} ${selectedYear}` : `Tahun ${selectedYear}`],
       ['Tanggal Cetak:', fmtDate(new Date())],
       [],

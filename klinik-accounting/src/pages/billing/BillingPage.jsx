@@ -157,10 +157,9 @@ export default function BillingPage() {
   const subPharmacy = pharmacyLines.reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0), 0)
   const discountAmt = parseFloat(discount) || 0
 
-  // In Indonesia pharmacy retail, selling price is PPN inclusive (11%)
-  const dppPharmacy = Math.round(subPharmacy / (1 + PPN_RATE))
-  const ppnAmount = subPharmacy - dppPharmacy
-  const grandTotal = Math.max(0, subService + subLab + subPharmacy - discountAmt)
+  // Selling price is PPN Exclusive (11% PPN is added on top of pharmacy selling price)
+  const ppnAmount = Math.round(subPharmacy * PPN_RATE)
+  const grandTotal = Math.max(0, subService + subLab + subPharmacy + ppnAmount - discountAmt)
 
   const patientPortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? grandTotal * (1 - BPJS_RATIO) : grandTotal
   const insurancePortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? grandTotal * BPJS_RATIO : 0
@@ -340,7 +339,7 @@ export default function BillingPage() {
         }
       })
 
-      // Group pharmacy revenue by item master COA revenue account
+      // Group pharmacy revenue by item master COA revenue account (DPP = selling price)
       const pharmacyRevAccounts = {}
       pharmacyLines.filter(l => l.itemId).forEach(l => {
         const lineVal = (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)
@@ -348,7 +347,7 @@ export default function BillingPage() {
           const item = pharmacyItems.find(p => p.id === l.itemId)
           const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
           const revAcc = item?.coaRevenueCode || item?.coa_revenue_code || (isBHP ? '4-13-003' : item?.category === 'GENERIK' ? '4-13-002' : '4-13-001')
-          const dppLine = Math.round(lineVal / 1.11)
+          const dppLine = lineVal
           pharmacyRevAccounts[revAcc] = (pharmacyRevAccounts[revAcc] || 0) + dppLine
         }
       })
@@ -482,11 +481,9 @@ export default function BillingPage() {
       const subService = serviceLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
       const subLab = labLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
       const subPharmacy = pharmacyLines.reduce((sum, l) => sum + ((parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)), 0)
-      const grossRev = subService + subLab + subPharmacy
-      const discountAmt = Math.min(Number(discount) || 0, grossRev)
-      const netRevBeforeTax = Math.max(0, grossRev - discountAmt)
-      const ppnAmount = Math.round(subPharmacy / 1.11 * PPN_RATE)
-      const grandTotal = netRevBeforeTax + ppnAmount
+      const discountAmt = Math.min(Number(discount) || 0, subService + subLab + subPharmacy)
+      const ppnAmount = Math.round(subPharmacy * PPN_RATE)
+      const grandTotal = Math.max(0, subService + subLab + subPharmacy + ppnAmount - discountAmt)
 
       let patientPortion = grandTotal
       let insurancePortion = 0
@@ -587,6 +584,7 @@ export default function BillingPage() {
         }
       })
 
+      // Group pharmacy revenue by item master COA revenue account (DPP = selling price, PPN exclusive)
       const pharmacyRevAccounts = {}
       pharmacyLines.filter(l => l.itemId).forEach(l => {
         const lineVal = (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)
@@ -594,7 +592,7 @@ export default function BillingPage() {
           const item = pharmacyItems.find(p => p.id === l.itemId)
           const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
           const revAcc = item?.coaRevenueCode || item?.coa_revenue_code || (isBHP ? '4-13-003' : item?.category === 'GENERIK' ? '4-13-002' : '4-13-001')
-          const dppLine = Math.round(lineVal / 1.11)
+          const dppLine = lineVal
           pharmacyRevAccounts[revAcc] = (pharmacyRevAccounts[revAcc] || 0) + dppLine
         }
       })

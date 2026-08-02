@@ -1,23 +1,52 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Download } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { fetchBillings, fetchExpenses } from '../../lib/db'
 import { fmtIDR, fmtDate, fmtPct, monthStart, monthEnd, PPN_RATE } from '../../utils/format'
+import { exportPPNReportPDF } from '../../utils/exportPDF'
 import * as XLSX from 'xlsx'
 import toast from 'react-hot-toast'
 
 export default function PPNPage() {
-  const { billings, expenses, journalItems, journalEntries, branches, activeBranchId } = useStore()
+  const { billings, expenses, branches, activeBranchId, appSettings } = useStore()
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
 
+  // Live DB fallback
+  const [dbBillings, setDbBillings] = useState([])
+  const [dbExpenses, setDbExpenses] = useState([])
+
+  useEffect(() => {
+    let isMounted = true
+    const loadData = async () => {
+      try {
+        const [bData, eData] = await Promise.all([
+          fetchBillings().catch(() => []),
+          fetchExpenses().catch(() => [])
+        ])
+        if (isMounted) {
+          if (Array.isArray(bData) && bData.length > 0) setDbBillings(bData)
+          if (Array.isArray(eData) && eData.length > 0) setDbExpenses(eData)
+        }
+      } catch (err) {
+        console.warn('[PPNPage] Error fetching live DB:', err.message)
+      }
+    }
+    loadData()
+    return () => { isMounted = false }
+  }, [])
+
+  const effectiveBillings = dbBillings.length > 0 ? dbBillings : (billings || [])
+  const effectiveExpenses = dbExpenses.length > 0 ? dbExpenses : (expenses || [])
+
   const periodBillings = useMemo(() =>
-    billings.filter(b =>
+    effectiveBillings.filter(b =>
       b.status === 'PAID' &&
       b.visitDate >= dateFrom && b.visitDate <= dateTo &&
       (branchFilter === 'ALL' || b.branchId === branchFilter)
     ),
-    [billings, dateFrom, dateTo, branchFilter])
+    [effectiveBillings, dateFrom, dateTo, branchFilter])
 
   // PPN Keluaran (Output Tax) — from pharmacy sales
   const ppnKeluaran = useMemo(() =>
@@ -30,54 +59,61 @@ export default function PPNPage() {
     [periodBillings])
 
   // PPN Masukan (Input Tax) — from expense PPN
-  const periodExpenses = expenses.filter(e =>
-    e.status === 'POSTED' &&
-    e.expenseDate >= dateFrom && e.expenseDate <= dateTo &&
-    (branchFilter === 'ALL' || e.branchId === branchFilter)
-  )
-  const ppnMasukan = periodExpenses.reduce((s, e) => s + (e.ppnAmount || 0), 0)
+  const periodExpenses = useMemo(() =>
+    effectiveExpenses.filter(e =>
+      e.status === 'POSTED' &&
+      e.expenseDate >= dateFrom && e.expenseDate <= dateTo &&
+      (branchFilter === 'ALL' || e.branchId === branchFilter)
+    ),
+    [effectiveExpenses, dateFrom, dateTo, branchFilter])
+
+  const ppnMasukan = useMemo(() =>
+    periodExpenses.reduce((s, e) => s + (e.ppnAmount || 0), 0),
+    [periodExpenses])
 
   // PPN Kurang/Lebih Bayar
   const ppnTerutang = ppnKeluaran - ppnMasukan
-
-  const exportXLSX = () => {
-    const outRows = periodBillings.map(b => ({
-      'No. Billing': b.billingNumber,
-      'Tanggal': fmtDate(b.visitDate),
-      'DPP Farmasi': Number(b.subtotalPharmacy || 0),
-      'PPN Keluaran 11%': Number(b.ppnAmount || 0),
-    }))
-    const wb = XLSX.utils.book_new()
-    const ws1 = XLSX.utils.json_to_sheet(outRows)
-    XLSX.utils.book_append_sheet(wb, ws1, 'PPN Keluaran')
-
-    const inRows = periodExpenses.map(e => ({
-      'No. Pengeluaran': e.expenseNumber,
-      'Tanggal': fmtDate(e.expenseDate),
-      'Keterangan': e.description,
-      'Vendor': e.vendorName || '—',
-      'DPP': Number(e.grossAmount || 0),
-      'PPN Masukan': Number(e.ppnAmount || 0),
-    }))
-    const ws2 = XLSX.utils.json_to_sheet(inRows)
-    XLSX.utils.book_append_sheet(wb, ws2, 'PPN Masukan')
-
-    XLSX.writeFile(wb, `LaporanPPN_${dateFrom}_${dateTo}.xlsx`)
-    toast.success('File Excel berhasil diunduh.')
-  }
-
   const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
+  const activeBranchObj = branches.find(b => b.id === branchFilter)
+  const branchName = branchFilter === 'ALL' ? 'Semua Cabang' : (activeBranchObj?.entityName || 'Cabang Utama')
+
+  const handleDownloadReport = () => {
+    try {
+      exportPPNReportPDF({
+        periodBillings,
+        periodExpenses,
+        dppFarmasi,
+        ppnKeluaran,
+        ppnMasukan,
+        ppnTerutang,
+        periodLabel,
+        branchName,
+        appSettings
+      })
+      toast.success('Laporan PPN (PDF) berhasil diunduh.')
+    } catch (err) {
+      console.error('[PPNPage] Download error:', err)
+      toast.error('Gagal mengunduh laporan PPN.')
+    }
+  }
 
   return (
     <div className="space-y-5">
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="page-title">Laporan PPN</h1>
           <p className="text-sm text-slate-400 mt-0.5">Pajak Pertambahan Nilai 11% — UU HPP No. 7/2021</p>
         </div>
-        <button className="btn-secondary" onClick={exportXLSX}><Download className="w-4 h-4" />Export Excel</button>
+        <button
+          className="btn-danger-red flex items-center gap-2"
+          onClick={handleDownloadReport}
+        >
+          <Download className="w-4 h-4" />Unduh Laporan
+        </button>
       </div>
 
+      {/* Filter Section */}
       <div className="card card-body">
         <div className="flex flex-wrap gap-4 items-end">
           <div><label className="form-label">Dari Tanggal</label><input type="date" className="form-input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
@@ -92,6 +128,7 @@ export default function PPNPage() {
         </div>
       </div>
 
+      {/* Ketentuan PPN */}
       <div className="card card-body bg-blue-50 border-blue-200 border text-sm text-blue-800">
         <p className="font-semibold mb-1">Ketentuan PPN Klinik Medis (UU HPP 2021 & PMK):</p>
         <ul className="list-disc list-inside space-y-0.5 text-xs">
@@ -102,7 +139,7 @@ export default function PPNPage() {
         </ul>
       </div>
 
-      {/* Summary — Vibrant Solid Colors */}
+      {/* Summary Cards — Vibrant Solid Colors */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-sans">
         <div className="rounded-xl p-4 shadow-sm" style={{ background: '#059669' }}>
           <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-100 font-sans">PPN Keluaran (Output)</p>
@@ -121,6 +158,7 @@ export default function PPNPage() {
         </div>
       </div>
 
+      {/* Tables Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* PPN Keluaran */}
         <div className="card">

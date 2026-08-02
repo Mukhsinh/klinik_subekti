@@ -5,7 +5,8 @@ import {
   Building2, Users, ChevronDown, ChevronRight,
   Scale, FileBarChart, Layers, Wallet, ArrowRightLeft,
   Settings, UserCog, ClipboardList, Activity, LogOut, Stethoscope,
-  Boxes, FolderInput, ClipboardCheck, Calculator, CreditCard, FileSpreadsheet, TrendingDown, BookMarked, RefreshCw
+  Boxes, FolderInput, ClipboardCheck, Calculator, CreditCard, FileSpreadsheet, TrendingDown, BookMarked, RefreshCw,
+  Store, Percent, Tag
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../../store/useAuth'
@@ -20,6 +21,7 @@ const NAV = [
       { to: '/opening-balance', icon: BookMarked, label: 'Saldo Awal' },
       { to: '/journal', icon: FileText, label: 'Jurnal Umum' },
       { to: '/ledger', icon: BookOpen, label: 'Buku Besar' },
+      { to: '/ap-ledger', icon: BookMarked, label: 'Buku Pembantu Utang' },
       { to: '/trial-balance', icon: Scale, label: 'Neraca Saldo' },
     ]
   },
@@ -33,7 +35,7 @@ const NAV = [
   },
   {
     label: 'Transaksi', icon: CreditCard, roles: ['admin'], children: [
-      { to: '/billing', icon: Receipt, label: 'Kasir & Billing' },
+      { to: '/billing', icon: Store, label: 'Kasir & Billing' },
       { to: '/billing-report', icon: FileSpreadsheet, label: 'Laporan Billing' },
     ]
   },
@@ -42,7 +44,7 @@ const NAV = [
     label: 'Inventory', icon: Package, roles: ['admin', 'keuangan', 'gudang'], children: [
       { to: '/inventory', icon: Package, label: 'Master Item' },
       { to: '/inventory/item-opening-balance', icon: BookMarked, label: 'Saldo Awal Item' },
-      { to: '/grn', icon: ShoppingCart, label: 'Penerimaan (GRN)' },
+      { to: '/grn', icon: ShoppingCart, label: 'Penerimaan Stock' },
       { to: '/stock-outflow', icon: TrendingDown, label: 'Pengeluaran Stok' },
       { to: '/stock-ledger', icon: BarChart3, label: 'Kartu Stok' },
     ]
@@ -58,7 +60,7 @@ const NAV = [
   {
     label: 'Pajak', icon: FileText, roles: ['admin', 'keuangan'], children: [
       { to: '/tax-pph21', icon: Users, label: 'PPh 21 Dokter' },
-      { to: '/tax-ppn', icon: Receipt, label: 'PPN Obat' },
+      { to: '/tax-ppn', icon: Percent, label: 'PPN Obat' },
     ]
   },
   {
@@ -66,7 +68,7 @@ const NAV = [
       { to: '/settings/app', icon: Settings, label: 'Pengaturan Aplikasi', roles: ['admin'] },
       { to: '/settings/users', icon: UserCog, label: 'Manajemen Pengguna', roles: ['admin'] },
       { to: '/settings/doctors', icon: Stethoscope, label: 'Manajemen Dokter', roles: ['admin'] },
-      { to: '/settings/service-tariffs', icon: Receipt, label: 'Manajemen Tarif Layanan', roles: ['admin'] },
+      { to: '/settings/service-tariffs', icon: Tag, label: 'Manajemen Tarif Layanan', roles: ['admin'] },
       { to: '/settings/vendors', icon: Building2, label: 'Manajemen Vendor', roles: ['admin'] },
       { to: '/settings/audit', icon: ClipboardList, label: 'Audit Trail', roles: ['admin'] },
     ]
@@ -170,7 +172,6 @@ export default function Sidebar({ collapsed }) {
             <LogOut className="w-3.5 h-3.5" />
           </button>
         </div>
-        <p className="text-xs text-slate-300 px-2">v1.0.0 — PSAK / ISAK 35</p>
       </div>
     </aside>
   )

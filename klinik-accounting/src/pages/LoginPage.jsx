@@ -100,8 +100,8 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-center text-primary-400 text-xs mt-4">
-          {appSettings?.footerText || 'Sistem Akuntansi Klinik Medis'} · v1.0.0
+        <p className="text-center text-slate-200 text-xs mt-4 font-medium">
+          Pintar Klinik@2026. Mukhsin Hadi. All Right Reserved
         </p>
       </div>
     </div>

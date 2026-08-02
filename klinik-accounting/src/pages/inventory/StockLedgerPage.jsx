@@ -233,7 +233,7 @@ export default function StockLedgerPage() {
       }
     })
 
-    return processed.reverse()
+    return processed
   }, [effectiveStockLedger, selectedItem])
 
   const totalStockSingle = itemBatches.reduce((s, b) => s + (Number(b.quantityCurrent) || 0), 0)

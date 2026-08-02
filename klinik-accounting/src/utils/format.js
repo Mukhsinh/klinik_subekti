@@ -89,7 +89,8 @@ export function paymentMethodLabel(m) {
   return {
     TUNAI: 'Tunai / Cash', QRIS: 'QRIS / E-Wallet', TRANSFER: 'Transfer Bank',
     BPJS: 'BPJS Kesehatan', ASURANSI: 'Asuransi Swasta', MIXED: 'Pembayaran Campuran',
-    KAS: 'Kas', KARTU_KREDIT: 'Kartu Kredit',
+    KAS: 'Kas Kecil Klinik (1-11-001)', KAS_BESAR: 'Kas Besar Klinik (1-11-002)',
+    KARTU_KREDIT: 'Kartu Kredit Operasional (2-11-005)',
   }[m] || m
 }
 

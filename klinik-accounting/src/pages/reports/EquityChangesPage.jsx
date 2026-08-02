@@ -102,8 +102,7 @@ function buildEquityData(coa, journalEntries, journalItems, dateFrom, dateTo, br
 }
 
 export default function EquityChangesPage() {
-    const { coa, journalEntries, journalItems, branches, activeBranchId } = useStore()
-    const { appSettings } = useAuth()
+    const { coa, journalEntries, journalItems, branches, activeBranchId, appSettings } = useStore()
 
     const [dateFrom, setDateFrom] = useState(monthStart())
     const [dateTo, setDateTo] = useState(monthEnd())

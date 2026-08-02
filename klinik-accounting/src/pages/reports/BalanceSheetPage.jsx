@@ -4,6 +4,7 @@ import { useStore } from '../../store/useStore'
 import { useAuth } from '../../store/useAuth'
 import { fmtIDR, fmtDate, monthEnd } from '../../utils/format'
 import { exportBalanceSheetExcel } from '../../utils/exportExcel'
+import { exportBalanceSheetPDF } from '../../utils/exportPDF'
 
 function buildBalancesUpTo(coa, journalEntries, journalItems, asOf, branchFilter) {
   const postedIds = new Set(
@@ -56,8 +57,7 @@ function BSSection({ title, groups, total, colorClass = '' }) {
 }
 
 export default function BalanceSheetPage() {
-  const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
-  const { appSettings } = useAuth()
+  const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances, appSettings } = useStore()
   const [asOf, setAsOf] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
 
@@ -100,8 +100,50 @@ export default function BalanceSheetPage() {
   // Build liability groups
   const stLiab = getBalanceItems('LIABILITY', 'LIABILITAS JANGKA PENDEK')
   const ltLiab = getBalanceItems('LIABILITY', 'LIABILITAS JANGKA PANJANG')
-  const equity = getBalanceItems('EQUITY')
   const totalLiab = [...stLiab, ...ltLiab].reduce((s, a) => s + a.balance, 0)
+
+  // Calculate Net Income (Laba/Rugi Periode Berjalan) up to asOf date
+  const netIncome = useMemo(() => {
+    let totalRev = 0
+    let totalExp = 0
+    coa.filter(a => !a.isHeader).forEach(a => {
+      const bal = balances[a.accountCode] || 0
+      if (a.accountType === 'REVENUE') totalRev += bal
+      else if (a.accountType === 'EXPENSE') totalExp += bal
+    })
+    return totalRev - totalExp
+  }, [coa, balances])
+
+  // Build Equity items (integrating Net Income & accounting for contra-equity accounts)
+  const equity = useMemo(() => {
+    const items = coa
+      .filter(a => a.accountType === 'EQUITY' && !a.isHeader)
+      .map(a => {
+        let rawBal = balances[a.accountCode] || 0
+        let netEquityBal = a.naturalBalance === 'DEBIT' ? -rawBal : rawBal
+        if (a.accountCode === '3-12-002') {
+          netEquityBal += netIncome
+        }
+        return { ...a, balance: netEquityBal }
+      })
+
+    const hasCurrentNetIncomeAcc = items.some(a => a.accountCode === '3-12-002')
+    if (!hasCurrentNetIncomeAcc) {
+      items.push({
+        accountCode: '3-12-002',
+        accountName: 'Laba / (Rugi) Periode Berjalan',
+        accountType: 'EQUITY',
+        accountGroup: 'EKUITAS',
+        accountSubgroup: 'Laba Ditahan',
+        naturalBalance: 'CREDIT',
+        sortOrder: 523,
+        balance: netIncome
+      })
+    }
+
+    return items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+  }, [coa, balances, netIncome])
+
   const totalEquity = equity.reduce((s, a) => s + a.balance, 0)
   const totalLiabEquity = totalLiab + totalEquity
 
@@ -133,6 +175,11 @@ export default function BalanceSheetPage() {
             stLiab.concat(ltLiab).concat(equity).map(a => ({ accountCode: a.accountCode, accountName: a.accountName, balance: a.balance })),
             periodLabel, branchName, appSettings
           )}><Download className="w-4 h-4" />Excel</button>
+          <button className="btn-secondary" onClick={() => exportBalanceSheetPDF(
+            currentAssets.concat(nonCurrentAssets).map(a => ({ accountCode: a.accountCode, accountName: a.accountName, balance: a.balance })),
+            stLiab.concat(ltLiab).concat(equity).map(a => ({ accountCode: a.accountCode, accountName: a.accountName, balance: a.balance })),
+            periodLabel, branchName, appSettings
+          )}><Printer className="w-4 h-4" />PDF</button>
         </div>
       </div>
 

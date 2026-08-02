@@ -374,7 +374,7 @@ export function exportStockLedgerDetailExcel(item, ledgerLines, itemBatches, app
 
       sumPenerimaan += qtyIn
       sumPengeluaran += qtyOut
-      if (idx === 0) lastBalance = sAkhir
+      lastBalance = sAkhir
 
       aoaData.push([
         idx + 1,

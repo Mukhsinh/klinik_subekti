@@ -40,7 +40,7 @@ export default function Header({ onMenuClick, sidebarCollapsed }) {
       <div className="flex items-center gap-2">
         <Building2 className="w-5 h-5 text-blue-600" />
         <span className="text-sm font-bold text-slate-800">Klinik Subekti</span>
-        <span className="text-xs text-slate-400 font-medium hidden sm:inline">| Sistem Akuntansi & Integrasi Inventori</span>
+        <span className="text-xs text-slate-400 font-medium hidden sm:inline">| Pintar Klinik @2026. Mukhsin Hadi. All Right Reserved</span>
       </div>
 
       <div className="flex-1" />

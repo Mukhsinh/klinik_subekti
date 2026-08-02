@@ -103,7 +103,7 @@ export function exportTrialBalancePDF(data, period, branchName, appSettings = nu
     head: [['Kode Akun', 'Nama Akun', 'Debit (Rp)', 'Kredit (Rp)']],
     body,
     foot: [['', 'TOTAL', fmtIDR(totD), fmtIDR(totC)]],
-    styles: { font: 'courier', fontSize: 8, cellPadding: 2 },
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2 },
     headStyles: { fillColor: [4, 100, 199], textColor: 255, fontStyle: 'bold' },
     footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold' },
     columnStyles: {
@@ -135,7 +135,7 @@ export function exportLedgerPDF(accountName, entries, period, appSettings = null
     startY,
     head: [['Tanggal', 'No. Jurnal', 'Keterangan', 'Debit', 'Kredit', 'Saldo']],
     body,
-    styles: { font: 'courier', fontSize: 7.5, cellPadding: 1.5 },
+    styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 1.5 },
     headStyles: { fillColor: [4, 100, 199], textColor: 255, fontStyle: 'bold' },
     columnStyles: {
       0: { cellWidth: 22 },
@@ -166,7 +166,7 @@ export function exportIncomeStatementPDF(data, period, branchName, appSettings =
     startY,
     head: [['Kode Akun', 'Keterangan', 'Jumlah (Rp)', 'Sub-Total (Rp)']],
     body,
-    styles: { font: 'courier', fontSize: 8, cellPadding: 2 },
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2 },
     headStyles: { fillColor: [4, 100, 199], textColor: 255, fontStyle: 'bold' },
     didParseCell(hookData) {
       if (hookData.row.raw?.[0] === '' && hookData.row.raw?.[3] !== '') {
@@ -419,5 +419,399 @@ export function exportEquityChangesPDF(data, period, branchName, appSettings = n
   addFooter(doc, appSettings)
   doc.save(`Perubahan_Ekuitas_${period?.replace(/\s/g, '_') || 'export'}.pdf`)
 }
+
+// ─── Balance Sheet (Neraca) PDF ───────────────────────────────
+export function exportBalanceSheetPDF(assets, liabEquity, period, branchName, appSettings = null) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const startY = addHeader(doc, 'NERACA (BALANCE SHEET)', period, branchName, appSettings)
+
+  const body = []
+  body.push(['', 'ASET (ASSETS)', ''])
+  assets.forEach(a => {
+    if (a.balance !== 0) {
+      body.push([a.accountCode || '', a.accountName || '', fmtIDR(a.balance || 0)])
+    }
+  })
+  const totalAssets = assets.reduce((s, a) => s + (a.balance || 0), 0)
+  body.push(['', 'TOTAL ASET', fmtIDR(totalAssets)])
+
+  body.push(['', '', ''])
+  body.push(['', 'LIABILITAS & EKUITAS (LIABILITIES & EQUITY)', ''])
+  liabEquity.forEach(l => {
+    if (l.balance !== 0) {
+      body.push([l.accountCode || '', l.accountName || '', fmtIDR(l.balance || 0)])
+    }
+  })
+  const totalLiabEq = liabEquity.reduce((s, l) => s + (l.balance || 0), 0)
+  body.push(['', 'TOTAL LIABILITAS & EKUITAS', fmtIDR(totalLiabEq)])
+
+  doc.autoTable({
+    startY,
+    head: [['Kode Akun', 'Keterangan', 'Saldo (Rp)']],
+    body,
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2.5 },
+    headStyles: { fillColor: [4, 100, 199], textColor: 255, fontStyle: 'bold' },
+    didParseCell(hookData) {
+      const isHeaderRow = hookData.row.raw?.[0] === '' && hookData.row.raw?.[2] === '' && hookData.row.raw?.[1] !== ''
+      const isTotalRow = hookData.row.raw?.[0] === '' && hookData.row.raw?.[1]?.startsWith('TOTAL')
+      if (isHeaderRow) {
+        hookData.cell.styles.fontStyle = 'bold'
+        hookData.cell.styles.fillColor = [226, 232, 240]
+        hookData.cell.styles.textColor = [15, 23, 42]
+      }
+      if (isTotalRow) {
+        hookData.cell.styles.fontStyle = 'bold'
+        hookData.cell.styles.fillColor = [241, 245, 249]
+        hookData.cell.styles.textColor = [4, 100, 199]
+      }
+    },
+    columnStyles: {
+      0: { cellWidth: 35 },
+      1: { cellWidth: 110 },
+      2: { cellWidth: 40, halign: 'right' },
+    },
+  })
+  addFooter(doc, appSettings)
+  doc.save(`Neraca_${period?.replace(/\s/g, '_') || 'export'}.pdf`)
+}
+
+// ─── Signature Block Helper ────────────────────────────────────
+function addSignatureBlock(doc, startY, city = 'Jakarta', dateStr = fmtDate(new Date())) {
+  const pageW = doc.internal.pageSize.getWidth()
+  const pageH = doc.internal.pageSize.getHeight()
+
+  let y = startY + 12
+  if (y + 40 > pageH - 18) {
+    doc.addPage()
+    y = 20
+  }
+
+  doc.setFontSize(8.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(51, 65, 85)
+
+  doc.text(`${city}, ${dateStr}`, pageW - 20, y, { align: 'right' })
+
+  const col1X = 35
+  const col2X = pageW / 2
+  const col3X = pageW - 35
+  const sigY = y + 7
+
+  doc.text('Pembuat Laporan,', col1X, sigY, { align: 'center' })
+  doc.text('Staf Akuntansi & Pajak', col1X, sigY + 4, { align: 'center' })
+
+  doc.text('Diperiksa Oleh,', col2X, sigY, { align: 'center' })
+  doc.text('Manager Keuangan', col2X, sigY + 4, { align: 'center' })
+
+  doc.text('Disetujui Oleh,', col3X, sigY, { align: 'center' })
+  doc.text('Pimpinan Klinik', col3X, sigY + 4, { align: 'center' })
+
+  const nameY = sigY + 22
+  doc.text('( ____________________ )', col1X, nameY, { align: 'center' })
+  doc.text('( ____________________ )', col2X, nameY, { align: 'center' })
+  doc.text('( ____________________ )', col3X, nameY, { align: 'center' })
+
+  return nameY + 8
+}
+
+// ─── PPN Tax Report PDF ────────────────────────────────────────
+export function exportPPNReportPDF({ periodBillings, periodExpenses, dppFarmasi, ppnKeluaran, ppnMasukan, ppnTerutang, periodLabel, branchName, appSettings = null }) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  let startY = addHeader(doc, 'LAPORAN PAJAK PERTAMBAHAN NILAI (PPN)', `Periode: ${periodLabel}`, branchName, appSettings)
+
+  // Summary Box
+  doc.setFillColor(248, 250, 252)
+  doc.setDrawColor(203, 213, 225)
+  doc.roundedRect(14, startY + 2, 182, 22, 2, 2, 'FD')
+
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(30, 41, 59)
+  doc.text('RINGKASAN REKAPITULASI PPN', 18, startY + 7)
+
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`DPP Penjualan Obat: ${fmtIDR(dppFarmasi)}`, 18, startY + 13)
+  doc.text(`PPN Keluaran (11%): ${fmtIDR(ppnKeluaran)}`, 18, startY + 18)
+
+  doc.text(`PPN Masukan (Pembelian): ${fmtIDR(ppnMasukan)}`, 100, startY + 13)
+  const statusPPN = ppnTerutang >= 0 ? 'PPN Kurang Bayar (Wajib Setor)' : 'PPN Lebih Bayar (Dikreditkan)'
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(ppnTerutang >= 0 ? 220 : 13, ppnTerutang >= 0 ? 38 : 148, ppnTerutang >= 0 ? 38 : 136)
+  doc.text(`${statusPPN}: ${fmtIDR(Math.abs(ppnTerutang))}`, 100, startY + 18)
+
+  startY += 28
+
+  // Table PPN Keluaran
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(15, 23, 42)
+  doc.text('1. PPN Keluaran — Penjualan Obat (Billing Kasir)', 14, startY)
+
+  const kelRows = (periodBillings || [])
+    .filter(b => (b.ppnAmount || 0) > 0)
+    .map(b => [
+      b.billingNumber,
+      fmtDate(b.visitDate),
+      b.patientName || '—',
+      fmtIDR(b.subtotalPharmacy || 0),
+      fmtIDR(b.ppnAmount || 0)
+    ])
+
+  doc.autoTable({
+    startY: startY + 3,
+    head: [['No. Billing', 'Tanggal', 'Nama Pasien', 'DPP Farmasi (Rp)', 'PPN 11% (Rp)']],
+    body: kelRows.length > 0 ? kelRows : [['—', '—', 'Belum ada transaksi PPN Keluaran', '0', '0']],
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 32 },
+      1: { cellWidth: 25 },
+      2: { cellWidth: 55 },
+      3: { cellWidth: 35, halign: 'right' },
+      4: { cellWidth: 35, halign: 'right' },
+    },
+    foot: [['', '', 'TOTAL PPN KELUARAN', fmtIDR(dppFarmasi), fmtIDR(ppnKeluaran)]],
+    footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', halign: 'right' }
+  })
+
+  let tableEndY = doc.lastAutoTable.finalY + 8
+
+  // Table PPN Masukan
+  if (tableEndY + 40 > doc.internal.pageSize.getHeight() - 20) {
+    doc.addPage()
+    tableEndY = 20
+  }
+
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(15, 23, 42)
+  doc.text('2. PPN Masukan — Pembelian & Pengeluaran', 14, tableEndY)
+
+  const masRows = (periodExpenses || [])
+    .filter(e => (e.ppnAmount || 0) > 0)
+    .map(e => [
+      e.expenseNumber,
+      fmtDate(e.expenseDate),
+      e.vendorName || '—',
+      e.description || '—',
+      fmtIDR(e.grossAmount || 0),
+      fmtIDR(e.ppnAmount || 0)
+    ])
+
+  const totalDPPExpense = (periodExpenses || []).reduce((s, e) => s + (e.grossAmount || 0), 0)
+
+  doc.autoTable({
+    startY: tableEndY + 3,
+    head: [['No. Pengeluaran', 'Tanggal', 'Vendor', 'Keterangan', 'DPP (Rp)', 'PPN Masukan (Rp)']],
+    body: masRows.length > 0 ? masRows : [['—', '—', '—', 'Belum ada faktur PPN masukan', '0', '0']],
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 30 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 35 },
+      3: { cellWidth: 40 },
+      4: { cellWidth: 28, halign: 'right' },
+      5: { cellWidth: 27, halign: 'right' },
+    },
+    foot: [['', '', '', 'TOTAL PPN MASUKAN', fmtIDR(totalDPPExpense), fmtIDR(ppnMasukan)]],
+    footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', halign: 'right' }
+  })
+
+  const finalY = doc.lastAutoTable.finalY
+  addSignatureBlock(doc, finalY)
+  addFooter(doc, appSettings)
+  doc.save(`Laporan_PPN_${periodLabel.replace(/\s+/g, '_')}.pdf`)
+}
+
+// ─── PPh 21 Tax Report PDF ─────────────────────────────────────
+export function exportPPh21ReportPDF({ pph21Transactions, totalGross, totalDPP, totalPPh21, totalNet, periodLabel, branchName, doctorNameFilter = 'Semua Dokter', appSettings = null }) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const subtitle = `Periode: ${periodLabel} | Dokter: ${doctorNameFilter}`
+  let startY = addHeader(doc, 'LAPORAN PPH PASAL 21 JASA MEDIS DOKTER', subtitle, branchName, appSettings)
+
+  const pageW = doc.internal.pageSize.getWidth()
+
+  // Summary Box
+  doc.setFillColor(248, 250, 252)
+  doc.setDrawColor(203, 213, 225)
+  doc.roundedRect(14, startY + 2, pageW - 28, 16, 2, 2, 'FD')
+
+  doc.setFontSize(8.5)
+  doc.setFont('helvetica', 'bold')
+
+  const colW = (pageW - 28) / 4
+  doc.setTextColor(30, 41, 59)
+  doc.text(`Total Jasa Medis Bruto: ${fmtIDR(totalGross)}`, 18, startY + 11)
+  doc.text(`Total DPP (50%): ${fmtIDR(totalDPP)}`, 18 + colW, startY + 11)
+  doc.setTextColor(220, 38, 38)
+  doc.text(`Total PPh 21 Dipotong: ${fmtIDR(totalPPh21)}`, 18 + colW * 2, startY + 11)
+  doc.setTextColor(5, 150, 105)
+  doc.text(`Total Neto ke Dokter: ${fmtIDR(totalNet)}`, 18 + colW * 3, startY + 11)
+
+  startY += 22
+
+  // Table Transactions
+  const rows = (pph21Transactions || []).map(d => [
+    d.billingNumber,
+    fmtDate(d.visitDate),
+    d.doctorName,
+    d.patientName,
+    d.patientMRN,
+    fmtIDR(d.grossAmount),
+    fmtIDR(d.dpp),
+    `${(d.rate * 100).toFixed(0)}%`,
+    fmtIDR(d.pph21Amount),
+    fmtIDR(d.netToDoctor)
+  ])
+
+  doc.autoTable({
+    startY,
+    head: [['No. Billing', 'Tanggal', 'Nama Dokter', 'Nama Pasien', 'No. RM', 'Bruto (Rp)', 'DPP 50% (Rp)', 'Tarif', 'PPh 21 (Rp)', 'Neto Dokter (Rp)']],
+    body: rows.length > 0 ? rows : [['—', '—', '—', 'Tidak ada data transaksi PPh 21 pada periode ini', '—', '0', '0', '0%', '0', '0']],
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 32 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 45 },
+      3: { cellWidth: 40 },
+      4: { cellWidth: 22 },
+      5: { cellWidth: 28, halign: 'right' },
+      6: { cellWidth: 25, halign: 'right' },
+      7: { cellWidth: 15, halign: 'center' },
+      8: { cellWidth: 25, halign: 'right' },
+      9: { cellWidth: 28, halign: 'right' },
+    },
+    foot: [['', '', '', 'TOTAL', '', fmtIDR(totalGross), fmtIDR(totalDPP), '', fmtIDR(totalPPh21), fmtIDR(totalNet)]],
+    footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', halign: 'right' }
+  })
+
+  const finalY = doc.lastAutoTable.finalY
+  addSignatureBlock(doc, finalY)
+  addFooter(doc, appSettings)
+  doc.save(`Laporan_PPh21_Dokter_${periodLabel.replace(/\s+/g, '_')}.pdf`)
+}
+
+// ─── Accounts Payable Subsidiary Ledger PDF Report ───────────────
+export function exportAPLedgerReportPDF({
+  summaryData = {},
+  vendorSummaryList = [],
+  detailTransactions = [],
+  vendorFilter = 'Semua Vendor',
+  periodLabel = 'Semua Periode',
+  branchName = 'Utama',
+  appSettings = null,
+}) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const subtitle = `Periode: ${periodLabel} | Filter Vendor: ${vendorFilter}`
+  let startY = addHeader(doc, 'LAPORAN BUKU PEMBANTU UTANG (ACCOUNTS PAYABLE)', subtitle, branchName, appSettings)
+
+  const pageW = doc.internal.pageSize.getWidth()
+
+  // KPI Summary Box
+  doc.setFillColor(248, 250, 252)
+  doc.setDrawColor(203, 213, 225)
+  doc.roundedRect(14, startY + 2, pageW - 28, 16, 2, 2, 'FD')
+
+  doc.setFontSize(8.5)
+  doc.setFont('helvetica', 'bold')
+
+  const colW = (pageW - 28) / 4
+  doc.setTextColor(220, 38, 38)
+  doc.text(`Total Utang Usaha: ${fmtIDR(summaryData.totalDebt || 0)}`, 18, startY + 11)
+  doc.setTextColor(217, 119, 6)
+  doc.text(`Sisa Belum Lunas: ${fmtIDR(summaryData.unpaidDebt || 0)}`, 18 + colW, startY + 11)
+  doc.setTextColor(5, 150, 105)
+  doc.text(`Total Pelunasan: ${fmtIDR(summaryData.paidDebt || 0)}`, 18 + colW * 2, startY + 11)
+  doc.setTextColor(37, 99, 235)
+  doc.text(`Vendor Aktif: ${summaryData.activeVendorsCount || 0} Supplier`, 18 + colW * 3, startY + 11)
+
+  startY += 22
+
+  // Table 1: Rekapitulasi Per Vendor
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(15, 23, 42)
+  doc.text('1. Rekapitulasi Utang Per Vendor / Supplier', 14, startY)
+
+  const rekapRows = (vendorSummaryList || []).map((v, i) => [
+    (i + 1).toString(),
+    v.code || '—',
+    v.name,
+    fmtIDR(v.totalGRN),
+    fmtIDR(v.totalPaid),
+    fmtIDR(v.unpaid),
+    v.unpaid > 0 ? 'Belum Lunas' : 'Lunas'
+  ])
+
+  doc.autoTable({
+    startY: startY + 3,
+    head: [['No', 'Kode Vendor', 'Nama Vendor / Supplier', 'Total Pembelian (GRN)', 'Total Pelunasan', 'Sisa Utang (Rp)', 'Status']],
+    body: rekapRows.length > 0 ? rekapRows : [['—', '—', 'Tidak ada data vendor', '0', '0', '0', '—']],
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 28 },
+      2: { cellWidth: 75 },
+      3: { cellWidth: 40, halign: 'right' },
+      4: { cellWidth: 40, halign: 'right' },
+      5: { cellWidth: 40, halign: 'right' },
+      6: { cellWidth: 25, halign: 'center' },
+    },
+    foot: [['', '', 'TOTAL REKAPITULASI UTANG', fmtIDR(summaryData.totalDebt || 0), fmtIDR(summaryData.paidDebt || 0), fmtIDR(summaryData.unpaidDebt || 0), '']],
+    footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', halign: 'right' }
+  })
+
+  let table2StartY = doc.lastAutoTable.finalY + 8
+
+  if (table2StartY + 40 > doc.internal.pageSize.getHeight() - 20) {
+    doc.addPage()
+    table2StartY = 20
+  }
+
+  // Table 2: Detail Transaksi Ledger
+  doc.setFontSize(10)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(15, 23, 42)
+  doc.text('2. Detail Rincian Buku Pembantu Utang (Ledger Transaksi)', 14, table2StartY)
+
+  const detailRows = (detailTransactions || []).map(t => [
+    fmtDate(t.date),
+    t.refNo,
+    t.invoiceNo || '—',
+    t.vendorName,
+    t.description || '—',
+    fmtIDR(t.debit),
+    fmtIDR(t.credit),
+    fmtIDR(t.balance)
+  ])
+
+  doc.autoTable({
+    startY: table2StartY + 3,
+    head: [['Tanggal', 'No. Referensi', 'No. Faktur', 'Vendor', 'Keterangan', 'Debet / Pelunasan', 'Kredit / Penambahan', 'Saldo Utang (Rp)']],
+    body: detailRows.length > 0 ? detailRows : [['—', '—', '—', '—', 'Tidak ada transaksi pada periode ini', '0', '0', '0']],
+    styles: { font: 'helvetica', fontSize: 8, cellPadding: 2 },
+    headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 22 },
+      1: { cellWidth: 32 },
+      2: { cellWidth: 28 },
+      3: { cellWidth: 45 },
+      4: { cellWidth: 55 },
+      5: { cellWidth: 28, halign: 'right' },
+      6: { cellWidth: 28, halign: 'right' },
+      7: { cellWidth: 30, halign: 'right' },
+    },
+  })
+
+  const finalY = doc.lastAutoTable.finalY
+  addSignatureBlock(doc, finalY)
+  addFooter(doc, appSettings)
+  doc.save(`Laporan_Buku_Pembantu_Utang_${periodLabel.replace(/\s+/g, '_')}.pdf`)
+}
+
 
 

@@ -33,6 +33,7 @@ import AssetInventoryPage from './pages/assets/AssetInventoryPage'
 import AssetDepreciationPage from './pages/assets/AssetDepreciationPage'
 import AssetMutationsPage from './pages/assets/AssetMutationsPage'
 import AssetCardPage from './pages/assets/AssetCardPage'
+import APSubLedgerPage from './pages/accounting/APSubLedgerPage'
 
 export default function App() {
   return (
@@ -73,6 +74,7 @@ export default function App() {
           <Route path="opening-balance" element={<OpeningBalancePage />} />
           <Route path="journal" element={<JournalPage />} />
           <Route path="ledger" element={<LedgerPage />} />
+          <Route path="ap-ledger" element={<APSubLedgerPage />} />
           <Route path="trial-balance" element={<TrialBalancePage />} />
           <Route path="income-statement" element={<IncomeStatementPage />} />
           <Route path="equity-changes" element={<EquityChangesPage />} />

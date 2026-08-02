@@ -829,11 +829,11 @@ export function useStore() {
     return id
   }, [])
 
-  const postExpense = useCallback(async (expenseId, journalEntryId, postedBy = 'System') => {
+  const postExpense = useCallback(async (expenseId, journalEntryId, postedBy = 'System', fullExpenseObj = null) => {
     const extra = { status: 'POSTED', journalEntryId, authorizedBy: postedBy, postedAt: new Date().toISOString() }
     setState(prev => ({ ...prev, expenses: prev.expenses.map(e => e.id === expenseId ? { ...e, ...extra } : e) }))
     try {
-      const cur = getState().expenses.find(e => e.id === expenseId)
+      const cur = fullExpenseObj || getState().expenses.find(e => e.id === expenseId)
       if (cur) await upsertExpense({ ...cur, ...extra })
     } catch (e) { console.error('[postExpense]', e.message) }
   }, [])
