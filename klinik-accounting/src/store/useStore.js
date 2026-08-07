@@ -818,25 +818,56 @@ export function useStore() {
   const generateExpenseNumber = useCallback(() => {
     const d = new Date()
     const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
-    return `EXP/${ym}/${String(s.expenses.length + 1).padStart(5, '0')}`
+    const prefix = `EXP/${ym}/`
+    let maxSeq = 0
+      ; (s.expenses || []).forEach(e => {
+        if (e.expenseNumber?.startsWith(prefix)) {
+          const parts = e.expenseNumber.split('/')
+          const seq = parseInt(parts[parts.length - 1], 10)
+          if (!isNaN(seq) && seq > maxSeq) maxSeq = seq
+        }
+      })
+    return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`
   }, [s.expenses])
 
   const saveExpense = useCallback(async (data) => {
     const id = data.id || uuidv4()
     const entry = { ...data, id, createdAt: data.createdAt || new Date().toISOString() }
     setState(prev => ({ ...prev, expenses: [...prev.expenses.filter(e => e.id !== id), entry] }))
-    try { await upsertExpense(entry) } catch (e) { console.error('[saveExpense]', e.message) }
+    try {
+      const saved = await upsertExpense(entry)
+      if (saved) {
+        const merged = { ...entry, ...saved }
+        setState(prev => ({ ...prev, expenses: [...prev.expenses.filter(e => e.id !== id), merged] }))
+        return merged.id
+      }
+    } catch (e) {
+      console.error('[saveExpense]', e.message)
+      throw e
+    }
     return id
   }, [])
 
   const postExpense = useCallback(async (expenseId, journalEntryId, postedBy = 'System', fullExpenseObj = null) => {
     const extra = { status: 'POSTED', journalEntryId, authorizedBy: postedBy, postedAt: new Date().toISOString() }
-    setState(prev => ({ ...prev, expenses: prev.expenses.map(e => e.id === expenseId ? { ...e, ...extra } : e) }))
+    const cur = fullExpenseObj || getState().expenses.find(e => e.id === expenseId)
+    const updated = cur ? { ...cur, ...extra } : { id: expenseId, ...extra }
+
+    setState(prev => ({ ...prev, expenses: prev.expenses.map(e => e.id === expenseId ? updated : e) }))
     try {
-      const cur = fullExpenseObj || getState().expenses.find(e => e.id === expenseId)
-      if (cur) await upsertExpense({ ...cur, ...extra })
-    } catch (e) { console.error('[postExpense]', e.message) }
+      if (updated) {
+        const saved = await upsertExpense(updated)
+        if (saved) {
+          const merged = { ...updated, ...saved }
+          setState(prev => ({ ...prev, expenses: prev.expenses.map(e => e.id === expenseId ? merged : e) }))
+        }
+      }
+    } catch (e) {
+      console.error('[postExpense]', e.message)
+      throw e
+    }
   }, [])
+
 
   // ── Doctor fee + PPh21 recording ─────────────────────────
   const saveDoctorFeeRecord = useCallback(async (rec) => {

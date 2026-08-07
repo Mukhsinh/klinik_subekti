@@ -6,7 +6,7 @@ import SearchInput from '../components/ui/SearchInput'
 import { StatusBadge } from '../components/ui/Badge'
 import { fmtIDR, fmtDate, todayISO, paymentMethodLabel } from '../utils/format'
 import SearchableSelect from '../components/ui/SearchableSelect'
-import { fetchBatches, fetchExpenses } from '../lib/db'
+import { fetchBatches, fetchExpenses, upsertExpense } from '../lib/db'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -440,7 +440,7 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
 }
 
 export default function ExpensePage() {
-  const { expenses, invBatches, generateExpenseNumber, saveExpense, postExpense, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber, vendors } = useStore()
+  const { expenses, invBatches, journalEntries, generateExpenseNumber, saveExpense, postExpense, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber, vendors } = useStore()
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
@@ -458,8 +458,8 @@ export default function ExpensePage() {
           fetchExpenses().catch(() => [])
         ])
         if (isMounted) {
-          if (Array.isArray(bData) && bData.length > 0) setDbBatches(bData)
-          if (Array.isArray(eData) && eData.length > 0) setDbExpenses(eData)
+          if (Array.isArray(bData)) setDbBatches(bData)
+          if (Array.isArray(eData)) setDbExpenses(eData)
         }
       } catch (err) {
         console.warn('[ExpensePage] Error fetching live DB:', err.message)
@@ -486,8 +486,46 @@ export default function ExpensePage() {
         const key = e.id || e.expenseNumber
         if (key) map.set(key, e)
       })
+      // Reconcile missing expense records from posted/draft expense journals
+      ; (journalEntries || []).forEach(j => {
+        if (j.entryType === 'EXPENSE' || j.entryNumber?.startsWith('EXP/')) {
+          const exists = Array.from(map.values()).some(
+            e => e.id === j.id || e.journalEntryId === j.id || e.expenseNumber === j.entryNumber
+          )
+          if (!exists) {
+            let cat = 'Beban Lain-Lain'
+            let desc = j.description || ''
+            if (desc.startsWith('Pengeluaran: ')) {
+              const clean = desc.replace('Pengeluaran: ', '')
+              const parts = clean.split(' — ')
+              if (parts.length >= 1) cat = parts[0]
+              if (parts.length >= 2) desc = parts.slice(1).join(' — ')
+            }
+            const synthExpense = {
+              id: j.id,
+              expenseNumber: j.entryNumber || `EXP-${j.id.slice(0, 8)}`,
+              expenseDate: j.transactionDate,
+              category: cat,
+              description: desc,
+              vendorName: '',
+              paymentMethod: 'KAS_BESAR',
+              grossAmount: Number(j.totalDebit || 0),
+              ppnAmount: 0,
+              pphAmount: 0,
+              netAmount: Number(j.totalDebit || 0),
+              status: j.status === 'POSTED' ? 'POSTED' : 'DRAFT',
+              journalEntryId: j.id,
+              branchId: j.branchId,
+              createdAt: j.createdAt || new Date().toISOString(),
+            }
+            map.set(synthExpense.id, synthExpense)
+            // Persist back to Supabase database so expense_entries table stays populated
+            upsertExpense(synthExpense).catch(() => { })
+          }
+        }
+      })
     return Array.from(map.values())
-  }, [dbExpenses, expenses])
+  }, [dbExpenses, expenses, journalEntries])
 
   const filtered = useMemo(() =>
     effectiveExpenses
@@ -499,49 +537,59 @@ export default function ExpensePage() {
     [effectiveExpenses, catFilter, search])
 
   const handleSaveDraft = async (data) => {
-    await saveExpense(data)
-    fetchExpenses().then(eData => {
-      if (Array.isArray(eData) && eData.length > 0) setDbExpenses(eData)
-    }).catch(() => { })
-    toast.success(`Draft pengeluaran ${data.expenseNumber} disimpan.`)
-    setModal(null)
+    try {
+      await saveExpense(data)
+      const eData = await fetchExpenses().catch(() => [])
+      if (Array.isArray(eData)) setDbExpenses(eData)
+      toast.success(`Draft pengeluaran ${data.expenseNumber} berhasil disimpan.`)
+      setModal(null)
+    } catch (err) {
+      console.error('[handleSaveDraft] Error:', err)
+      toast.error(`Gagal menyimpan draft pengeluaran: ${err.message || 'Terjadi kesalahan'}`)
+    }
   }
 
   const handlePost = async (expense) => {
-    const entryId = uuidv4()
-    const entryNumber = generateEntryNumber('EXP')
-    const catObj = EXPENSE_CATEGORIES.find(c => c.label === expense.category) || { coa: '6-18-006' }
-    const debitAcc = catObj.coa
+    try {
+      const entryId = uuidv4()
+      const entryNumber = generateEntryNumber('EXP')
+      const catObj = EXPENSE_CATEGORIES.find(c => c.label === expense.category) || { coa: '6-18-006' }
+      const debitAcc = catObj.coa
 
-    const creditAccMap = {
-      KAS: '1-11-001',
-      KAS_BESAR: '1-11-002',
-      TRANSFER: '1-11-003',
-      KARTU_KREDIT: '2-11-005'
-    }
-    const creditAcc = creditAccMap[expense.paymentMethod] || expense.creditCoaCode || '1-11-003'
+      const creditAccMap = {
+        KAS: '1-11-001',
+        KAS_BESAR: '1-11-002',
+        TRANSFER: '1-11-003',
+        KARTU_KREDIT: '2-11-005'
+      }
+      const creditAcc = creditAccMap[expense.paymentMethod] || expense.creditCoaCode || '1-11-003'
 
-    const header = {
-      id: entryId,
-      branchId: expense.branchId || activeBranchId,
-      entryNumber,
-      transactionDate: expense.expenseDate,
-      description: `Pengeluaran: ${expense.category} — ${expense.description}`,
-      entryType: 'EXPENSE',
-      totalDebit: expense.grossAmount,
-      totalCredit: expense.grossAmount,
+      const header = {
+        id: entryId,
+        branchId: expense.branchId || activeBranchId,
+        entryNumber,
+        transactionDate: expense.expenseDate,
+        description: `Pengeluaran: ${expense.category} — ${expense.description}`,
+        entryType: 'EXPENSE',
+        totalDebit: expense.grossAmount,
+        totalCredit: expense.grossAmount,
+      }
+      const jItems = [
+        { id: uuidv4(), journalEntryId: entryId, accountCode: debitAcc, description: expense.description, debit: expense.grossAmount, credit: 0 },
+        { id: uuidv4(), journalEntryId: entryId, accountCode: creditAcc, description: `${paymentMethodLabel(expense.paymentMethod)} — ${expense.vendorName || ''}`, debit: 0, credit: expense.grossAmount },
+      ]
+      await saveJournalDraft(header, jItems)
+      await postJournalEntry(entryId, 'Admin')
+      await postExpense(expense.id, entryId, 'Admin', expense)
+
+      const eData = await fetchExpenses().catch(() => [])
+      if (Array.isArray(eData)) setDbExpenses(eData)
+
+      toast.success(`Pengeluaran ${expense.expenseNumber} berhasil diposting ke jurnal.`)
+    } catch (err) {
+      console.error('[handlePost] Error:', err)
+      toast.error(`Gagal memposting pengeluaran: ${err.message || 'Terjadi kesalahan'}`)
     }
-    const jItems = [
-      { id: uuidv4(), journalEntryId: entryId, accountCode: debitAcc, description: expense.description, debit: expense.grossAmount, credit: 0 },
-      { id: uuidv4(), journalEntryId: entryId, accountCode: creditAcc, description: `${paymentMethodLabel(expense.paymentMethod)} — ${expense.vendorName || ''}`, debit: 0, credit: expense.grossAmount },
-    ]
-    await saveJournalDraft(header, jItems)
-    await postJournalEntry(entryId, 'Admin')
-    await postExpense(expense.id, entryId, 'Admin', expense)
-    fetchExpenses().then(eData => {
-      if (Array.isArray(eData) && eData.length > 0) setDbExpenses(eData)
-    }).catch(() => { })
-    toast.success(`Pengeluaran ${expense.expenseNumber} diposting ke buku besar.`)
   }
 
   const totalPosted = effectiveExpenses.filter(e => e.status === 'POSTED').reduce((s, e) => s + (e.grossAmount || 0), 0)
@@ -600,7 +648,7 @@ export default function ExpensePage() {
                 <tr><td colSpan={9} className="text-center py-12 text-slate-400">Belum ada pengeluaran dicatat</td></tr>
               ) : filtered.map(e => (
                 <tr key={e.id}>
-                  <td className="font-mono text-xs text-primary-700">{e.expenseNumber}</td>
+                  <td className="font-mono text-xs text-primary-700 font-semibold">{e.expenseNumber}</td>
                   <td className="text-sm">{fmtDate(e.expenseDate)}</td>
                   <td className="text-xs"><span className="badge badge-yellow">{e.category}</span></td>
                   <td className="max-w-[180px] truncate text-sm">{e.description}</td>
@@ -610,9 +658,9 @@ export default function ExpensePage() {
                   <td><StatusBadge status={e.status === 'POSTED' ? 'POSTED' : e.status === 'VOID' ? 'VOID' : 'DRAFT'} /></td>
                   <td>
                     <div className="flex items-center gap-1">
-                      <button className="btn-ghost p-1.5" onClick={() => { setSelected(e); setModal('view') }}><Eye className="w-3.5 h-3.5" /></button>
+                      <button className="btn-ghost p-1.5" onClick={() => { setSelected(e); setModal('view') }} title="Lihat Detail Preview"><Eye className="w-3.5 h-3.5" /></button>
                       {e.status === 'DRAFT' && (
-                        <button className="btn-ghost p-1.5 text-emerald-600" onClick={() => handlePost(e)} title="Otorisasi & Post">
+                        <button className="btn-ghost p-1.5 text-emerald-600" onClick={() => handlePost(e)} title="Otorisasi & Post ke Jurnal">
                           <CheckCircle className="w-3.5 h-3.5" />
                         </button>
                       )}
@@ -645,20 +693,22 @@ export default function ExpensePage() {
         {selected && (
           <div className="space-y-3 text-sm">
             {[
-              ['No.', selected.expenseNumber],
-              ['Tanggal', fmtDate(selected.expenseDate)],
-              ['Kategori', selected.category],
+              ['No. Pengeluaran', selected.expenseNumber],
+              ['Tanggal Transaksi', fmtDate(selected.expenseDate)],
+              ['Kategori Beban', selected.category],
               ['Keterangan', selected.description],
-              ['Vendor', selected.vendorName || '—'],
-              ['Metode', paymentMethodLabel(selected.paymentMethod)],
+              ['Vendor / Supplier', selected.vendorName || '—'],
+              ['Faktur / GRN Terkait', Array.isArray(selected.selectedGrnRefs) && selected.selectedGrnRefs.length > 0 ? selected.selectedGrnRefs.join(', ') : '—'],
+              ['Metode Pembayaran', paymentMethodLabel(selected.paymentMethod)],
               ['Nilai Bruto', fmtIDR(selected.grossAmount)],
-              ['PPN', fmtIDR(selected.ppnAmount || 0)],
+              ['PPN Masukan', fmtIDR(selected.ppnAmount || 0)],
               ['PPh Dipotong', fmtIDR(selected.pphAmount || 0)],
-              ['Net Dibayar', fmtIDR(selected.netAmount || selected.grossAmount)]
+              ['Net Dibayar', fmtIDR(selected.netAmount || selected.grossAmount)],
+              ['Status Jurnal', selected.status === 'POSTED' ? 'POSTED (Terjurnal)' : 'DRAFT']
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between border-b border-slate-100 pb-2">
                 <span className="text-slate-500">{k}</span>
-                <span className="font-medium">{v}</span>
+                <span className="font-medium font-mono text-slate-800">{v}</span>
               </div>
             ))}
           </div>
@@ -667,3 +717,5 @@ export default function ExpensePage() {
     </div>
   )
 }
+
+

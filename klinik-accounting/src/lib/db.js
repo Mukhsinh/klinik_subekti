@@ -533,16 +533,41 @@ export async function fetchExpenses(branchId = null) {
   handleError(error, 'fetchExpenses')
   return normArr(data)
 }
+const ALLOWED_EXPENSE_COLUMNS = new Set([
+  'id', 'branch_id', 'expense_number', 'expense_date', 'category',
+  'description', 'vendor_name', 'payment_method', 'gross_amount',
+  'ppn_amount', 'pph_amount', 'net_amount', 'receipt_file_url',
+  'status', 'journal_entry_id', 'created_by', 'authorized_by',
+  'created_at', 'selected_grn_refs'
+])
+
 export async function upsertExpense(expense) {
   const row = snake(expense)
-    ;['gross_amount', 'ppn_amount', 'pph_amount', 'net_amount'].forEach(k => { row[k] = Number(row[k] || 0) })
+  const cleanRow = {}
+  for (const [k, v] of Object.entries(row)) {
+    if (ALLOWED_EXPENSE_COLUMNS.has(k)) {
+      cleanRow[k] = v
+    }
+  }
+  // Ensure numeric fields and fallback values
+  ;['gross_amount', 'ppn_amount', 'pph_amount', 'net_amount'].forEach(k => {
+    cleanRow[k] = Number(cleanRow[k] || 0)
+  })
+  if (!cleanRow.branch_id || cleanRow.branch_id === '') cleanRow.branch_id = null
+  if (!cleanRow.status) cleanRow.status = 'DRAFT'
+  if (!cleanRow.expense_date) cleanRow.expense_date = new Date().toISOString().split('T')[0]
+  if (cleanRow.selected_grn_refs && !Array.isArray(cleanRow.selected_grn_refs)) {
+    cleanRow.selected_grn_refs = null
+  }
+
   const { data, error } = await supabase
     .from('expense_entries')
-    .upsert(row, { onConflict: 'id' })
+    .upsert(cleanRow, { onConflict: 'id' })
     .select().single()
   handleError(error, 'upsertExpense')
   return norm(data)
 }
+
 
 // ══════════════════════════════════════════════════════════════
 // DOCTORS
