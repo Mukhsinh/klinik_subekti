@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Download } from 'lucide-react'
 import { useStore } from '../../store/useStore'
-import { fetchBillings, fetchExpenses } from '../../lib/db'
 import { fmtIDR, fmtDate, fmtPct, monthStart, monthEnd, PPN_RATE } from '../../utils/format'
 import { exportPPNReportPDF } from '../../utils/exportPDF'
 import * as XLSX from 'xlsx'
@@ -13,32 +12,8 @@ export default function PPNPage() {
   const [dateTo, setDateTo] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
 
-  // Live DB fallback
-  const [dbBillings, setDbBillings] = useState([])
-  const [dbExpenses, setDbExpenses] = useState([])
-
-  useEffect(() => {
-    let isMounted = true
-    const loadData = async () => {
-      try {
-        const [bData, eData] = await Promise.all([
-          fetchBillings().catch(() => []),
-          fetchExpenses().catch(() => [])
-        ])
-        if (isMounted) {
-          if (Array.isArray(bData) && bData.length > 0) setDbBillings(bData)
-          if (Array.isArray(eData) && eData.length > 0) setDbExpenses(eData)
-        }
-      } catch (err) {
-        console.warn('[PPNPage] Error fetching live DB:', err.message)
-      }
-    }
-    loadData()
-    return () => { isMounted = false }
-  }, [])
-
-  const effectiveBillings = dbBillings.length > 0 ? dbBillings : (billings || [])
-  const effectiveExpenses = dbExpenses.length > 0 ? dbExpenses : (expenses || [])
+  const effectiveBillings = billings || []
+  const effectiveExpenses = expenses || []
 
   const periodBillings = useMemo(() =>
     effectiveBillings.filter(b =>

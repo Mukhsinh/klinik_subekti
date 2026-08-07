@@ -81,36 +81,11 @@ function FormattedNumberInput({ value, onChange, placeholder, className, style, 
 }
 
 export default function GRNPage() {
-  const { pharmacyItems, invBatches, activeBranchId, vendors } = useStore()
+  const { pharmacyItems, invBatches, activeBranchId, vendors, refreshAll } = useStore()
 
-  const [dbPharmacyItems, setDbPharmacyItems] = useState([])
-  const [dbVendors, setDbVendors] = useState([])
-  const [dbBatches, setDbBatches] = useState([])
-
-  const loadLiveDbData = async () => {
-    try {
-      const [items, vends, batches] = await Promise.all([
-        fetchPharmacyItems().catch(() => []),
-        fetchVendors().catch(() => []),
-        fetchBatches().catch(() => []),
-      ])
-      if (Array.isArray(items)) setDbPharmacyItems(items)
-      if (Array.isArray(vends)) setDbVendors(vends)
-      if (Array.isArray(batches)) setDbBatches(batches)
-    } catch (err) {
-      console.warn('[GRNPage] Error loading live DB:', err)
-    }
-  }
-
-  useEffect(() => {
-    let isMounted = true
-    loadLiveDbData()
-    return () => { isMounted = false }
-  }, [])
-
-  const itemsList = dbPharmacyItems.length > 0 ? dbPharmacyItems : (pharmacyItems || [])
-  const vendorsList = dbVendors.length > 0 ? dbVendors : (vendors || [])
-  const batchesList = dbBatches.length > 0 ? dbBatches : (invBatches || [])
+  const itemsList = pharmacyItems || []
+  const vendorsList = vendors || []
+  const batchesList = invBatches || []
 
   // Edit / View state for existing GRNs
   const [editingGrnRef, setEditingGrnRef] = useState(null)
@@ -475,7 +450,7 @@ export default function GRNPage() {
 
       toast.success(editingGrnRef ? `GRN ${grnNumber} berhasil diperbarui di database!` : `GRN ${grnNumber} berhasil diproses & tersimpan di database!`)
       resetForm()
-      await loadLiveDbData()
+      await refreshAll()
     } catch (err) {
       console.error('[GRN Submit Error]', err)
       toast.error(`Gagal menyimpan GRN: ${err.message || 'Terjadi kesalahan'}`)

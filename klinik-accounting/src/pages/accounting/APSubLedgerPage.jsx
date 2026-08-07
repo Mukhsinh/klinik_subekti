@@ -17,53 +17,8 @@ export default function APSubLedgerPage() {
     const [search, setSearch] = useState('')
     const [activeTab, setActiveTab] = useState('rekap') // 'rekap' | 'detail'
 
-    const [dbBatches, setDbBatches] = useState([])
-    const [dbExpenses, setDbExpenses] = useState([])
-    const [loading, setLoading] = useState(true)
-
-    // Fetch live batches and expenses from database
-    useEffect(() => {
-        let isMounted = true
-        const loadLiveData = async () => {
-            setLoading(true)
-            try {
-                const [bData, eData] = await Promise.all([
-                    fetchBatches().catch(() => []),
-                    fetchExpenses().catch(() => [])
-                ])
-                if (isMounted) {
-                    setDbBatches(Array.isArray(bData) && bData.length > 0 ? bData : (invBatches || []))
-                    setDbExpenses(Array.isArray(eData) && eData.length > 0 ? eData : (expenses || []))
-                }
-            } catch (err) {
-                console.warn('[APSubLedgerPage] Error loading DB:', err.message)
-            } finally {
-                if (isMounted) setLoading(false)
-            }
-        }
-        loadLiveData()
-        return () => { isMounted = false }
-    }, [invBatches, expenses])
-
-    const effectiveBatches = useMemo(() => {
-        const map = new Map()
-            ; (dbBatches || []).forEach(b => { if (b.id) map.set(b.id, b) })
-            ; (invBatches || []).forEach(b => { if (b.id) map.set(b.id, b) })
-        return Array.from(map.values())
-    }, [dbBatches, invBatches])
-
-    const effectiveExpenses = useMemo(() => {
-        const map = new Map()
-            ; (dbExpenses || []).forEach(e => {
-                const key = e.id || e.expenseNumber
-                if (key) map.set(key, e)
-            })
-            ; (expenses || []).forEach(e => {
-                const key = e.id || e.expenseNumber
-                if (key) map.set(key, e)
-            })
-        return Array.from(map.values())
-    }, [dbExpenses, expenses])
+    const effectiveBatches = useMemo(() => invBatches || [], [invBatches])
+    const effectiveExpenses = useMemo(() => expenses || [], [expenses])
 
     // Options for Vendor select dropdown
     const vendorSelectOptions = useMemo(() => {

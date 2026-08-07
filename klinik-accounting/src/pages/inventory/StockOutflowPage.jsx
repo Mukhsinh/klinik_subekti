@@ -37,54 +37,14 @@ const OUTFLOW_TYPES = [
 
 export default function StockOutflowPage() {
   const {
-    pharmacyItems, invBatches, stockLedger, billings, billingItems,
-    branches, activeBranchId
+    pharmacyItems, invBatches, stockLedger, stockOutflows, stockOutflowItems, billings, billingItems,
+    branches, activeBranchId, refreshAll
   } = useStore()
 
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
-
-  const [dbStockLedger, setDbStockLedger] = useState([])
-  const [dbBillings, setDbBillings] = useState([])
-  const [dbBillingItems, setDbBillingItems] = useState([])
-  const [dbOutflows, setDbOutflows] = useState([])
-  const [dbOutflowItems, setDbOutflowItems] = useState([])
-  const [dbPharmacyItems, setDbPharmacyItems] = useState([])
-  const [dbBatches, setDbBatches] = useState([])
-  const [dbBranches, setDbBranches] = useState([])
-
-  const loadLiveDbData = async () => {
-    try {
-      const [ledgerData, billingData, bItemsData, outflowData, outflowItemsData, pharmacyData, batchData, branchData] = await Promise.all([
-        fetchStockLedger().catch(() => []),
-        fetchBillings().catch(() => []),
-        fetchAllBillingItems().catch(() => []),
-        fetchStockOutflows().catch(() => []),
-        fetchStockOutflowItems().catch(() => []),
-        fetchPharmacyItems().catch(() => []),
-        fetchBatches().catch(() => []),
-        fetchBranches().catch(() => []),
-      ])
-      if (Array.isArray(ledgerData)) setDbStockLedger(ledgerData)
-      if (Array.isArray(billingData)) setDbBillings(billingData)
-      if (Array.isArray(bItemsData)) setDbBillingItems(bItemsData)
-      if (Array.isArray(outflowData)) setDbOutflows(outflowData)
-      if (Array.isArray(outflowItemsData)) setDbOutflowItems(outflowItemsData)
-      if (Array.isArray(pharmacyData)) setDbPharmacyItems(pharmacyData)
-      if (Array.isArray(batchData)) setDbBatches(batchData)
-      if (Array.isArray(branchData)) setDbBranches(branchData)
-    } catch (err) {
-      console.warn('[StockOutflowPage] Error loading live database:', err.message)
-    }
-  }
-
-  useEffect(() => {
-    let isMounted = true
-    loadLiveDbData()
-    return () => { isMounted = false }
-  }, [])
 
   // Form states
   const [outflowDate, setOutflowDate] = useState(todayISO())
@@ -93,11 +53,11 @@ export default function StockOutflowPage() {
   const [items, setItems] = useState([])
 
   const effectiveBranchId = useMemo(() => {
-    return activeBranchId || (dbBranches && dbBranches[0]?.id) || (branches && branches[0]?.id) || 'f265df27-e277-4775-8b1d-5f28e585599a'
-  }, [activeBranchId, dbBranches, branches])
+    return activeBranchId || (branches && branches[0]?.id) || 'f265df27-e277-4775-8b1d-5f28e585599a'
+  }, [activeBranchId, branches])
 
-  const outflows = dbOutflows
-  const outflowItems = dbOutflowItems
+  const outflows = stockOutflows || []
+  const outflowItems = stockOutflowItems || []
 
   const outflowNumber = useMemo(() => {
     const d = new Date()
@@ -106,13 +66,13 @@ export default function StockOutflowPage() {
   }, [outflows])
 
   const activePharmacyItems = useMemo(() => {
-    const list = dbPharmacyItems.length > 0 ? dbPharmacyItems : (pharmacyItems || [])
+    const list = pharmacyItems || []
     return list.filter(i => (i.isActive !== false && i.is_active !== false))
-  }, [dbPharmacyItems, pharmacyItems])
+  }, [pharmacyItems])
 
   const activeBatches = useMemo(() => {
-    return dbBatches.length > 0 ? dbBatches : (invBatches || [])
-  }, [dbBatches, invBatches])
+    return invBatches || []
+  }, [invBatches])
 
   const getItemStock = (itemId) => {
     if (!itemId) return 0
@@ -124,8 +84,8 @@ export default function StockOutflowPage() {
       .reduce((sum, b) => sum + Number(b.quantityCurrent ?? b.quantity_current ?? 0), 0)
 
     // 2. Calculate stock from stock ledger cards (Kartu Stok)
-    const ledgerSource = dbStockLedger.length > 0 ? dbStockLedger : (stockLedger || [])
-    const bItemsSource = dbBillingItems.length > 0 ? dbBillingItems : (billingItems || [])
+    const ledgerSource = stockLedger || []
+    const bItemsSource = billingItems || []
 
     const itemLedger = ledgerSource.filter(l => (l.itemId === itemId || l.item_id === itemId))
 
@@ -149,7 +109,7 @@ export default function StockOutflowPage() {
       bItemsSource.forEach(bi => {
         const biItemId = bi.pharmacyItemId || bi.pharmacy_item_id || bi.itemId || bi.item_id
         if (biItemId === itemId) {
-          const billing = (dbBillings || []).find(b => b.id === (bi.billingId || bi.billing_id))
+          const billing = (billings || []).find(b => b.id === (bi.billingId || bi.billing_id))
           const refNo = billing?.billingNumber || billing?.billing_number
           if (!refNo || !processedBillingKeys.has(refNo)) {
             extraBillingOut += Number(bi.quantity || 1)
@@ -527,7 +487,7 @@ export default function StockOutflowPage() {
       resetForm()
 
       // Reload live DB data to update UI instantly
-      await loadLiveDbData()
+      await refreshAll()
     } catch (err) {
       console.error('[StockOutflow handleSave Error]', err)
       toast.error(err.message || 'Gagal menyimpan pengeluaran stok')

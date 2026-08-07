@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Download, Filter, UserCheck } from 'lucide-react'
 import { useStore } from '../../store/useStore'
-import { fetchDoctors, fetchBillings } from '../../lib/db'
 import { fmtIDR, fmtDate, fmtPct, monthStart, monthEnd, calcPPh21Doctor } from '../../utils/format'
 import { exportPPh21ReportPDF } from '../../utils/exportPDF'
 import * as XLSX from 'xlsx'
@@ -14,32 +13,8 @@ export default function PPh21Page() {
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
   const [doctorFilter, setDoctorFilter] = useState('ALL')
 
-  // Live database states from Supabase
-  const [dbDoctors, setDbDoctors] = useState([])
-  const [dbBillings, setDbBillings] = useState([])
-
-  useEffect(() => {
-    let isMounted = true
-    const loadData = async () => {
-      try {
-        const [docData, billData] = await Promise.all([
-          fetchDoctors().catch(() => []),
-          fetchBillings().catch(() => []),
-        ])
-        if (isMounted) {
-          if (Array.isArray(docData) && docData.length > 0) setDbDoctors(docData)
-          if (Array.isArray(billData) && billData.length > 0) setDbBillings(billData)
-        }
-      } catch (err) {
-        console.warn('[PPh21Page] Error loading live DB:', err.message)
-      }
-    }
-    loadData()
-    return () => { isMounted = false }
-  }, [])
-
-  const effectiveDoctors = dbDoctors.length > 0 ? dbDoctors : (doctors || [])
-  const effectiveBillings = dbBillings.length > 0 ? dbBillings : (billings || [])
+  const effectiveDoctors = doctors || []
+  const effectiveBillings = billings || []
 
   // Doctor dropdown options
   const doctorOptions = useMemo(() => {

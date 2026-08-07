@@ -36,9 +36,9 @@ const TRANS_COLORS = {
 
 export default function StockLedgerPage() {
   const {
-    pharmacyItems, invBatches, stockLedger,
+    pharmacyItems, invBatches, stockLedger, billingItems, billings,
     adjustStock, saveJournalDraft, postJournalEntry,
-    activeBranchId, generateEntryNumber,
+    activeBranchId, generateEntryNumber, refreshAll,
   } = useStore()
   const { appSettings } = useAuth()
 
@@ -50,54 +50,21 @@ export default function StockLedgerPage() {
   const [adjQty, setAdjQty] = useState('')
   const [recapSearch, setRecapSearch] = useState('')
 
-  // Live database states
-  const [dbPharmacyItems, setDbPharmacyItems] = useState([])
-  const [dbStockLedger, setDbStockLedger] = useState([])
-  const [dbBatches, setDbBatches] = useState([])
-  const [dbBillingItems, setDbBillingItems] = useState([])
-  const [dbBillings, setDbBillings] = useState([])
-
-  useEffect(() => {
-    let isMounted = true
-    const loadLiveDbData = async () => {
-      try {
-        const [itemsData, ledgerData, batchData, bItemsData, billData] = await Promise.all([
-          fetchPharmacyItems().catch(() => []),
-          fetchStockLedger().catch(() => []),
-          fetchBatches().catch(() => []),
-          fetchAllBillingItems().catch(() => []),
-          fetchBillings().catch(() => []),
-        ])
-        if (isMounted) {
-          if (Array.isArray(itemsData)) setDbPharmacyItems(itemsData)
-          if (Array.isArray(ledgerData)) setDbStockLedger(ledgerData)
-          if (Array.isArray(batchData)) setDbBatches(batchData)
-          if (Array.isArray(bItemsData)) setDbBillingItems(bItemsData)
-          if (Array.isArray(billData)) setDbBillings(billData)
-        }
-      } catch (err) {
-        console.warn('[StockLedgerPage] Error loading live DB:', err.message)
-      }
-    }
-    loadLiveDbData()
-    return () => { isMounted = false }
-  }, [])
-
-  const effectivePharmacyItems = dbPharmacyItems.length > 0 ? dbPharmacyItems : (pharmacyItems || [])
-  const effectiveBatches = dbBatches.length > 0 ? dbBatches : (invBatches || [])
+  const effectivePharmacyItems = pharmacyItems || []
+  const effectiveBatches = invBatches || []
 
   const effectiveStockLedger = useMemo(() => {
-    const baseLedger = dbStockLedger.length > 0 ? dbStockLedger : (stockLedger || [])
+    const baseLedger = stockLedger || []
     const list = [...baseLedger]
     const processedKeys = new Set(
       list.filter(l => l.transactionType === 'BILLING').map(l => `${l.referenceNumber}_${l.itemId}`)
     )
 
-    if (Array.isArray(dbBillingItems) && dbBillingItems.length > 0) {
-      dbBillingItems
+    if (Array.isArray(billingItems) && billingItems.length > 0) {
+      billingItems
         .filter(bi => bi.itemType === 'PHARMACY' || bi.pharmacyItemId)
         .forEach(bi => {
-          const billing = (dbBillings || []).find(b => b.id === bi.billingId)
+          const billing = (billings || []).find(b => b.id === bi.billingId)
           const itemId = bi.pharmacyItemId || bi.itemId
           const refNo = billing?.billingNumber || 'BILL-KASIR'
           const key = `${refNo}_${itemId}`
@@ -123,7 +90,7 @@ export default function StockLedgerPage() {
     }
 
     return list
-  }, [dbStockLedger, stockLedger, dbBillingItems, dbBillings])
+  }, [stockLedger, billingItems, billings])
 
   const selectOptions = useMemo(() => {
     const list = effectivePharmacyItems
@@ -334,6 +301,7 @@ export default function StockLedgerPage() {
 
     toast.success('Penyesuaian stok berhasil dicatat. Jurnal otomatis dibuat.')
     setAdjustModal(false)
+    await refreshAll()
   }
 
   return (

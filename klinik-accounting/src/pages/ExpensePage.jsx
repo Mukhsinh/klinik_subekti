@@ -12,28 +12,33 @@ import { v4 as uuidv4 } from 'uuid'
 
 const EXPENSE_CATEGORIES = [
   { label: 'Pembayaran Utang PBF / Supplier', coa: '2-11-001' },
-  { label: 'Listrik', coa: '6-13-001' },
-  { label: 'Air (PDAM)', coa: '6-13-002' },
-  { label: 'Telepon & Internet', coa: '6-13-003' },
-  { label: 'Sewa Gedung', coa: '6-13-004' },
-  { label: 'Alat Tulis Kantor', coa: '6-13-005' },
+  { label: 'Listrik', coa: '6-13-003' },
+  { label: 'Air (PDAM)', coa: '6-13-004' },
+  { label: 'Telepon & Internet', coa: '6-13-005' },
+  { label: 'Sewa Gedung / Bangunan', coa: '6-14-001' },
+  { label: 'Alat Tulis Kantor (ATK)', coa: '6-13-001' },
+  { label: 'Bahan Cetakan & Fotokopi', coa: '6-13-002' },
   { label: 'Kebersihan & Sanitasi', coa: '6-13-006' },
-  { label: 'Pemeliharaan Gedung', coa: '6-14-001' },
-  { label: 'Servis & Kalibrasi Alat', coa: '6-14-002' },
-  { label: 'Pemeliharaan Kendaraan', coa: '6-14-003' },
-  { label: 'Gaji Karyawan', coa: '6-11-004' },
-  { label: 'BPJS Ketenagakerjaan', coa: '6-11-006' },
-  { label: 'Iklan & Promosi', coa: '6-16-001' },
-  { label: 'Audit & Konsultasi', coa: '6-18-001' },
-  { label: 'Notaris & Legal', coa: '6-18-002' },
-  { label: 'Perjalanan Dinas', coa: '6-18-003' },
-  { label: 'Bunga Pinjaman', coa: '6-18-004' },
-  { label: 'Beban Lain-Lain', coa: '6-18-006' },
+  { label: 'Keamanan', coa: '6-13-007' },
+  { label: 'Pemeliharaan Gedung', coa: '6-15-001' },
+  { label: 'Pemeliharaan Peralatan Medis', coa: '6-15-002' },
+  { label: 'Pemeliharaan IT & Komputer', coa: '6-15-005' },
+  { label: 'Iklan & Promosi', coa: '6-17-001' },
+  { label: 'Gaji Dokter Tetap', coa: '6-11-001' },
+  { label: 'Gaji Perawat & Bidan', coa: '6-11-002' },
+  { label: 'Gaji Staff Administrasi', coa: '6-11-004' },
+  { label: 'Tunjangan Karyawan', coa: '6-11-006' },
+  { label: 'Lembur Karyawan', coa: '6-11-007' },
+  { label: 'Konsumsi & Jamuan', coa: '6-13-010' },
+  { label: 'Parkir & Transportasi', coa: '6-13-009' },
+  { label: 'Beban Pajak & Perizinan', coa: '6-19-003' },
+  { label: 'Beban Admin Bank', coa: '6-19-001' },
+  { label: 'Beban Lain-Lain', coa: '6-91-004' }
 ]
 
 function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, vendors = [], storeBatches = [], storeExpenses = [] }) {
-  const [form, setForm] = useState({
-    expenseNumber: generateExpenseNumber(),
+  const [form, setForm] = useState(() => ({
+    expenseNumber: typeof generateExpenseNumber === 'function' ? generateExpenseNumber() : '',
     expenseDate: todayISO(),
     category: EXPENSE_CATEGORIES[0].label,
     description: '',
@@ -43,19 +48,42 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     ppnAmount: '',
     pphAmount: '',
     selectedGrnRefs: [],
-  })
+  }))
 
   // Selected unpaid GRN debt items state: { [grnRef]: { selected: boolean, payAmount: number, totalVal: number, unpaid: number } }
   const [grnDebtSelections, setGrnDebtSelections] = useState({})
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const vendorOptions = useMemo(() =>
-    (vendors || [])
-      .filter(v => v.isActive !== false)
-      .map(v => ({ value: v.name, label: `${v.code} — ${v.name}` })),
-    [vendors]
-  )
+  const vendorOptions = useMemo(() => {
+    const list = []
+    const nameSet = new Set()
+
+      // 1. Master Vendors from settings / database
+      ; (vendors || []).forEach(v => {
+        if (v.name && v.isActive !== false) {
+          const key = v.name.toLowerCase().trim()
+          if (!nameSet.has(key)) {
+            nameSet.add(key)
+            list.push({ value: v.name, label: `${v.code ? v.code + ' — ' : ''}${v.name}` })
+          }
+        }
+      })
+
+      // 2. Suppliers from inventory batches / GRNs
+      ; (storeBatches || []).forEach(b => {
+        const sName = (b.supplierName || b.supplier_name || '').trim()
+        if (sName && !sName.toLowerCase().includes('saldo awal')) {
+          const key = sName.toLowerCase()
+          if (!nameSet.has(key)) {
+            nameSet.add(key)
+            list.push({ value: sName, label: `Supplier GRN: ${sName}` })
+          }
+        }
+      })
+
+    return list.sort((a, b) => a.label.localeCompare(b.label))
+  }, [vendors, storeBatches])
 
   const selectedCat = EXPENSE_CATEGORIES.find(c => c.label === form.category) || EXPENSE_CATEGORIES[0]
 
@@ -116,7 +144,13 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     return grnList.sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt))
   }, [form.vendorName, storeBatches, storeExpenses])
 
-  // Initialize or reset selections when vendorName or vendorUnpaidGRNs changes
+  // Stable primitive key to avoid infinite rerenders in useEffect
+  const grnSignature = useMemo(() =>
+    vendorUnpaidGRNs.map(g => `${g.grnReference}:${Math.round(g.unpaid)}`).join('|'),
+    [vendorUnpaidGRNs]
+  )
+
+  // Initialize or reset selections when vendorName or GRN debt list changes
   useEffect(() => {
     if (vendorUnpaidGRNs.length > 0) {
       const initialSelections = {}
@@ -132,7 +166,7 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     } else {
       setGrnDebtSelections({})
     }
-  }, [vendorUnpaidGRNs])
+  }, [grnSignature])
 
   // Handle toggling GRN checkbox
   const handleToggleGrn = (grnRef) => {
@@ -446,42 +480,10 @@ export default function ExpensePage() {
   const [search, setSearch] = useState('')
   const [catFilter, setCatFilter] = useState('ALL')
 
-  const [dbBatches, setDbBatches] = useState([])
-  const [dbExpenses, setDbExpenses] = useState([])
-
-  useEffect(() => {
-    let isMounted = true
-    const loadLiveData = async () => {
-      try {
-        const [bData, eData] = await Promise.all([
-          fetchBatches().catch(() => []),
-          fetchExpenses().catch(() => [])
-        ])
-        if (isMounted) {
-          if (Array.isArray(bData)) setDbBatches(bData)
-          if (Array.isArray(eData)) setDbExpenses(eData)
-        }
-      } catch (err) {
-        console.warn('[ExpensePage] Error fetching live DB:', err.message)
-      }
-    }
-    loadLiveData()
-    return () => { isMounted = false }
-  }, [])
-
-  const effectiveBatches = useMemo(() => {
-    const map = new Map()
-      ; (dbBatches || []).forEach(b => { if (b.id) map.set(b.id, b) })
-      ; (invBatches || []).forEach(b => { if (b.id) map.set(b.id, b) })
-    return Array.from(map.values())
-  }, [dbBatches, invBatches])
+  const effectiveBatches = useMemo(() => invBatches || [], [invBatches])
 
   const effectiveExpenses = useMemo(() => {
     const map = new Map()
-      ; (dbExpenses || []).forEach(e => {
-        const key = e.id || e.expenseNumber
-        if (key) map.set(key, e)
-      })
       ; (expenses || []).forEach(e => {
         const key = e.id || e.expenseNumber
         if (key) map.set(key, e)
@@ -529,11 +531,22 @@ export default function ExpensePage() {
 
   const filtered = useMemo(() =>
     effectiveExpenses
-      .filter(e => catFilter === 'ALL' || e.category === catFilter)
-      .filter(e => !search || e.description?.toLowerCase().includes(search.toLowerCase()) ||
-        e.expenseNumber?.toLowerCase().includes(search.toLowerCase()) ||
-        e.vendorName?.toLowerCase().includes(search.toLowerCase()))
-      .sort((a, b) => new Date(b.expenseDate) - new Date(a.expenseDate)),
+      .filter(e => {
+        if (catFilter === 'ALL') return true
+        if (!e.category) return false
+        return e.category === catFilter || e.category.toLowerCase().includes(catFilter.toLowerCase())
+      })
+      .filter(e => {
+        if (!search) return true
+        const s = search.toLowerCase()
+        return (
+          (e.description && e.description.toLowerCase().includes(s)) ||
+          (e.expenseNumber && e.expenseNumber.toLowerCase().includes(s)) ||
+          (e.vendorName && e.vendorName.toLowerCase().includes(s)) ||
+          (e.category && e.category.toLowerCase().includes(s))
+        )
+      })
+      .sort((a, b) => new Date(b.expenseDate || b.createdAt || 0) - new Date(a.expenseDate || a.createdAt || 0)),
     [effectiveExpenses, catFilter, search])
 
   const handleSaveDraft = async (data) => {
@@ -553,16 +566,27 @@ export default function ExpensePage() {
     try {
       const entryId = uuidv4()
       const entryNumber = generateEntryNumber('EXP')
-      const catObj = EXPENSE_CATEGORIES.find(c => c.label === expense.category) || { coa: '6-18-006' }
-      const debitAcc = catObj.coa
 
+      // Debit account priority: stored expense.coaCode -> exact category lookup -> fallback 6-91-004
+      const catObj = EXPENSE_CATEGORIES.find(c => c.label === expense.category) || { coa: '6-91-004' }
+      const debitAcc = expense.coaCode || catObj.coa || '6-91-004'
+
+      // Credit account priority: stored expense.creditCoaCode -> paymentMethod lookup -> fallback 1-11-002
       const creditAccMap = {
         KAS: '1-11-001',
         KAS_BESAR: '1-11-002',
         TRANSFER: '1-11-003',
         KARTU_KREDIT: '2-11-005'
       }
-      const creditAcc = creditAccMap[expense.paymentMethod] || expense.creditCoaCode || '1-11-003'
+      const creditAcc = expense.creditCoaCode || creditAccMap[expense.paymentMethod] || '1-11-002'
+
+      const gross = Number(expense.grossAmount || 0)
+      const ppn = Number(expense.ppnAmount || 0)
+      const pph = Number(expense.pphAmount || 0)
+      const net = Number(expense.netAmount || (gross + ppn - pph))
+
+      const totalDebit = gross + ppn
+      const totalCredit = pph + net
 
       const header = {
         id: entryId,
@@ -571,21 +595,68 @@ export default function ExpensePage() {
         transactionDate: expense.expenseDate,
         description: `Pengeluaran: ${expense.category} — ${expense.description}`,
         entryType: 'EXPENSE',
-        totalDebit: expense.grossAmount,
-        totalCredit: expense.grossAmount,
+        totalDebit,
+        totalCredit,
       }
-      const jItems = [
-        { id: uuidv4(), journalEntryId: entryId, accountCode: debitAcc, description: expense.description, debit: expense.grossAmount, credit: 0 },
-        { id: uuidv4(), journalEntryId: entryId, accountCode: creditAcc, description: `${paymentMethodLabel(expense.paymentMethod)} — ${expense.vendorName || ''}`, debit: 0, credit: expense.grossAmount },
-      ]
+
+      const jItems = []
+
+      // Line 1: Debit Beban / Utang Usaha (Gross Amount)
+      jItems.push({
+        id: uuidv4(),
+        journalEntryId: entryId,
+        accountCode: debitAcc,
+        description: expense.description,
+        debit: gross,
+        credit: 0
+      })
+
+      // Line 2: Debit PPN Masukan (if PPN > 0) -> 1-14-002 (PPN Masukan)
+      if (ppn > 0) {
+        jItems.push({
+          id: uuidv4(),
+          journalEntryId: entryId,
+          accountCode: '1-14-002',
+          description: `PPN Masukan — ${expense.expenseNumber}`,
+          debit: ppn,
+          credit: 0
+        })
+      }
+
+      // Line 3: Credit Utang PPh (if PPh > 0) -> 2-13-003 (Utang PPh 23)
+      if (pph > 0) {
+        jItems.push({
+          id: uuidv4(),
+          journalEntryId: entryId,
+          accountCode: '2-13-003',
+          description: `PPh Dipotong — ${expense.expenseNumber}`,
+          debit: 0,
+          credit: pph
+        })
+      }
+
+      // Line 4: Credit Kas / Bank (Net Amount)
+      jItems.push({
+        id: uuidv4(),
+        journalEntryId: entryId,
+        accountCode: creditAcc,
+        description: `${paymentMethodLabel(expense.paymentMethod)} — ${expense.vendorName || ''}`,
+        debit: 0,
+        credit: net
+      })
+
       await saveJournalDraft(header, jItems)
       await postJournalEntry(entryId, 'Admin')
-      await postExpense(expense.id, entryId, 'Admin', expense)
+      await postExpense(expense.id, entryId, 'Admin', {
+        ...expense,
+        coaCode: debitAcc,
+        creditCoaCode: creditAcc,
+      })
 
       const eData = await fetchExpenses().catch(() => [])
       if (Array.isArray(eData)) setDbExpenses(eData)
 
-      toast.success(`Pengeluaran ${expense.expenseNumber} berhasil diposting ke jurnal.`)
+      toast.success(`Pengeluaran ${expense.expenseNumber} berhasil diposting ke jurnal (${debitAcc} / ${creditAcc}).`)
     } catch (err) {
       console.error('[handlePost] Error:', err)
       toast.error(`Gagal memposting pengeluaran: ${err.message || 'Terjadi kesalahan'}`)
