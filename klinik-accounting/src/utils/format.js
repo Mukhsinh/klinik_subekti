@@ -137,11 +137,15 @@ export function parseNumericInput(val) {
     str = str.replace(',', '.')
   } else if (str.includes('.')) {
     // If string has dot(s) and NO comma:
-    // Check if dot looks like a thousand separator (e.g. 5.000, 10.000, 1.250.000)
+    // In Indonesian accounting, dot is standard thousand separator (e.g. 1.000, 10.000, 100.000, 1.000.000)
     const dotParts = str.split('.')
-    const isThousandSep = dotParts.length > 2 || (dotParts.length === 2 && dotParts[1].length === 3)
-    if (isThousandSep) {
+    if (dotParts.length > 2) {
       str = str.replace(/\./g, '')
+    } else if (dotParts.length === 2) {
+      // If right side has 3 or more digits (e.g. "1.000" or user typed another digit "1.0000"), it's thousand separator!
+      if (dotParts[1].length >= 3) {
+        str = str.replace(/\./g, '')
+      }
     }
   }
 

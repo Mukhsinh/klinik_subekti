@@ -27,12 +27,19 @@ function generateGRN(batches = []) {
   if (Array.isArray(batches)) {
     batches.forEach(b => {
       const ref = b.grnReference || b.grn_reference || b.referenceNumber || b.reference_number || ''
-      if (ref && typeof ref === 'string' && ref.includes('GRN/')) {
-        const parts = ref.split('/')
-        const seqStr = parts[parts.length - 1]
-        const seq = parseInt(seqStr, 10)
-        if (!isNaN(seq) && seq > maxSeq) {
-          maxSeq = seq
+      if (ref && typeof ref === 'string') {
+        if (ref.startsWith(prefix)) {
+          const parts = ref.split('/')
+          const seq = parseInt(parts[parts.length - 1], 10)
+          if (!isNaN(seq) && seq > maxSeq) {
+            maxSeq = seq
+          }
+        } else if (ref.includes(`/${dateStr}/`)) {
+          const parts = ref.split('/')
+          const seq = parseInt(parts[parts.length - 1], 10)
+          if (!isNaN(seq) && seq > maxSeq) {
+            maxSeq = seq
+          }
         }
       }
     })
@@ -43,27 +50,39 @@ function generateGRN(batches = []) {
 
 function FormattedNumberInput({ value, onChange, placeholder, className, style, disabled }) {
   const [displayVal, setDisplayVal] = useState('')
+  const [isFocused, setIsFocused] = useState(false)
 
   useEffect(() => {
-    if (value !== undefined && value !== null && value !== '') {
-      const num = parseNumericInput(value)
-      setDisplayVal(num ? fmtNum(num) : String(value))
-    } else {
-      setDisplayVal('')
+    if (!isFocused) {
+      if (value !== undefined && value !== null && value !== '') {
+        const num = parseNumericInput(value)
+        setDisplayVal(num ? fmtNum(num) : String(value))
+      } else {
+        setDisplayVal('')
+      }
     }
-  }, [value])
+  }, [value, isFocused])
+
+  const handleFocus = () => {
+    setIsFocused(true)
+    if (value !== undefined && value !== null && value !== '') {
+      setDisplayVal(String(value))
+    }
+  }
 
   const handleChange = (e) => {
     if (disabled) return
     const raw = e.target.value
-    const num = parseNumericInput(raw)
     setDisplayVal(raw)
+    const num = parseNumericInput(raw)
     onChange(num)
   }
 
   const handleBlur = () => {
+    setIsFocused(false)
     const num = parseNumericInput(displayVal)
     setDisplayVal(num ? fmtNum(num) : '')
+    onChange(num)
   }
 
   return (
@@ -72,6 +91,7 @@ function FormattedNumberInput({ value, onChange, placeholder, className, style, 
       className={`${className} ${disabled ? 'bg-slate-100/90 text-slate-500 cursor-not-allowed border-slate-200' : ''}`}
       value={displayVal}
       onChange={handleChange}
+      onFocus={handleFocus}
       onBlur={handleBlur}
       placeholder={placeholder}
       style={style}
@@ -147,19 +167,20 @@ export default function GRNPage() {
   }, [itemsList])
 
   const previewBatches = useMemo(() => {
-    return [...batchesList].sort((a, b) => new Date(b.receivedAt || b.createdAt) - new Date(a.receivedAt || a.createdAt))
+    return [...batchesList].sort((a, b) => new Date(b.receivedAt || b.received_at || b.createdAt || b.created_at) - new Date(a.receivedAt || a.received_at || a.createdAt || a.created_at))
   }, [batchesList])
 
   const groupedGRNs = useMemo(() => {
     const groups = {}
     previewBatches.forEach(b => {
-      const ref = b.grnReference || 'UNCLASSIFIED'
+      const ref = b.grnReference || b.grn_reference || 'UNCLASSIFIED'
+      if (ref === 'SALDO-AWAL') return
       if (!groups[ref]) {
         groups[ref] = {
           grnReference: ref,
-          receivedAt: b.receivedAt || b.createdAt,
-          supplierName: b.supplierName || '—',
-          journalEntryId: b.journalEntryId || null,
+          receivedAt: b.receivedAt || b.received_at || b.createdAt || b.created_at,
+          supplierName: b.supplierName || b.supplier_name || '—',
+          journalEntryId: b.journalEntryId || b.journal_entry_id || null,
           batches: []
         }
       }
@@ -194,6 +215,13 @@ export default function GRNPage() {
   const handleRemoveLine = (id) => {
     setLines(ls => ls.filter(l => l.id !== id))
     toast.success('Item dihapus dari daftar penerimaan')
+  }
+
+  const handleSetExpiryPreset = (years) => {
+    const d = new Date()
+    d.setFullYear(d.getFullYear() + years)
+    const iso = d.toISOString().split('T')[0]
+    setCurrentItem(prev => ({ ...prev, expiryDate: iso }))
   }
 
   const handleAddTempItemToModalList = () => {
@@ -260,18 +288,62 @@ export default function GRNPage() {
   }
 
   const handleCommitModalItemsToMain = () => {
-    if (modalTempItems.length === 0) {
-      if (currentItem.itemId) {
-        handleAddTempItemToModalList()
+    let itemsToAdd = [...modalTempItems]
+
+    // If user filled in the input fields, automatically validate and commit it together
+    if (currentItem.itemId) {
+      if (!currentItem.batchNumber.trim()) {
+        toast.error('No. Batch wajib diisi')
         return
       }
-      toast.error('Belum ada item di daftar sementara modal.')
+      if (!currentItem.expiryDate) {
+        toast.error('Tanggal kadaluarsa wajib diisi')
+        return
+      }
+      if (new Date(currentItem.expiryDate) <= new Date()) {
+        toast.error('Tanggal kadaluarsa harus di masa depan')
+        return
+      }
+      if (!parseFloat(currentItem.unitCostPrice) || parseFloat(currentItem.unitCostPrice) <= 0) {
+        toast.error('HPP / Unit (Rp) harus lebih besar dari 0')
+        return
+      }
+      if (!parseFloat(currentItem.quantityReceived) || parseFloat(currentItem.quantityReceived) <= 0) {
+        toast.error('Jumlah / Qty harus lebih besar dari 0')
+        return
+      }
+
+      const hpp = parseFloat(currentItem.unitCostPrice) || 0
+      const sp = parseFloat(currentItem.sellingPrice) || Math.round(hpp * 1.25)
+      const itemData = {
+        ...currentItem,
+        id: currentItem.id || uuidv4(),
+        unitCostPrice: hpp,
+        sellingPrice: sp,
+        quantityReceived: parseFloat(currentItem.quantityReceived) || 1,
+      }
+      itemsToAdd.push(itemData)
+    }
+
+    if (itemsToAdd.length === 0) {
+      toast.error('Silakan pilih item farmasi dan lengkapi data penerimaan terlebih dahulu.')
       return
     }
 
-    setLines(prev => [...prev, ...modalTempItems])
+    setLines(prev => [...prev, ...itemsToAdd])
+    setModalTempItems([])
+    setCurrentItem({
+      id: null,
+      itemId: '',
+      batchNumber: '',
+      expiryDate: '',
+      unitCostPrice: '',
+      sellingPrice: '',
+      quantityReceived: '1',
+      notes: ''
+    })
     setItemModalOpen(false)
-    toast.success(`Berhasil menambahkan ${modalTempItems.length} item ke dokumen GRN!`)
+    toast.success(`Berhasil menambahkan ${itemsToAdd.length} item ke dokumen GRN!`)
   }
 
   // PSAK 14 / PSAK 202 Calculations
@@ -299,12 +371,12 @@ export default function GRNPage() {
 
     const loadedLines = grnGroup.batches.map(b => ({
       id: b.id || uuidv4(),
-      itemId: b.itemId,
-      batchNumber: b.batchNumber,
-      expiryDate: b.expiryDate ? b.expiryDate.split('T')[0] : '',
-      unitCostPrice: b.unitCostPrice,
-      sellingPrice: b.sellingPrice,
-      quantityReceived: b.quantityReceived,
+      itemId: b.itemId || b.item_id,
+      batchNumber: b.batchNumber || b.batch_number,
+      expiryDate: (b.expiryDate || b.expiry_date) ? (b.expiryDate || b.expiry_date).split('T')[0] : '',
+      unitCostPrice: b.unitCostPrice ?? b.unit_cost_price,
+      sellingPrice: b.sellingPrice ?? b.selling_price,
+      quantityReceived: b.quantityReceived ?? b.quantity_received,
       notes: ''
     }))
     setLines(loadedLines)
@@ -312,10 +384,11 @@ export default function GRNPage() {
     toast.success(`GRN ${grnGroup.grnReference} dimuat ke form untuk diedit (Jumlah Qty & Harga dikunci).`)
   }
 
-  const resetForm = () => {
+  const resetForm = (customBatches = null) => {
+    const srcBatches = customBatches || batchesList
     setEditingGrnRef(null)
     setEditingJournalId(null)
-    setGrnNumber(generateGRN(batchesList))
+    setGrnNumber(generateGRN(srcBatches))
     setGrnDate(todayISO())
     setInvoiceDate(todayISO())
     setSupplierName('')
@@ -375,20 +448,26 @@ export default function GRNPage() {
         }
       })
 
-      const ledgerEntries = batchesData.map(b => ({
-        id: uuidv4(),
-        batchId: b.id,
-        itemId: b.itemId,
-        transactionType: 'GRN',
-        referenceId: b.id,
-        referenceNumber: grnNumber,
-        quantityIn: b.quantityReceived,
-        quantityOut: 0,
-        balanceAfter: b.quantityReceived,
-        unitCost: b.unitCostPrice,
-        totalValue: b.quantityReceived * b.unitCostPrice,
-        loggedAt: receivedTime,
-      }))
+      const ledgerEntries = batchesData.map(b => {
+        const prevQty = (batchesList || [])
+          .filter(ob => (ob.itemId || ob.item_id) === b.itemId)
+          .reduce((s, ob) => s + (Number(ob.quantityCurrent ?? ob.quantity_current ?? 0)), 0)
+        return {
+          id: uuidv4(),
+          batchId: b.id,
+          itemId: b.itemId,
+          transactionType: 'GRN',
+          referenceId: b.id,
+          referenceNumber: grnNumber,
+          quantityIn: b.quantityReceived,
+          quantityOut: 0,
+          balanceAfter: prevQty + b.quantityReceived,
+          unitCost: b.unitCostPrice,
+          totalValue: b.quantityReceived * b.unitCostPrice,
+          notes: `GRN ${grnNumber} dari ${supplierName}`,
+          loggedAt: receivedTime,
+        }
+      })
 
       const entryNumber = editingGrnRef ? `GRN-${grnNumber}` : `GRN/${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(10000 + Math.random() * 90000)}`
       const journalLines = []
@@ -449,7 +528,10 @@ export default function GRNPage() {
       }
 
       toast.success(editingGrnRef ? `GRN ${grnNumber} berhasil diperbarui di database!` : `GRN ${grnNumber} berhasil diproses & tersimpan di database!`)
-      resetForm()
+
+      // Auto-advance GRN sequence to next number automatically
+      const nextBatches = [...batchesList, ...batchesData]
+      resetForm(nextBatches)
       await refreshAll()
     } catch (err) {
       console.error('[GRN Submit Error]', err)
@@ -753,10 +835,10 @@ export default function GRNPage() {
               <tbody>
                 {groupedGRNs.map(grn => {
                   const itemsCount = grn.batches.length
-                  const totalQtyGrn = grn.batches.reduce((sum, b) => sum + (Number(b.quantityReceived) || 0), 0)
-                  const totalValGrn = grn.batches.reduce((sum, b) => sum + (Number(b.quantityReceived) || 0) * (Number(b.unitCostPrice) || 0), 0)
+                  const totalQtyGrn = grn.batches.reduce((sum, b) => sum + (Number(b.quantityReceived ?? b.quantity_received) || 0), 0)
+                  const totalValGrn = grn.batches.reduce((sum, b) => sum + (Number(b.quantityReceived ?? b.quantity_received) || 0) * (Number(b.unitCostPrice ?? b.unit_cost_price) || 0), 0)
 
-                  const itemNamesList = Array.from(new Set(grn.batches.map(b => itemMap[b.itemId]?.itemName).filter(Boolean)))
+                  const itemNamesList = Array.from(new Set(grn.batches.map(b => itemMap[b.itemId || b.item_id]?.itemName).filter(Boolean)))
                   const firstItemName = itemNamesList[0] || '—'
                   const extraItemsCount = itemNamesList.length - 1
 
@@ -830,7 +912,7 @@ export default function GRNPage() {
                 onClick={handleCommitModalItemsToMain}
               >
                 <CheckCircle className="w-4 h-4" />
-                Simpan & Masukkan {modalTempItems.length > 0 ? `${modalTempItems.length} Item` : ''} ke GRN
+                Simpan & Masukkan {modalTempItems.length > 0 ? `${modalTempItems.length + (currentItem.itemId ? 1 : 0)} Item` : (currentItem.itemId ? '1 Item' : '')} ke GRN
               </button>
             )}
           </>
@@ -886,13 +968,47 @@ export default function GRNPage() {
                 />
               </div>
               <div>
-                <label className="form-label font-bold text-slate-800 text-xs">Tanggal Kadaluarsa (ED) *</label>
+                <div className="flex items-center justify-between">
+                  <label className="form-label font-bold text-slate-800 text-xs">Tanggal Kadaluarsa (ED) *</label>
+                  {currentItem.expiryDate && (
+                    <span className="text-[11px] font-bold text-primary-700">
+                      {new Date(currentItem.expiryDate).getFullYear() > new Date().getFullYear()
+                        ? `Periode ${new Date(currentItem.expiryDate).getFullYear() - new Date().getFullYear()} thn ke depan`
+                        : ''}
+                    </span>
+                  )}
+                </div>
                 <input
                   type="date"
+                  min={todayISO()}
+                  max="2099-12-31"
                   className="form-input text-xs font-medium font-sans text-slate-800"
                   value={currentItem.expiryDate}
                   onChange={e => setCurrentItem(prev => ({ ...prev, expiryDate: e.target.value }))}
                 />
+                {/* Shortcut Preset Masa Kadaluarsa hingga 5 tahun ke depan */}
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Periode Cepat:</span>
+                  {[1, 2, 3, 4, 5].map(yr => {
+                    const targetYear = new Date().getFullYear() + yr
+                    const isSelected = currentItem.expiryDate && new Date(currentItem.expiryDate).getFullYear() === targetYear
+                    return (
+                      <button
+                        key={yr}
+                        type="button"
+                        onClick={() => handleSetExpiryPreset(yr)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                          isSelected
+                            ? 'bg-primary-600 text-white border-primary-600 shadow-sm'
+                            : 'bg-white hover:bg-primary-50 text-slate-700 hover:text-primary-700 border-slate-300'
+                        }`}
+                        title={`Set kadaluarsa ${yr} tahun ke depan (${targetYear})`}
+                      >
+                        +{yr} Thn ({targetYear})
+                      </button>
+                    )
+                  })}
+                </div>
                 {getExpiryWarning(currentItem.expiryDate) && (
                   <p className="text-[11px] text-amber-600 mt-1 font-bold flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" /> {getExpiryWarning(currentItem.expiryDate)?.msg}
@@ -1102,17 +1218,20 @@ export default function GRNPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {viewingGrn.batches.map(b => {
-                    const item = itemMap[b.itemId]
+                    const item = itemMap[b.itemId || b.item_id]
                     const uStr = item?.unit || item?.smallUnit || item?.satuan || item?.uom || 'Unit'
-                    const total = (Number(b.quantityReceived) || 0) * (Number(b.unitCostPrice) || 0)
+                    const unitPrice = Number(b.unitCostPrice ?? b.unit_cost_price ?? 0)
+                    const sellPrice = Number(b.sellingPrice ?? b.selling_price ?? 0)
+                    const qty = Number(b.quantityReceived ?? b.quantity_received ?? 0)
+                    const total = qty * unitPrice
                     return (
                       <tr key={b.id}>
                         <td className="py-2.5 px-3 font-bold text-slate-800">{item?.itemName || '—'}</td>
-                        <td className="py-2.5 px-3 font-mono">{b.batchNumber}</td>
-                        <td className="py-2.5 px-3 font-medium">{fmtDate(b.expiryDate)}</td>
-                        <td className="py-2.5 px-3 text-right font-bold">{fmtIDR(b.unitCostPrice)}</td>
-                        <td className="py-2.5 px-3 text-right font-bold text-amber-700">{fmtIDR(b.sellingPrice)}</td>
-                        <td className="py-2.5 px-3 text-right font-extrabold text-blue-700">{fmtNum(b.quantityReceived)} {uStr}</td>
+                        <td className="py-2.5 px-3 font-mono">{b.batchNumber || b.batch_number}</td>
+                        <td className="py-2.5 px-3 font-medium">{fmtDate(b.expiryDate || b.expiry_date)}</td>
+                        <td className="py-2.5 px-3 text-right font-bold">{fmtIDR(unitPrice)}</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-amber-700">{fmtIDR(sellPrice)}</td>
+                        <td className="py-2.5 px-3 text-right font-extrabold text-blue-700">{fmtNum(qty)} {uStr}</td>
                         <td className="py-2.5 px-3 text-right font-extrabold text-slate-900">{fmtIDR(total)}</td>
                       </tr>
                     )
