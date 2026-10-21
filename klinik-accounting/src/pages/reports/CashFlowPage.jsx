@@ -1,7 +1,10 @@
 import { useState, useMemo } from 'react'
-import { Download, ArrowRightLeft } from 'lucide-react'
+import { Download, ArrowRightLeft, FileSpreadsheet } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { useAuth } from '../../store/useAuth'
 import { fmtIDR, fmtDate, monthStart, monthEnd } from '../../utils/format'
+import { exportCashFlowPDF } from '../../utils/exportPDF'
+import { exportCashFlowExcel } from '../../utils/exportExcel'
 
 // Simplified indirect method cash flow
 const OPERATING_CASH_CODES = [
@@ -12,6 +15,7 @@ const FINANCING_CODES = ['2-21-001', '2-21-002', '3-11-001', '3-11-002', '3-13-0
 
 export default function CashFlowPage() {
   const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
+  const { appSettings } = useAuth()
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(monthEnd())
   const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
@@ -85,6 +89,29 @@ export default function CashFlowPage() {
   const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
   const branchName = branches.find(b => b.id === branchFilter)?.entityName || 'Semua Cabang'
 
+  const cashFlowData = {
+    netProfit,
+    totalDepreciation,
+    receivableChange,
+    inventoryChange,
+    payableChange,
+    taxPayableChange,
+    operatingCF,
+    investingCF,
+    financingCF,
+    netCashFlow,
+    openingCashBalance,
+    endingCashBalance,
+  }
+
+  const handleExportPDF = () => {
+    exportCashFlowPDF(cashFlowData, periodLabel, branchName, appSettings)
+  }
+
+  const handleExportExcel = () => {
+    exportCashFlowExcel(cashFlowData, periodLabel, branchName, appSettings)
+  }
+
   function Row({ label, value, indent = 0, isSection = false, isTotal = false, sign = 1 }) {
     const display = value !== undefined && value !== null ? (sign < 0 ? -value : value) : null
     return (
@@ -103,6 +130,24 @@ export default function CashFlowPage() {
         <div>
           <h1 className="page-title">Laporan Arus Kas</h1>
           <p className="text-sm text-slate-400 mt-0.5">Statement of Cash Flows — Metode Tidak Langsung (PSAK 2)</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleExportPDF}
+            className="btn-danger-red flex items-center gap-1.5 shadow-sm"
+            title="Unduh Laporan Arus Kas format PDF Resmi"
+          >
+            <Download className="w-4 h-4" />
+            <span>Unduh PDF</span>
+          </button>
+          <button
+            onClick={handleExportExcel}
+            className="btn-success flex items-center gap-1.5 shadow-sm"
+            title="Unduh Laporan Arus Kas format Microsoft Excel"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Unduh Excel</span>
+          </button>
         </div>
       </div>
 

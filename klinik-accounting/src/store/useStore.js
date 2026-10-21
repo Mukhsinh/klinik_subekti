@@ -1372,7 +1372,7 @@ export function useStore() {
     const vendor = {
       ...data,
       id: data.id || uuidv4(),
-      isActive: true,
+      isActive: data.isActive !== undefined ? data.isActive : true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
@@ -1383,20 +1383,24 @@ export function useStore() {
       return saved
     } catch (e) {
       console.error('[addVendor]', e.message)
-      return vendor
+      setState(prev => ({ ...prev, vendors: prev.vendors.filter(v => v.id !== vendor.id) }))
+      throw e
     }
   }, [])
 
   const updateVendor = useCallback(async (id, data) => {
+    const prevVendors = s.vendors
+    const cur = prevVendors.find(v => v.id === id)
     setState(prev => ({
       ...prev,
       vendors: prev.vendors.map(v => v.id === id ? { ...v, ...data, updatedAt: new Date().toISOString() } : v)
     }))
     try {
-      const cur = s.vendors.find(v => v.id === id)
       if (cur) await upsertVendor({ ...cur, ...data })
     } catch (e) {
       console.error('[updateVendor]', e.message)
+      setState(prev => ({ ...prev, vendors: prevVendors }))
+      throw e
     }
   }, [s.vendors])
 
@@ -1404,7 +1408,7 @@ export function useStore() {
     const tariff = {
       ...data,
       id: data.id || uuidv4(),
-      isActive: true,
+      isActive: data.isActive !== undefined ? data.isActive : true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
@@ -1415,20 +1419,24 @@ export function useStore() {
       return saved
     } catch (e) {
       console.error('[addServiceTariff]', e.message)
-      return tariff
+      setState(prev => ({ ...prev, serviceTariffs: prev.serviceTariffs.filter(t => t.id !== tariff.id) }))
+      throw e
     }
   }, [])
 
   const updateServiceTariff = useCallback(async (id, data) => {
+    const prevTariffs = s.serviceTariffs
+    const cur = prevTariffs.find(t => t.id === id)
     setState(prev => ({
       ...prev,
       serviceTariffs: prev.serviceTariffs.map(t => t.id === id ? { ...t, ...data, updatedAt: new Date().toISOString() } : t)
     }))
     try {
-      const cur = s.serviceTariffs.find(t => t.id === id)
       if (cur) await upsertServiceTariff({ ...cur, ...data })
     } catch (e) {
       console.error('[updateServiceTariff]', e.message)
+      setState(prev => ({ ...prev, serviceTariffs: prevTariffs }))
+      throw e
     }
   }, [s.serviceTariffs])
 

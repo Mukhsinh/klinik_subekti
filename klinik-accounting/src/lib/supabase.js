@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://hatrvqeihrjczsqxmfqf.supabase.co'
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhhdHJ2cWVpaHJqY3pzcXhtZnFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxODI3NzAsImV4cCI6MjEwMDc1ODc3MH0.dJ74w-lqjecyF_JsrDAF3fxsoNk0itIE3mBSTEamn1g'
+const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {}
+const SUPABASE_URL = env.VITE_SUPABASE_URL || 'https://jrnhkiljfudmzoglkisf.supabase.co'
+const SUPABASE_ANON = env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpybmhraWxqZnVkbXpvZ2xraXNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMDQwNTYsImV4cCI6MjA5OTc4MDA1Nn0.xU1Okb53w0cgyRmUkldTbJVLO7tpCUUYYTuzDKGt1mk'
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
   auth: { persistSession: false },

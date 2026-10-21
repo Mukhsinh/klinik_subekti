@@ -95,10 +95,15 @@ export default function AppSettingsPage() {
     toast.success('Logo berhasil dihapus.')
   }
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault()
-    saveAppSettings(form)
-    toast.success('Pengaturan aplikasi berhasil disimpan.')
+    try {
+      await saveAppSettings(form)
+      toast.success('Pengaturan aplikasi berhasil disimpan.')
+    } catch (err) {
+      console.error('[handleSave]', err)
+      toast.error('Gagal menyimpan pengaturan: ' + (err.message || 'Terjadi kesalahan'))
+    }
   }
 
   return (

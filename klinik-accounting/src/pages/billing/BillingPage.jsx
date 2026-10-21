@@ -396,41 +396,41 @@ export default function BillingPage() {
   }
 
   const handlePrintReceipt = (b) => {
-    const bItems = billingItems.filter(i => i.billingId === b.id)
+    const bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
     exportBillingReceiptPDF(b, bItems, appSettings)
   }
 
   const handleOpenEditModal = (b) => {
     setEditingBilling(b)
-    const bItems = billingItems.filter(i => i.billingId === b.id)
+    const bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
 
-    setPatientName(b.patientName || '')
-    setPatientMRN(b.patientMRN || '')
-    setVisitDate(b.visitDate || todayISO())
-    setPayMethod(b.paymentMethod || 'TUNAI')
-    setBpjsClaimNo(b.bpjsClaimNumber || '')
-    setSelectedDoctor(doctors.find(d => d.id === b.doctorId) || null)
-    setDiscount(b.discountAmount || 0)
+    setPatientName(b.patientName || b.patient_name || '')
+    setPatientMRN(b.patientMRN || b.patient_mrn || '')
+    setVisitDate(b.visitDate || b.visit_date || todayISO())
+    setPayMethod(b.paymentMethod || b.payment_method || 'TUNAI')
+    setBpjsClaimNo(b.bpjsClaimNumber || b.bpjs_claim_number || '')
+    setSelectedDoctor((doctors || []).find(d => d.id === (b.doctorId || b.doctor_id)) || null)
+    setDiscount(b.discountAmount || b.discount_amount || 0)
 
-    const svcs = bItems.filter(i => i.itemType === 'SERVICE').map(i => ({
-      id: i.serviceTariffId || i.id,
-      name: i.itemName,
-      price: i.unitPrice,
-      qty: i.quantity,
-      revenueAccountCode: i.revenueAccountCode || '4-11-001'
+    const svcs = bItems.filter(i => (i.itemType || i.item_type) === 'SERVICE').map(i => ({
+      id: i.serviceTariffId || i.service_tariff_id || i.id,
+      name: i.itemName || i.item_name,
+      price: Number(i.unitPrice ?? i.unit_price ?? 0),
+      qty: Number(i.quantity || 1),
+      revenueAccountCode: i.revenueAccountCode || i.revenue_account_code || '4-11-001'
     }))
-    const labs = bItems.filter(i => i.itemType === 'LAB').map(i => ({
-      id: i.serviceTariffId || i.id,
-      name: i.itemName,
-      price: i.unitPrice,
-      qty: i.quantity,
-      revenueAccountCode: i.revenueAccountCode || '4-12-001'
+    const labs = bItems.filter(i => (i.itemType || i.item_type) === 'LAB').map(i => ({
+      id: i.serviceTariffId || i.service_tariff_id || i.id,
+      name: i.itemName || i.item_name,
+      price: Number(i.unitPrice ?? i.unit_price ?? 0),
+      qty: Number(i.quantity || 1),
+      revenueAccountCode: i.revenueAccountCode || i.revenue_account_code || '4-12-001'
     }))
-    const pharms = bItems.filter(i => i.itemType === 'PHARMACY').map(i => ({
-      itemId: i.pharmacyItemId || i.itemId,
-      name: i.itemName,
-      price: i.unitPrice,
-      qty: i.quantity,
+    const pharms = bItems.filter(i => (i.itemType || i.item_type) === 'PHARMACY').map(i => ({
+      itemId: i.pharmacyItemId || i.pharmacy_item_id || i.itemId || i.item_id,
+      name: i.itemName || i.item_name,
+      price: Number(i.unitPrice ?? i.unit_price ?? 0),
+      qty: Number(i.quantity || 1),
     }))
 
     setServiceLines(svcs)
@@ -649,13 +649,22 @@ export default function BillingPage() {
   }
 
   const filtered = useMemo(() =>
-    billings
+    (billings || [])
       .filter(b => statusFilter === 'ALL' || b.status === statusFilter)
-      .filter(b => !search || b.patientName?.toLowerCase().includes(search.toLowerCase()) || b.billingNumber?.toLowerCase().includes(search.toLowerCase()))
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+      .filter(b => {
+        if (!search) return true
+        const s = search.toLowerCase()
+        return (
+          (b.patientName || b.patient_name || '').toLowerCase().includes(s) ||
+          (b.billingNumber || b.billing_number || '').toLowerCase().includes(s) ||
+          (b.patientMRN || b.patient_mrn || '').toLowerCase().includes(s) ||
+          (b.doctorName || b.doctor_name || '').toLowerCase().includes(s)
+        )
+      })
+      .sort((a, b) => new Date(b.visitDate || b.createdAt || 0) - new Date(a.visitDate || a.createdAt || 0)),
     [billings, statusFilter, search])
 
-  const viewItems = selected ? billingItems.filter(i => i.billingId === selected.id) : []
+  const viewItems = selected ? (billingItems || []).filter(i => (i.billingId || i.billing_id) === selected.id) : []
 
   return (
     <div className="space-y-5">
@@ -1030,15 +1039,34 @@ export default function BillingPage() {
                 <tr><th>Item</th><th>Tipe</th><th className="text-right">Qty</th><th className="text-right">Harga</th><th className="text-right">Total</th></tr>
               </thead>
               <tbody>
-                {viewItems.map(i => (
-                  <tr key={i.id}>
-                    <td className="text-sm">{i.itemName}</td>
-                    <td><span className={`badge text-xs ${i.itemType === 'SERVICE' ? 'badge-blue' : i.itemType === 'LAB' ? 'badge-purple' : 'badge-green'}`}>{i.itemType === 'SERVICE' ? 'Jasa Medis' : i.itemType === 'LAB' ? 'Laboratorium' : 'Farmasi'}</span></td>
-                    <td className="text-right text-sm">{i.quantity}</td>
-                    <td className="text-right font-mono text-sm">{fmtIDR(i.unitPrice)}</td>
-                    <td className="text-right font-mono text-sm font-bold">{fmtIDR(i.totalPrice)}</td>
+                {viewItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="text-center py-6 text-slate-400">
+                      Belum ada rincian item transaksi untuk billing ini
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  viewItems.map(i => {
+                    const iType = (i.itemType || i.item_type || 'SERVICE').toUpperCase()
+                    const iName = i.itemName || i.item_name || 'Layanan / Obat'
+                    const iQty = Number(i.quantity || 1)
+                    const iPrice = Number(i.unitPrice ?? i.unit_price ?? 0)
+                    const iTotal = Number(i.totalPrice ?? i.total_price ?? (iQty * iPrice))
+                    return (
+                      <tr key={i.id || Math.random()}>
+                        <td className="text-sm font-medium text-slate-800">{iName}</td>
+                        <td>
+                          <span className={`badge text-xs ${iType === 'SERVICE' ? 'badge-blue' : iType === 'LAB' ? 'badge-purple' : 'badge-green'}`}>
+                            {iType === 'SERVICE' ? 'Jasa Medis' : iType === 'LAB' ? 'Laboratorium' : 'Farmasi / Obat'}
+                          </span>
+                        </td>
+                        <td className="text-right text-sm">{iQty}</td>
+                        <td className="text-right font-mono text-sm">{fmtIDR(iPrice)}</td>
+                        <td className="text-right font-mono text-sm font-bold text-slate-900">{fmtIDR(iTotal)}</td>
+                      </tr>
+                    )
+                  })
+                )}
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50 font-semibold">

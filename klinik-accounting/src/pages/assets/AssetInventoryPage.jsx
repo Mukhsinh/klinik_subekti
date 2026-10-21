@@ -34,7 +34,7 @@ function AssetForm({ initial, onSave, onClose, coa, fixedAssets }) {
     const cat = CAT_MAP[catLabel]
     if (!cat) return ''
     const prefix = cat.prefix
-    const existing = fixedAssets
+    const existing = (fixedAssets || [])
       .filter(a => a.category === catLabel)
       .map(a => { const m = (a.assetCode || '').match(/-0*(\d+)$/); return m ? parseInt(m[1]) : 0 })
     const max = existing.length > 0 ? Math.max(...existing) : 0
@@ -247,27 +247,27 @@ export default function AssetInventoryPage() {
 
   // Filter assets
   const filtered = useMemo(() =>
-    fixedAssets
-      .filter(a => a.status === 'ACTIVE')
+    (fixedAssets || [])
+      .filter(a => a && a.status === 'ACTIVE')
       .filter(a => categoryFilter === 'ALL' || a.category === categoryFilter)
       .filter(a => !search ||
-        a.assetName.toLowerCase().includes(search.toLowerCase()) ||
-        a.assetCode.toLowerCase().includes(search.toLowerCase()) ||
+        (a.assetName || '').toLowerCase().includes(search.toLowerCase()) ||
+        (a.assetCode || '').toLowerCase().includes(search.toLowerCase()) ||
         (a.location || '').toLowerCase().includes(search.toLowerCase()))
-      .sort((a, b) => a.assetCode.localeCompare(b.assetCode)),
+      .sort((a, b) => (a.assetCode || '').localeCompare(b.assetCode || '')),
     [fixedAssets, categoryFilter, search]
   )
 
   // Summary calculations
-  const totalValue = fixedAssets
-    .filter(a => a.status === 'ACTIVE')
-    .reduce((s, a) => s + (a.bookValue || 0), 0)
-  const totalAcquisition = fixedAssets
-    .filter(a => a.status === 'ACTIVE')
-    .reduce((s, a) => s + a.acquisitionCost, 0)
-  const totalDepreciation = fixedAssets
-    .filter(a => a.status === 'ACTIVE')
-    .reduce((s, a) => s + (a.accumulatedDepreciation || 0), 0)
+  const totalValue = (fixedAssets || [])
+    .filter(a => a && a.status === 'ACTIVE')
+    .reduce((s, a) => s + (Number(a.bookValue) || 0), 0)
+  const totalAcquisition = (fixedAssets || [])
+    .filter(a => a && a.status === 'ACTIVE')
+    .reduce((s, a) => s + (Number(a.acquisitionCost) || 0), 0)
+  const totalDepreciation = (fixedAssets || [])
+    .filter(a => a && a.status === 'ACTIVE')
+    .reduce((s, a) => s + (Number(a.accumulatedDepreciation) || 0), 0)
 
   // Handlers
   const handleSave = async (data) => {
@@ -277,7 +277,7 @@ export default function AssetInventoryPage() {
         toast.success('Aset berhasil diperbarui')
       } else {
         // Check duplicate code
-        if (fixedAssets.find(a => a.assetCode === data.assetCode)) {
+        if ((fixedAssets || []).find(a => a.assetCode === data.assetCode)) {
           toast.error(`Kode aset ${data.assetCode} sudah digunakan`)
           return
         }

@@ -15,8 +15,8 @@ export default function LedgerPage() {
   const [dateFrom, setDateFrom] = useState(monthStart())
   const [dateTo, setDateTo] = useState(monthEnd())
 
-  const activeCoa = useMemo(() => coa.filter(a => a.isActive && !a.isHeader).sort((a, b) => a.sortOrder - b.sortOrder), [coa])
-  const selectedAccount = useMemo(() => coa.find(a => a.accountCode === selectedCode), [coa, selectedCode])
+  const activeCoa = useMemo(() => (coa || []).filter(a => a && a.isActive && !a.isHeader).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)), [coa])
+  const selectedAccount = useMemo(() => (coa || []).find(a => a && a.accountCode === selectedCode), [coa, selectedCode])
 
   const accountOptions = useMemo(() =>
     activeCoa.map(a => ({ value: a.accountCode, label: `${a.accountCode} — ${a.accountName}` })),
@@ -29,13 +29,14 @@ export default function LedgerPage() {
 
     // Get opening balance for the selected account
     const fiscalYear = new Date(dateFrom).getFullYear()
-    const openingBalance = openingBalances.find(
+    const openingBalance = (openingBalances || []).find(
       ob => ob.accountCode === selectedCode &&
         ob.fiscalYear === fiscalYear &&
         (activeBranchId ? ob.branchId === activeBranchId : true)
     )
 
-    const relevantEntries = journalEntries.filter(j =>
+    const relevantEntries = (journalEntries || []).filter(j =>
+      j &&
       j.status === 'POSTED' &&
       j.transactionDate >= dateFrom &&
       j.transactionDate <= dateTo &&
@@ -43,8 +44,8 @@ export default function LedgerPage() {
     )
     const entryMap = Object.fromEntries(relevantEntries.map(j => [j.id, j]))
 
-    const lines = journalItems
-      .filter(i => i.accountCode === selectedCode && entryMap[i.journalEntryId])
+    const lines = (journalItems || [])
+      .filter(i => i && i.accountCode === selectedCode && entryMap[i.journalEntryId])
       .map(i => ({
         ...i,
         transactionDate: entryMap[i.journalEntryId].transactionDate,

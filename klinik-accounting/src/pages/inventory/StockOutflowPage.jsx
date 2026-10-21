@@ -16,8 +16,10 @@ import {
   upsertJournalEntry,
   insertJournalItems,
   fetchBranches,
+  insertBillingItems,
+  updateBilling,
 } from '../../lib/db'
-import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown, Layers } from 'lucide-react'
+import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown, Layers, Pill, Stethoscope, UserCheck, AlertCircle } from 'lucide-react'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
 import SearchableSelect from '../../components/ui/SearchableSelect'
@@ -38,7 +40,7 @@ const OUTFLOW_TYPES = [
 export default function StockOutflowPage() {
   const {
     pharmacyItems, invBatches, stockLedger, stockOutflows, stockOutflowItems, billings, billingItems,
-    branches, activeBranchId, refreshAll
+    branches, activeBranchId, refreshAll, doctors
   } = useStore()
 
   const [modal, setModal] = useState(null)
@@ -46,11 +48,16 @@ export default function StockOutflowPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
 
-  // Form states
+  // Form states - Outflow Manual
   const [outflowDate, setOutflowDate] = useState(todayISO())
   const [outflowType, setOutflowType] = useState('INTERNAL_USE')
   const [description, setDescription] = useState('')
   const [items, setItems] = useState([])
+
+  // Form states - Pengeluaran Obat Pasien (Apotek / Farmasi)
+  const [selectedBillingId, setSelectedBillingId] = useState('')
+  const [patientMedItems, setPatientMedItems] = useState([])
+  const [isSavingPatientMed, setIsSavingPatientMed] = useState(false)
 
   const effectiveBranchId = useMemo(() => {
     return activeBranchId || (branches && branches[0]?.id) || 'f265df27-e277-4775-8b1d-5f28e585599a'
@@ -156,14 +163,14 @@ export default function StockOutflowPage() {
           disabled: false
         }
       }),
-    [activePharmacyItems, activeBatches, dbStockLedger, stockLedger, dbBillingItems, dbBillings]
+    [activePharmacyItems, activeBatches, stockLedger, billingItems, billings]
   )
 
-  // Consolidate billing-related outflows from live database stock ledger & billing_items
+  // Consolidate billing-related outflows from store stock ledger & billing_items
   const billingOutflows = useMemo(() => {
-    const ledgerSource = dbStockLedger.length > 0 ? dbStockLedger : (stockLedger || [])
-    const billingSource = dbBillings.length > 0 ? dbBillings : (billings || [])
-    const bItemsSource = dbBillingItems.length > 0 ? dbBillingItems : (billingItems || [])
+    const ledgerSource = stockLedger || []
+    const billingSource = billings || []
+    const bItemsSource = billingItems || []
     const pharmacySource = activePharmacyItems
 
     const list = []
@@ -232,7 +239,7 @@ export default function StockOutflowPage() {
     }
 
     return list.sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [dbStockLedger, stockLedger, dbBillings, billings, dbBillingItems, billingItems, activePharmacyItems])
+  }, [stockLedger, billings, billingItems, activePharmacyItems])
 
   const addItem = () => {
     setItems(prev => [...prev, {
@@ -299,6 +306,289 @@ export default function StockOutflowPage() {
       unit: 'Unit',
       notes: ''
     }])
+  }
+
+  // ── Patient Medicine Outflow Helpers ─────────────────────────
+  const patientBillingOptions = useMemo(() => {
+    return (billings || []).map(b => {
+      const doc = (doctors || []).find(d => d.id === (b.doctorId || b.doctor_id))
+      const docName = doc?.fullName || doc?.full_name || 'Dokter Pemeriksa'
+      const pName = b.patientName || b.patient_name || 'Pasien'
+      const bNum = b.billingNumber || b.billing_number || 'INV'
+      const mrn = b.patientMRN || b.patient_mrn || '-'
+      const date = fmtDate(b.visitDate || b.visit_date || b.createdAt || b.created_at)
+      const status = b.paymentStatus || b.payment_status || 'PENDING'
+      return {
+        value: b.id,
+        label: `${bNum} — ${pName} (RM: ${mrn}) | ${date} [${status}]`,
+        billing: b,
+        docName
+      }
+    })
+  }, [billings, doctors])
+
+  const selectedBilling = useMemo(() => {
+    if (!selectedBillingId) return null
+    return (billings || []).find(b => b.id === selectedBillingId) || null
+  }, [billings, selectedBillingId])
+
+  const existingBillingMeds = useMemo(() => {
+    if (!selectedBillingId) return []
+    return (billingItems || []).filter(i => (i.billingId === selectedBillingId || i.billing_id === selectedBillingId) && (i.itemType === 'PHARMACY' || i.item_type === 'PHARMACY'))
+  }, [billingItems, selectedBillingId])
+
+  const resetPatientMedForm = () => {
+    setSelectedBillingId('')
+    setPatientMedItems([{
+      id: uuidv4(),
+      itemId: '',
+      itemName: '',
+      quantity: 1,
+      sellPrice: 0,
+      unitCost: 0,
+      totalPrice: 0,
+      totalCost: 0,
+      unit: 'Unit',
+      notes: ''
+    }])
+  }
+
+  const addPatientMedLine = () => {
+    setPatientMedItems(prev => [
+      ...prev,
+      {
+        id: uuidv4(),
+        itemId: '',
+        itemName: '',
+        quantity: 1,
+        sellPrice: 0,
+        unitCost: 0,
+        totalPrice: 0,
+        totalCost: 0,
+        unit: 'Unit',
+        notes: ''
+      }
+    ])
+  }
+
+  const removePatientMedLine = (id) => {
+    setPatientMedItems(prev => prev.filter(i => i.id !== id))
+  }
+
+  const updatePatientMedLine = (id, field, value) => {
+    setPatientMedItems(prev => prev.map(item => {
+      if (item.id !== id) return item
+      const updated = { ...item, [field]: value }
+      const targetItemId = field === 'itemId' ? value : updated.itemId
+      const reqQty = field === 'quantity' ? Math.max(1, parseInt(value) || 1) : Math.max(1, parseInt(updated.quantity) || 1)
+
+      if (targetItemId) {
+        const pItem = activePharmacyItems.find(p => p.id === targetItemId)
+        if (pItem) {
+          updated.itemName = pItem.itemName || pItem.item_name
+          updated.unit = pItem.baseUnit || pItem.base_unit || 'Unit'
+          const purchaseCost = Number(pItem.purchasePrice || pItem.purchase_price || pItem.hpp || 0)
+          const baseSale = Number(pItem.salePrice || pItem.sale_price || Math.round(purchaseCost * 1.25))
+
+          if (field === 'itemId') {
+            updated.sellPrice = baseSale
+          }
+          const itemBatches = activeBatches.filter(b => (b.itemId === targetItemId || b.item_id === targetItemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
+          const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, reqQty, purchaseCost)
+          updated.quantity = reqQty
+          updated.unitCost = avgUnitCost
+          updated.totalCost = totalValuation
+          updated.totalPrice = reqQty * (Number(updated.sellPrice) || 0)
+        }
+      }
+
+      if (field === 'sellPrice') {
+        const prc = parseFloat(value) || 0
+        updated.sellPrice = prc
+        updated.totalPrice = (parseFloat(updated.quantity) || 0) * prc
+      }
+
+      if (field === 'quantity') {
+        updated.quantity = reqQty
+        updated.totalPrice = reqQty * (Number(updated.sellPrice) || 0)
+      }
+
+      return updated
+    }))
+  }
+
+  const handleSavePatientMedicine = async () => {
+    if (!selectedBilling) {
+      toast.error('Silakan pilih data billing pasien terlebih dahulu')
+      return
+    }
+
+    const validItems = patientMedItems.filter(i => i.itemId && Number(i.quantity) > 0)
+    if (validItems.length === 0) {
+      toast.error('Minimal harus ada 1 obat valid dengan kuantitas > 0')
+      return
+    }
+
+    // Check stock
+    for (const item of validItems) {
+      const avail = getItemStock(item.itemId)
+      if (avail === 0) {
+        toast.error(`Stok "${item.itemName}" kosong (0 unit). Tidak dapat mengeluarkan obat ini.`)
+        return
+      }
+      if (item.quantity > avail) {
+        toast.error(`Stok "${item.itemName}" tidak mencukupi (Tersedia: ${avail}, Diminta: ${item.quantity}).`)
+        return
+      }
+    }
+
+    setIsSavingPatientMed(true)
+    const now = new Date().toISOString()
+    const billingNum = selectedBilling.billingNumber || selectedBilling.billing_number || 'INV'
+    const patientDisplay = selectedBilling.patientName || selectedBilling.patient_name || 'Pasien'
+    const outflowId = uuidv4()
+    const outNum = `OUT-MED/${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(10000 + Math.random() * 90000)}`
+
+    try {
+      let totalHpp = 0
+      const ledgerEntries = []
+      const newBillingItems = []
+      const newOutflowItems = []
+
+      for (const item of validItems) {
+        const itemBatches = activeBatches.filter(b => (b.itemId === item.itemId || b.item_id === item.itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
+        const pItem = activePharmacyItems.find(p => p.id === item.itemId)
+        const purchaseCost = Number(pItem?.purchasePrice || pItem?.purchase_price || pItem?.hpp || 0)
+
+        // FIFO valuation
+        const { totalValuation, avgUnitCost, fifoBreakdown } = calculateFifoValuation(itemBatches, item.quantity, purchaseCost)
+        totalHpp += totalValuation
+
+        // FEFO Physical Stock Depletion
+        const physicalUpdates = depleteFefoPhysicalStock(itemBatches, item.quantity)
+        for (const update of physicalUpdates) {
+          if (update.batchId) {
+            await updateBatchQty(update.batchId, update.newQtyCurrent)
+          }
+        }
+
+        // Ledger logging
+        let currentItemBalance = getItemStock(item.itemId)
+        for (const fifoPart of fifoBreakdown) {
+          currentItemBalance -= fifoPart.qty
+          ledgerEntries.push({
+            id: uuidv4(),
+            batchId: fifoPart.batchId,
+            itemId: item.itemId,
+            transactionType: 'BILLING',
+            referenceId: selectedBilling.id,
+            referenceNumber: billingNum,
+            quantityIn: 0,
+            quantityOut: fifoPart.qty,
+            balanceAfter: Math.max(0, currentItemBalance),
+            unitCost: Number(fifoPart.unitCost || 0),
+            totalValue: Number(fifoPart.totalCost || 0),
+            notes: `Obat Pasien: ${patientDisplay} (${billingNum}) [${item.notes || 'Resep Obat'}]`,
+            loggedAt: now,
+          })
+        }
+
+        // Billing Item row
+        const lineTotal = Number(item.quantity) * Number(item.sellPrice || 0)
+        newBillingItems.push({
+          id: uuidv4(),
+          billingId: selectedBilling.id,
+          itemType: 'PHARMACY',
+          pharmacyItemId: item.itemId,
+          itemId: item.itemId,
+          itemName: item.itemName,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.sellPrice || 0),
+          totalPrice: lineTotal,
+          discountPct: 0
+        })
+
+        // Outflow entry item
+        newOutflowItems.push({
+          id: uuidv4(),
+          outflowId,
+          itemId: item.itemId,
+          itemName: item.itemName,
+          quantity: Number(item.quantity),
+          unitCost: avgUnitCost,
+          totalCost: totalValuation,
+          notes: `Obat Pasien: ${patientDisplay} (${billingNum})`
+        })
+      }
+
+      // 1. Insert billing items to database
+      await insertBillingItems(newBillingItems)
+
+      // 2. Insert stock ledger cards to database
+      if (ledgerEntries.length > 0) {
+        await insertStockLedger(ledgerEntries)
+      }
+
+      // 3. Create stock outflow entry for pharmacy audit history
+      await insertStockOutflow({
+        id: outflowId,
+        branchId: effectiveBranchId,
+        outflowNumber: outNum,
+        outflowDate: todayISO(),
+        outflowType: 'INTERNAL_USE',
+        description: `Pengeluaran Obat Pasien: ${patientDisplay} (No. Billing: ${billingNum})`,
+        totalValue: totalHpp,
+        status: 'POSTED',
+        journalEntryId: null,
+        createdBy: 'Farmasi/Apotek',
+        createdAt: now,
+        updatedAt: now,
+      })
+      await insertStockOutflowItems(newOutflowItems)
+
+      // 4. Update patient_billings totals in database
+      const addedPharmacySubtotal = newBillingItems.reduce((sum, it) => sum + (it.totalPrice || 0), 0)
+      const currentPharmSubtotal = Number(selectedBilling.subtotalPharmacy || selectedBilling.subtotal_pharmacy || 0)
+      const currentSvcSubtotal = Number(selectedBilling.subtotalServices || selectedBilling.subtotal_services || 0)
+      const currentDiscount = Number(selectedBilling.discountAmount || selectedBilling.discount_amount || 0)
+
+      const updatedPharmSubtotal = currentPharmSubtotal + addedPharmacySubtotal
+      const subtotalBeforeTax = Math.max(0, currentSvcSubtotal + updatedPharmSubtotal - currentDiscount)
+      const prevPpn = Number(selectedBilling.ppnAmount || selectedBilling.ppn_amount || 0)
+      const updatedPpn = prevPpn > 0 ? Math.round(subtotalBeforeTax * 0.11) : 0
+      const updatedGrandTotal = subtotalBeforeTax + updatedPpn
+
+      const payMethod = selectedBilling.paymentMethod || selectedBilling.payment_method || 'TUNAI'
+      let patientPortion = updatedGrandTotal
+      let insurancePortion = 0
+      if (payMethod === 'BPJS') {
+        insurancePortion = Math.round(updatedGrandTotal * 0.8)
+        patientPortion = updatedGrandTotal - insurancePortion
+      } else if (payMethod === 'ASURANSI') {
+        insurancePortion = updatedGrandTotal
+        patientPortion = 0
+      }
+
+      await updateBilling(selectedBilling.id, {
+        subtotal_pharmacy: updatedPharmSubtotal,
+        ppn_amount: updatedPpn,
+        grand_total: updatedGrandTotal,
+        patient_portion: patientPortion,
+        insurance_portion: insurancePortion,
+      })
+
+      // 5. Refresh full store state across all components in real time!
+      await refreshAll()
+
+      toast.success(`Pengeluaran obat untuk ${patientDisplay} berhasil! Data otomatis terupdate di billing pasien.`)
+      setModal(null)
+      resetPatientMedForm()
+    } catch (err) {
+      console.error('[handleSavePatientMedicine] Error:', err)
+      toast.error(`Gagal menyimpan pengeluaran obat: ${err.message}`)
+    } finally {
+      setIsSavingPatientMed(false)
+    }
   }
 
   // Direct database saving with FEFO physical stock depletion + FIFO accounting valuation
@@ -545,9 +835,18 @@ export default function StockOutflowPage() {
             Pencatatan pengeluaran stok non-billing dan riwayat dari transaksi kasir
           </p>
         </div>
-        <button className="btn-primary font-sans" onClick={() => { resetForm(); setModal('new') }}>
-          <Plus className="w-4 h-4" />Pengeluaran Baru
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm text-white shadow-sm transition-all font-sans"
+            style={{ background: 'linear-gradient(135deg, #10B981, #059669)' }}
+            onClick={() => { resetPatientMedForm(); setModal('patient_medicine') }}
+          >
+            <Pill className="w-4 h-4" />Pengeluaran Obat Pasien
+          </button>
+          <button className="btn-primary font-sans" onClick={() => { resetForm(); setModal('new') }}>
+            <Plus className="w-4 h-4" />Pengeluaran Baru
+          </button>
+        </div>
       </div>
 
       {/* Modern Compact Score Cards — Vibrant Solid Colors */}
@@ -979,6 +1278,197 @@ export default function StockOutflowPage() {
             </table>
           </div>
         )}
+      </Modal>
+
+      {/* ═══ Patient Medicine Outflow Modal ═══════════════════════ */}
+      <Modal
+        open={modal === 'patient_medicine'}
+        onClose={() => setModal(null)}
+        title="Pengeluaran Obat Pasien (Apotek/Farmasi)"
+        size="xl"
+      >
+        <div className="space-y-5">
+          {/* Step 1: Select Billing */}
+          <div className="space-y-2">
+            <label className="block text-sm font-bold text-slate-700 font-sans">Pilih Data Billing Pasien <span className="text-red-500">*</span></label>
+            <SearchableSelect
+              value={selectedBillingId}
+              onChange={val => setSelectedBillingId(val)}
+              options={patientBillingOptions}
+              placeholder="— Cari billing pasien (Nama / MRN / No. Invoice) —"
+              searchPlaceholder="Ketik nama pasien, MRN, atau nomor invoice..."
+            />
+          </div>
+
+          {/* Patient Info Card */}
+          {selectedBilling && (
+            <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-base font-extrabold text-emerald-900 font-sans">
+                    {selectedBilling.patientName || selectedBilling.patient_name || 'Pasien'}
+                  </p>
+                  <p className="text-xs text-emerald-600 font-sans">
+                    RM: {selectedBilling.patientMRN || selectedBilling.patient_mrn || '-'} &bull; {selectedBilling.billingNumber || selectedBilling.billing_number}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-xs text-slate-600">
+                <div><span className="font-semibold">Tanggal:</span> {fmtDate(selectedBilling.visitDate || selectedBilling.visit_date)}</div>
+                <div><span className="font-semibold">Dokter:</span> {patientBillingOptions.find(o => o.value === selectedBillingId)?.docName || '-'}</div>
+                <div><span className="font-semibold">Bayar:</span> {selectedBilling.paymentMethod || selectedBilling.payment_method || 'TUNAI'}</div>
+              </div>
+
+              {existingBillingMeds.length > 0 && (
+                <div className="mt-3 p-2.5 rounded-lg bg-amber-50 border border-amber-200">
+                  <div className="flex items-center gap-1.5 text-amber-700 text-xs font-bold mb-1">
+                    <AlertCircle className="w-3.5 h-3.5" /> Obat yang sudah diinput pada billing ini:
+                  </div>
+                  <ul className="list-disc ml-5 text-xs text-amber-800 space-y-0.5">
+                    {existingBillingMeds.map(m => (
+                      <li key={m.id}>{m.itemName || m.item_name} × {m.quantity} — {fmtIDR(m.totalPrice || m.total_price || 0)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 2: Medicine Items Table */}
+          {selectedBilling && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-800 font-sans">Daftar Obat yang Dikeluarkan</h3>
+                <button
+                  type="button"
+                  onClick={addPatientMedLine}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition font-sans"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Tambah Obat
+                </button>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-left border-collapse table-auto">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                      <th className="py-2.5 px-2.5" style={{ minWidth: '220px' }}>Item Obat / Farmasi</th>
+                      <th className="py-2.5 px-2.5 text-center" style={{ width: '80px' }}>Qty</th>
+                      <th className="py-2.5 px-2.5 text-right" style={{ width: '120px' }}>Harga Jual</th>
+                      <th className="py-2.5 px-2.5 text-right" style={{ width: '120px' }}>Sub Total</th>
+                      <th className="py-2.5 px-2.5 text-right" style={{ width: '100px' }}>HPP/Unit</th>
+                      <th style={{ width: '40px' }} className="py-2.5 px-1 text-center"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white text-xs">
+                    {patientMedItems.map(item => {
+                      const avail = item.itemId ? getItemStock(item.itemId) : 0
+                      const isOver = item.itemId && item.quantity > avail
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50">
+                          <td className="py-2 px-2.5">
+                            <SearchableSelect
+                              value={item.itemId}
+                              onChange={val => updatePatientMedLine(item.id, 'itemId', val)}
+                              options={pharmacyOptions}
+                              placeholder="— Pilih Obat —"
+                              hideValue={true}
+                              searchPlaceholder="Cari nama obat..."
+                            />
+                            {item.itemId && (
+                              <div className={`flex items-center gap-1 mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                avail > 0 ? 'text-emerald-700 bg-emerald-50' : 'text-red-600 bg-red-50'
+                              }`}>
+                                <Package className="w-3 h-3" />
+                                Stok: <strong>{fmtNum(avail)} {item.unit}</strong>
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2 px-2.5">
+                            <input
+                              type="number"
+                              className={`form-input text-center text-xs py-1 w-20 font-bold ${isOver ? 'border-red-500 text-red-600 bg-red-50 ring-2 ring-red-200' : ''}`}
+                              value={item.quantity}
+                              min={1}
+                              max={avail > 0 ? avail : 1}
+                              onChange={e => updatePatientMedLine(item.id, 'quantity', e.target.value)}
+                            />
+                            {isOver && <p className="text-[10px] text-red-600 font-bold mt-0.5 text-center">Melebihi stok!</p>}
+                          </td>
+                          <td className="py-2 px-2.5">
+                            <input
+                              type="number"
+                              className="form-input text-right text-xs py-1 w-28 font-semibold"
+                              value={item.sellPrice}
+                              min={0}
+                              onChange={e => updatePatientMedLine(item.id, 'sellPrice', e.target.value)}
+                            />
+                          </td>
+                          <td className="text-right font-sans font-extrabold text-slate-900 text-sm px-2.5">{fmtIDR(item.totalPrice)}</td>
+                          <td className="text-right font-sans text-slate-500 text-[11px] px-2.5">{fmtIDR(item.unitCost)}</td>
+                          <td className="px-1 text-center">
+                            <button type="button" onClick={() => removePatientMedLine(item.id)} className="p-1 text-slate-300 hover:text-red-500">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-50">
+                      <td colSpan={3} className="text-right font-sans font-bold text-slate-700 pr-4 text-sm">Total Harga Jual</td>
+                      <td className="text-right font-sans font-extrabold text-primary-700 text-base px-2.5">
+                        {fmtIDR(patientMedItems.reduce((s, i) => s + (i.totalPrice || 0), 0))}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                    <tr className="bg-slate-50/50">
+                      <td colSpan={3} className="text-right font-sans text-slate-500 pr-4 text-xs">Total HPP (Cost)</td>
+                      <td className="text-right font-sans text-slate-500 text-xs px-2.5">
+                        {fmtIDR(patientMedItems.reduce((s, i) => s + (i.totalCost || 0), 0))}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Info Alert */}
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800">
+                <Stethoscope className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-bold">Integrasi Otomatis dengan Billing Pasien</p>
+                  <p className="mt-0.5 text-blue-600">
+                    Obat yang disimpan akan otomatis: (1) Mengurangi stok fisik dengan metode FEFO, 
+                    (2) Mencatat HPP dengan metode FIFO di Kartu Stok, 
+                    (3) Menambahkan item farmasi ke billing pasien, 
+                    (4) Memperbarui total billing pasien secara real-time.
+                  </p>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={handleSavePatientMedicine}
+                  disabled={isSavingPatientMed || !selectedBilling || patientMedItems.every(i => !i.itemId)}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm text-white shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed font-sans"
+                  style={{ background: isSavingPatientMed ? '#9CA3AF' : 'linear-gradient(135deg, #10B981, #047857)' }}
+                >
+                  {isSavingPatientMed ? (
+                    <><span className="animate-spin">⏳</span> Menyimpan...</>
+                  ) : (
+                    <><CheckCircle className="w-4.5 h-4.5" /> Simpan & Keluarkan Obat Pasien</>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   )

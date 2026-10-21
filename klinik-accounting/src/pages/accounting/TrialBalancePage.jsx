@@ -20,15 +20,16 @@ export default function TrialBalancePage() {
 
     // Get opening balances for the fiscal year
     const openingBalanceMap = {}
-    openingBalances.forEach(ob => {
-      if (ob.fiscalYear === fiscalYear && (branchFilter === 'ALL' || ob.branchId === branchFilter)) {
+    ;(openingBalances || []).forEach(ob => {
+      if (ob && ob.fiscalYear === fiscalYear && (branchFilter === 'ALL' || ob.branchId === branchFilter)) {
         openingBalanceMap[ob.accountCode] = parseFloat(ob.openingBalance || 0)
       }
     })
 
     const postedIds = new Set(
-      journalEntries
+      (journalEntries || [])
         .filter(j =>
+          j &&
           j.status === 'POSTED' &&
           j.transactionDate >= dateFrom &&
           j.transactionDate <= dateTo &&
@@ -38,15 +39,15 @@ export default function TrialBalancePage() {
     )
 
     const balances = {}
-    journalItems.forEach(item => {
-      if (!postedIds.has(item.journalEntryId)) return
+    ;(journalItems || []).forEach(item => {
+      if (!item || !postedIds.has(item.journalEntryId)) return
       if (!balances[item.accountCode]) balances[item.accountCode] = { totalDebit: 0, totalCredit: 0 }
       balances[item.accountCode].totalDebit += parseFloat(item.debit || 0)
       balances[item.accountCode].totalCredit += parseFloat(item.credit || 0)
     })
 
-    return coa
-      .filter(a => !a.isHeader)
+    return (coa || [])
+      .filter(a => a && !a.isHeader)
       .map(a => {
         const b = balances[a.accountCode] || { totalDebit: 0, totalCredit: 0 }
         const openingBalance = openingBalanceMap[a.accountCode] || 0
@@ -77,7 +78,7 @@ export default function TrialBalancePage() {
   const totDebit = trialBalance.reduce((s, a) => s + (a.finalDebit || 0), 0)
   const totCredit = trialBalance.reduce((s, a) => s + (a.finalCredit || 0), 0)
   const isBalanced = Math.abs(totDebit - totCredit) < 0.01
-  const selBranch = branches.find(b => b.id === branchFilter)
+  const selBranch = (branches || []).find(b => b.id === branchFilter)
   const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
 
   return (

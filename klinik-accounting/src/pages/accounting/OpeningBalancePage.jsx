@@ -41,7 +41,7 @@ export default function OpeningBalancePage() {
   // Initialize editable balances from loaded data
   useEffect(() => {
     const balanceMap = {}
-    openingBalances.forEach(ob => {
+    ;(openingBalances || []).forEach(ob => {
       if (ob.branchId === selectedBranchId && ob.fiscalYear === fiscalYear) {
         balanceMap[ob.accountCode] = {
           id: ob.id,
@@ -55,10 +55,11 @@ export default function OpeningBalancePage() {
 
   // Filter COA by search term
   const filteredCOA = useMemo(() => {
-    if (!searchTerm.trim()) return coa.filter(a => a.isActive !== false)
+    const list = coa || []
+    if (!searchTerm.trim()) return list.filter(a => a.isActive !== false)
 
     const term = searchTerm.toLowerCase()
-    return coa.filter(a =>
+    return list.filter(a =>
       a.isActive !== false && (
         a.accountCode?.toLowerCase().includes(term) ||
         a.accountName?.toLowerCase().includes(term) ||
@@ -106,7 +107,7 @@ export default function OpeningBalancePage() {
     let totalCredit = 0
 
     Object.entries(editableBalances).forEach(([accountCode, data]) => {
-      const account = coa.find(a => a.accountCode === accountCode)
+      const account = (coa || []).find(a => a.accountCode === accountCode)
       if (!account) return
 
       const balance = parseFloat(data.openingBalance) || 0
@@ -134,7 +135,7 @@ export default function OpeningBalancePage() {
     const dataToSave = Object.entries(editableBalances)
       .filter(([_, data]) => parseFloat(data.openingBalance || 0) !== 0)
       .map(([accountCode, data]) => {
-        const existing = openingBalances.find(
+        const existing = (openingBalances || []).find(
           ob => ob.accountCode === accountCode &&
             ob.branchId === selectedBranchId &&
             ob.fiscalYear === fiscalYear

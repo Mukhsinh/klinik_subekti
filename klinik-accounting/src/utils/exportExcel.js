@@ -497,3 +497,50 @@ export function exportEquityChangesExcel(data, period, branchName, appSettings =
   XLSX.writeFile(wb, `Perubahan_Ekuitas_${period?.replace(/\s/g, '_') || 'export'}.xlsx`)
 }
 
+// ─── Cash Flow (Arus Kas) Excel ───────────────────────────────
+export function exportCashFlowExcel(cashFlowData, period, branchName, appSettings = null) {
+  const CLINIC = getClinicName(appSettings)
+  const rows = [
+    { 'Keterangan': 'I. ARUS KAS DARI AKTIVITAS OPERASI', 'Jumlah (Rp)': '' },
+    { 'Keterangan': '   Laba Bersih Sebelum Pajak', 'Jumlah (Rp)': Number(cashFlowData.netProfit || 0) },
+    { 'Keterangan': '   Penyesuaian untuk merekonsiliasi laba bersih:', 'Jumlah (Rp)': '' },
+    { 'Keterangan': '     Beban Penyusutan & Amortisasi', 'Jumlah (Rp)': Number(cashFlowData.totalDepreciation || 0) },
+    { 'Keterangan': '   Perubahan Modal Kerja:', 'Jumlah (Rp)': '' },
+    { 'Keterangan': '     (Kenaikan) / Penurunan Piutang Usaha', 'Jumlah (Rp)': -Number(cashFlowData.receivableChange || 0) },
+    { 'Keterangan': '     (Kenaikan) / Penurunan Persediaan Obat & BHP', 'Jumlah (Rp)': -Number(cashFlowData.inventoryChange || 0) },
+    { 'Keterangan': '     Kenaikan / (Penurunan) Utang Usaha', 'Jumlah (Rp)': Number(cashFlowData.payableChange || 0) },
+    { 'Keterangan': '     Kenaikan / (Penurunan) Utang Pajak', 'Jumlah (Rp)': Number(cashFlowData.taxPayableChange || 0) },
+    { 'Keterangan': 'ARUS KAS BERSIH DARI AKTIVITAS OPERASI', 'Jumlah (Rp)': Number(cashFlowData.operatingCF || 0) },
+    { 'Keterangan': '', 'Jumlah (Rp)': '' },
+    { 'Keterangan': 'II. ARUS KAS DARI AKTIVITAS INVESTASI', 'Jumlah (Rp)': '' },
+    { 'Keterangan': '   Perolehan Aset Tetap & Peralatan Medis', 'Jumlah (Rp)': -Number(cashFlowData.investingCF || 0) },
+    { 'Keterangan': 'ARUS KAS BERSIH DARI AKTIVITAS INVESTASI', 'Jumlah (Rp)': Number(cashFlowData.investingCF || 0) },
+    { 'Keterangan': '', 'Jumlah (Rp)': '' },
+    { 'Keterangan': 'III. ARUS KAS DARI AKTIVITAS PENDANAAN', 'Jumlah (Rp)': '' },
+    { 'Keterangan': '   Penambahan / (Pembayaran) Utang Bank & Modal', 'Jumlah (Rp)': Number(cashFlowData.financingCF || 0) },
+    { 'Keterangan': 'ARUS KAS BERSIH DARI AKTIVITAS PENDANAAN', 'Jumlah (Rp)': Number(cashFlowData.financingCF || 0) },
+    { 'Keterangan': '', 'Jumlah (Rp)': '' },
+    { 'Keterangan': 'KENAIKAN / (PENURUNAN) KAS BERSIH', 'Jumlah (Rp)': Number(cashFlowData.netCashFlow || 0) },
+    { 'Keterangan': 'SALDO KAS & SETARA KAS AWAL PERIODE', 'Jumlah (Rp)': Number(cashFlowData.openingCashBalance || 0) },
+    { 'Keterangan': 'SALDO KAS & SETARA KAS AKHIR PERIODE', 'Jumlah (Rp)': Number(cashFlowData.endingCashBalance || 0) },
+  ]
+
+  const wb = XLSX.utils.book_new()
+  const info = XLSX.utils.aoa_to_sheet([
+    [CLINIC],
+    ['LAPORAN ARUS KAS (STATEMENT OF CASH FLOWS) — METODE TIDAK LANGSUNG (PSAK 2)'],
+    [`Periode: ${period}`],
+    [`Cabang: ${branchName}`],
+    [`Dicetak: ${getFormalTimestamp()} WIB`],
+    ['Catatan: Angka bernilai negatif menunjukkan arus kas keluar.'],
+    [],
+    [getFooterText(appSettings)],
+  ])
+  XLSX.utils.book_append_sheet(wb, info, 'Info')
+
+  const ws = XLSX.utils.json_to_sheet(rows)
+  autoWidth(ws, rows)
+  XLSX.utils.book_append_sheet(wb, ws, 'Arus Kas')
+  XLSX.writeFile(wb, `Laporan_Arus_Kas_${period?.replace(/\s+/g, '_') || 'export'}.xlsx`)
+}
+

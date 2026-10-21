@@ -813,5 +813,67 @@ export function exportAPLedgerReportPDF({
   doc.save(`Laporan_Buku_Pembantu_Utang_${periodLabel.replace(/\s+/g, '_')}.pdf`)
 }
 
+// ─── Cash Flow (Arus Kas) PDF ──────────────────────────────────
+export function exportCashFlowPDF(cashFlowData, period, branchName, appSettings = null) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const startY = addHeader(doc, 'LAPORAN ARUS KAS (STATEMENT OF CASH FLOWS)', period, branchName, appSettings)
+
+  const body = [
+    ['I. ARUS KAS DARI AKTIVITAS OPERASI', ''],
+    ['   Laba Bersih Sebelum Pajak', fmtIDR(cashFlowData.netProfit)],
+    ['   Penyesuaian untuk merekonsiliasi laba bersih:', ''],
+    ['     Beban Penyusutan & Amortisasi', fmtIDR(cashFlowData.totalDepreciation)],
+    ['   Perubahan dalam Modal Kerja:', ''],
+    ['     (Kenaikan) / Penurunan Piutang Usaha', fmtIDR(-cashFlowData.receivableChange)],
+    ['     (Kenaikan) / Penurunan Persediaan Obat & BHP', fmtIDR(-cashFlowData.inventoryChange)],
+    ['     Kenaikan / (Penurunan) Utang Usaha', fmtIDR(cashFlowData.payableChange)],
+    ['     Kenaikan / (Penurunan) Utang Pajak', fmtIDR(cashFlowData.taxPayableChange)],
+    ['ARUS KAS BERSIH DARI AKTIVITAS OPERASI', fmtIDR(cashFlowData.operatingCF)],
+    ['', ''],
+    ['II. ARUS KAS DARI AKTIVITAS INVESTASI', ''],
+    ['   Perolehan Aset Tetap & Peralatan Medis', fmtIDR(-cashFlowData.investingCF)],
+    ['ARUS KAS BERSIH DARI AKTIVITAS INVESTASI', fmtIDR(cashFlowData.investingCF)],
+    ['', ''],
+    ['III. ARUS KAS DARI AKTIVITAS PENDANAAN', ''],
+    ['   Penambahan / (Pembayaran) Utang Bank & Modal', fmtIDR(cashFlowData.financingCF)],
+    ['ARUS KAS BERSIH DARI AKTIVITAS PENDANAAN', fmtIDR(cashFlowData.financingCF)],
+    ['', ''],
+    ['KENAIKAN / (PENURUNAN) KAS BERSIH', fmtIDR(cashFlowData.netCashFlow)],
+    ['SALDO KAS & SETARA KAS AWAL PERIODE', fmtIDR(cashFlowData.openingCashBalance)],
+    ['SALDO KAS & SETARA KAS AKHIR PERIODE', fmtIDR(cashFlowData.endingCashBalance)],
+  ]
+
+  doc.autoTable({
+    startY,
+    head: [['Keterangan Arus Kas (Metode Tidak Langsung)', 'Jumlah (Rp)']],
+    body,
+    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2 },
+    headStyles: { fillColor: [4, 100, 199], textColor: 255, fontStyle: 'bold' },
+    didParseCell(hookData) {
+      const text = hookData.row.raw?.[0] || ''
+      if (text.startsWith('I.') || text.startsWith('II.') || text.startsWith('III.')) {
+        hookData.cell.styles.fontStyle = 'bold'
+        hookData.cell.styles.fillColor = [241, 245, 249]
+        hookData.cell.styles.textColor = [30, 41, 59]
+      } else if (text.startsWith('ARUS KAS BERSIH') || text.startsWith('KENAIKAN') || text.startsWith('SALDO KAS')) {
+        hookData.cell.styles.fontStyle = 'bold'
+        if (text.startsWith('SALDO KAS AKHIR PERIODE')) {
+          hookData.cell.styles.fillColor = [224, 242, 254]
+          hookData.cell.styles.textColor = [3, 105, 161]
+        }
+      }
+    },
+    columnStyles: {
+      0: { cellWidth: 135 },
+      1: { cellWidth: 47, halign: 'right', fontStyle: 'bold' },
+    },
+  })
+
+  const finalY = doc.lastAutoTable.finalY
+  addSignatureBlock(doc, finalY)
+  addFooter(doc, appSettings)
+  doc.save(`Laporan_Arus_Kas_${period.replace(/\s+/g, '_')}.pdf`)
+}
+
 
 

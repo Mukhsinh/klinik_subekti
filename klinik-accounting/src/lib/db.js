@@ -2,7 +2,7 @@
  * db.js — Supabase data access layer
  * Handles camelCase ↔ snake_case conversion and all CRUD operations.
  */
-import { supabase, sbErr } from './supabase'
+import { supabase, sbErr } from './supabase.js'
 
 // ── camelCase → snake_case (handles acronyms like COGSCode → cogs_code) ─────
 function toSnake(str) {

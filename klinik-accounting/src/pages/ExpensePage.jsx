@@ -474,7 +474,7 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
 }
 
 export default function ExpensePage() {
-  const { expenses, invBatches, journalEntries, generateExpenseNumber, saveExpense, postExpense, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber, vendors } = useStore()
+  const { expenses, invBatches, journalEntries, generateExpenseNumber, saveExpense, postExpense, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber, vendors, refreshAll } = useStore()
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
@@ -527,7 +527,7 @@ export default function ExpensePage() {
         }
       })
     return Array.from(map.values())
-  }, [dbExpenses, expenses, journalEntries])
+  }, [expenses, journalEntries])
 
   const filtered = useMemo(() =>
     effectiveExpenses
@@ -552,8 +552,7 @@ export default function ExpensePage() {
   const handleSaveDraft = async (data) => {
     try {
       await saveExpense(data)
-      const eData = await fetchExpenses().catch(() => [])
-      if (Array.isArray(eData)) setDbExpenses(eData)
+      await refreshAll()
       toast.success(`Draft pengeluaran ${data.expenseNumber} berhasil disimpan.`)
       setModal(null)
     } catch (err) {
@@ -653,8 +652,7 @@ export default function ExpensePage() {
         creditCoaCode: creditAcc,
       })
 
-      const eData = await fetchExpenses().catch(() => [])
-      if (Array.isArray(eData)) setDbExpenses(eData)
+      await refreshAll()
 
       toast.success(`Pengeluaran ${expense.expenseNumber} berhasil diposting ke jurnal (${debitAcc} / ${creditAcc}).`)
     } catch (err) {

@@ -216,11 +216,11 @@ export function useAuth() {
   }
 
   // Save app settings — local + Supabase
-  const saveAppSettings = (data) => {
+  const saveAppSettings = async (data) => {
     const merged = { ...state.appSettings, ...data }
     setAuth(s => ({ ...s, appSettings: merged }))
     writeAuditLog(state.currentUser, 'UBAH_PENGATURAN', 'Pengaturan Aplikasi', 'Menyimpan pengaturan aplikasi')
-    saveAllAppSettings(merged).catch(err => console.warn('[saveAppSettings]', err.message))
+    await saveAllAppSettings(merged)
   }
 
   // Reload audit logs from Supabase
