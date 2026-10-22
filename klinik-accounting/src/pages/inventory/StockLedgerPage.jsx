@@ -53,12 +53,51 @@ export default function StockLedgerPage() {
   const effectivePharmacyItems = pharmacyItems || []
   const effectiveBatches = invBatches || []
 
+  const isOpeningBalanceRecord = (l) => {
+    const t = String(l.transactionType || l.transaction_type || '').toUpperCase()
+    const r = String(l.referenceNumber || l.reference_number || '').toUpperCase()
+    const n = String(l.notes || '').toLowerCase()
+    return t === 'SALDO_AWAL' || r === 'SALDO-AWAL' || r.startsWith('SALDO-AWAL') || n.includes('saldo awal')
+  }
+
   const effectiveStockLedger = useMemo(() => {
     const baseLedger = stockLedger || []
     const list = [...baseLedger]
-    const processedKeys = new Set(
+    const processedBillingKeys = new Set(
       list.filter(l => l.transactionType === 'BILLING').map(l => `${l.referenceNumber}_${l.itemId}`)
     )
+
+    // Ensure any SALDO-AWAL batches in inventory_batches have a corresponding ledger entry
+    const existingOpeningItemIds = new Set(
+      list.filter(isOpeningBalanceRecord).map(l => l.itemId)
+    )
+
+    if (Array.isArray(effectiveBatches)) {
+      effectiveBatches.forEach(b => {
+        const bNum = String(b.batchNumber || b.batch_number || '')
+        const grnRef = String(b.grnReference || b.grn_reference || '')
+        const itemId = b.itemId || b.item_id
+        if (itemId && (bNum.includes('SALDO-AWAL') || grnRef === 'SALDO-AWAL') && !existingOpeningItemIds.has(itemId)) {
+          existingOpeningItemIds.add(itemId)
+          const qty = Number(b.quantityReceived ?? b.quantity_received ?? b.quantityCurrent ?? b.quantity_current ?? 0)
+          const cost = Number(b.unitCostPrice ?? b.unit_cost_price ?? 0)
+          list.push({
+            id: `OPENING-${itemId}`,
+            batchId: b.id,
+            itemId: itemId,
+            transactionType: 'SALDO_AWAL',
+            referenceNumber: 'SALDO-AWAL',
+            quantityIn: qty,
+            quantityOut: 0,
+            balanceAfter: qty,
+            unitCost: cost,
+            totalValue: qty * cost,
+            notes: 'Saldo awal persediaan item',
+            loggedAt: b.receivedAt || b.received_at || b.createdAt || b.created_at || new Date().toISOString(),
+          })
+        }
+      })
+    }
 
     if (Array.isArray(billingItems) && billingItems.length > 0) {
       billingItems
@@ -69,8 +108,8 @@ export default function StockLedgerPage() {
           const refNo = billing?.billingNumber || 'BILL-KASIR'
           const key = `${refNo}_${itemId}`
 
-          if (itemId && !processedKeys.has(key)) {
-            processedKeys.add(key)
+          if (itemId && !processedBillingKeys.has(key)) {
+            processedBillingKeys.add(key)
             list.push({
               id: bi.id,
               batchId: 'DIRECT-BILLING',
@@ -90,7 +129,7 @@ export default function StockLedgerPage() {
     }
 
     return list
-  }, [stockLedger, billingItems, billings])
+  }, [stockLedger, billingItems, billings, effectiveBatches])
 
   const selectOptions = useMemo(() => {
     const list = effectivePharmacyItems
@@ -123,15 +162,15 @@ export default function StockLedgerPage() {
       const itemLedger = effectiveStockLedger.filter(l => l.itemId === item.id)
 
       const saldoAwal = itemLedger
-        .filter(l => l.transactionType === 'SALDO_AWAL')
-        .reduce((sum, l) => sum + (Number(l.quantityIn) || 0), 0)
+        .filter(isOpeningBalanceRecord)
+        .reduce((sum, l) => sum + (Number(l.quantityIn ?? l.quantity_in) || 0), 0)
 
       const penerimaan = itemLedger
-        .filter(l => l.transactionType !== 'SALDO_AWAL')
-        .reduce((sum, l) => sum + (Number(l.quantityIn) || 0), 0)
+        .filter(l => !isOpeningBalanceRecord(l))
+        .reduce((sum, l) => sum + (Number(l.quantityIn ?? l.quantity_in) || 0), 0)
 
       const pengeluaran = itemLedger
-        .reduce((sum, l) => sum + (Number(l.quantityOut) || 0), 0)
+        .reduce((sum, l) => sum + (Number(l.quantityOut ?? l.quantity_out) || 0), 0)
 
       const saldoAkhir = saldoAwal + penerimaan - pengeluaran
 
@@ -181,20 +220,36 @@ export default function StockLedgerPage() {
 
     const sortedAsc = [...effectiveStockLedger]
       .filter(l => l.itemId === selectedItem)
-      .sort((a, b) => new Date(a.loggedAt || a.transactionDate || a.createdAt) - new Date(b.loggedAt || b.transactionDate || b.createdAt))
+      .sort((a, b) => {
+        const isAOpen = isOpeningBalanceRecord(a)
+        const isBOpen = isOpeningBalanceRecord(b)
+        if (isAOpen && !isBOpen) return -1
+        if (!isAOpen && isBOpen) return 1
+        return new Date(a.loggedAt || a.transactionDate || a.createdAt) - new Date(b.loggedAt || b.transactionDate || b.createdAt)
+      })
 
     let currentBalance = 0
     const processed = sortedAsc.map(l => {
-      const qtyIn = Number(l.quantityIn) || 0
-      const qtyOut = Number(l.quantityOut) || 0
-      const saldoAwal = currentBalance
-      const saldoAkhir = l.balanceAfter !== undefined && l.balanceAfter !== null ? Number(l.balanceAfter) : (saldoAwal + qtyIn - qtyOut)
-      currentBalance = saldoAkhir
+      const isOpening = isOpeningBalanceRecord(l)
+      const qtyIn = Number(l.quantityIn ?? l.quantity_in) || 0
+      const qtyOut = Number(l.quantityOut ?? l.quantity_out) || 0
+
+      let saldoAwal = currentBalance
+      let saldoAkhir = l.balanceAfter !== undefined && l.balanceAfter !== null ? Number(l.balanceAfter) : (saldoAwal + qtyIn - qtyOut)
+
+      if (isOpening) {
+        saldoAwal = qtyIn
+        saldoAkhir = qtyIn
+        currentBalance = qtyIn
+      } else {
+        currentBalance = saldoAkhir
+      }
 
       return {
         ...l,
+        transactionType: isOpening ? 'SALDO_AWAL' : l.transactionType,
         saldoAwal,
-        penerimaan: qtyIn,
+        penerimaan: isOpening ? 0 : qtyIn,
         pengeluaran: qtyOut,
         saldoAkhir,
       }

@@ -16,7 +16,7 @@ import {
   fetchPharmacyItems, upsertPharmacyItem,
   fetchBatches, insertBatches, updateBatchQty,
   fetchStockLedger, insertStockLedger,
-  fetchBillings, insertBilling, insertBillingItems, fetchBillingItems,
+  fetchBillings, insertBilling, insertBillingItems, fetchBillingItems, deleteBillingItemsByBilling,
   fetchExpenses, upsertExpense,
   fetchDoctors, upsertDoctor, deleteDoctor,
   insertAuditLog, fetchAuditLogs,
@@ -157,7 +157,7 @@ async function bootstrap() {
 
       const [jItems, bItems, stockRows, outflowItems] = await Promise.all([
         entryIds.length ? fetchJournalItems(entryIds).catch(err => { console.warn('[Bootstrap] fetchJournalItems failed:', err.message); return [] }) : Promise.resolve([]),
-        billingIds.length ? fetchBillingItems(billingIds).catch(err => { console.warn('[Bootstrap] fetchBillingItems failed:', err.message); return [] }) : Promise.resolve([]),
+        fetchBillingItems().catch(err => { console.warn('[Bootstrap] fetchBillingItems failed:', err.message); return [] }),
         fetchStockLedger().catch(err => { console.warn('[Bootstrap] fetchStockLedger failed:', err.message); return [] }),
         outflowIds.length ? fetchStockOutflowItems(outflowIds).catch(err => { console.warn('[Bootstrap] fetchStockOutflowItems failed:', err.message); return [] }) : Promise.resolve([]),
       ])
@@ -797,7 +797,7 @@ export function useStore() {
     return `INV/${ym}/${String(s.billings.length + 1).padStart(5, '0')}`
   }, [s.billings])
 
-  const saveBilling = useCallback(async (billing, items) => {
+  const saveBilling = useCallback(async (billing, items = []) => {
     const id = billing.id || uuidv4()
     const entry = { ...billing, id, createdAt: billing.createdAt || new Date().toISOString() }
     const bItems = items.map(it => ({ ...it, id: it.id || uuidv4(), billingId: id }))
@@ -809,8 +809,14 @@ export function useStore() {
     }))
     try {
       await insertBilling(entry)
-      await insertBillingItems(bItems)
-    } catch (e) { console.error('[saveBilling]', e.message) }
+      if (bItems.length > 0) {
+        await deleteBillingItemsByBilling(id)
+        await insertBillingItems(bItems)
+      }
+    } catch (e) {
+      console.error('[saveBilling]', e.message)
+      throw e
+    }
     return id
   }, [])
 

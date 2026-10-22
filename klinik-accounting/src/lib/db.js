@@ -364,6 +364,7 @@ export async function insertBatches(batches) {
     unit_cost_price: Number(b.unitCostPrice ?? b.unit_cost_price ?? 0),
     quantity_received: Number(b.quantityReceived ?? b.quantity_received ?? 0),
     quantity_current: Number(b.quantityCurrent ?? b.quantity_current ?? 0),
+    selling_price: Number(b.sellingPrice ?? b.selling_price ?? 0),
     grn_reference: b.grnReference || b.grn_reference,
     supplier_name: b.supplierName || b.supplier_name || null,
     journal_entry_id: b.journalEntryId || b.journal_entry_id || null,
@@ -462,17 +463,18 @@ export async function fetchBillings(branchId = null) {
 export async function insertBilling(billing) {
   const row = snake(billing)
     // Ensure numeric
-    ;['subtotal_services', 'subtotal_pharmacy', 'discount_amount', 'ppn_amount', 'grand_total', 'patient_portion', 'insurance_portion'].forEach(k => { row[k] = Number(row[k] || 0) })
+    ;['subtotal_services', 'subtotal_doctor_services', 'subtotal_lab', 'subtotal_pharmacy', 'discount_amount', 'ppn_amount', 'grand_total', 'patient_portion', 'insurance_portion'].forEach(k => { row[k] = Number(row[k] || 0) })
   const { data, error } = await supabase
     .from('patient_billings').upsert(row, { onConflict: 'id' }).select().single()
   handleError(error, 'insertBilling')
   return norm(data)
 }
 export async function fetchBillingItems(billingIds = []) {
-  if (!billingIds.length) return []
-  const { data, error } = await supabase
-    .from('billing_items').select('*')
-    .in('billing_id', billingIds)
+  let q = supabase.from('billing_items').select('*')
+  if (billingIds.length > 0) {
+    q = q.in('billing_id', billingIds)
+  }
+  const { data, error } = await q
   handleError(error, 'fetchBillingItems')
   return normArr(data)
 }
@@ -484,13 +486,19 @@ export async function fetchAllBillingItems() {
 }
 export async function insertBillingItems(items) {
   if (!items.length) return []
+  const allowed = ['id', 'billing_id', 'item_type', 'item_name', 'pharmacy_item_id', 'service_tariff_id', 'quantity', 'unit_price', 'discount_pct', 'total_price']
   const rows = items.map(it => {
     const r = snake(it)
-    r.quantity = Number(r.quantity || 1)
-    r.unit_price = Number(r.unit_price || 0)
-    r.total_price = Number(r.total_price || 0)
-    r.discount_pct = Number(r.discount_pct || 0)
-    return r
+    const clean = {}
+    for (const k of allowed) {
+      clean[k] = (r[k] !== undefined && r[k] !== null) ? r[k] : null
+    }
+    clean.quantity = Number(clean.quantity || 1)
+    clean.unit_price = Number(clean.unit_price || 0)
+    clean.total_price = Number(clean.total_price || (clean.quantity * clean.unit_price))
+    clean.discount_pct = Number(clean.discount_pct || 0)
+    if (!clean.item_type) clean.item_type = 'SERVICE'
+    return clean
   })
   const { data, error } = await supabase
     .from('billing_items').insert(rows).select()

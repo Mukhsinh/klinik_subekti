@@ -24,7 +24,8 @@ const SEMESTERS = ['Semester 1', 'Semester 2']
 
 export default function BillingReportPage() {
   const { billings, billingItems, branches, activeBranchId, doctors, appSettings } = useStore()
-  const [filterType, setFilterType] = useState('DAILY')
+  const [filterType, setFilterType] = useState('ALL')
+  const [showCharts, setShowCharts] = useState(false)
   const [startDate, setStartDate] = useState(todayISO())
   const [endDate, setEndDate] = useState(todayISO())
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
@@ -127,7 +128,13 @@ export default function BillingReportPage() {
     }
 
     switch (filterType) {
+      case 'ALL':
+        return paid
+
       case 'DAILY':
+        if (!startDate && !endDate) return paid
+        if (startDate && !endDate) return paid.filter(b => b.visitDate >= startDate)
+        if (!startDate && endDate) return paid.filter(b => b.visitDate <= endDate)
         if (startDate === endDate) {
           return paid.filter(b => b.visitDate === startDate)
         }
@@ -159,7 +166,7 @@ export default function BillingReportPage() {
       default:
         return paid
     }
-  }, [billings, filterType, startDate, endDate, selectedMonth, selectedYear, selectedQuarter, selectedSemester, selectedDoctor])
+  }, [effectiveBillings, filterType, startDate, endDate, selectedMonth, selectedYear, selectedQuarter, selectedSemester, selectedDoctor, doctorOptions])
 
   // Calculate KPIs
   const kpis = useMemo(() => {
@@ -227,6 +234,15 @@ export default function BillingReportPage() {
         dataMap[month].patients += 1
       })
       return Object.values(dataMap).sort((a, b) => MONTHS.indexOf(a.month) - MONTHS.indexOf(b.month))
+    } else if (filterType === 'ALL') {
+      const dataMap = {}
+      filteredBillings.forEach(b => {
+        const periodKey = b.visitDate ? b.visitDate.substring(0, 7) : 'Semua'
+        if (!dataMap[periodKey]) dataMap[periodKey] = { month: periodKey, revenue: 0, patients: 0 }
+        dataMap[periodKey].revenue += (b.grandTotal || 0)
+        dataMap[periodKey].patients += 1
+      })
+      return Object.values(dataMap).sort((a, b) => a.month.localeCompare(b.month))
     } else {
       // Monthly breakdown for year
       const dataMap = {}
@@ -421,12 +437,24 @@ export default function BillingReportPage() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="page-title">Laporan Billing Kasir</h1>
           <p className="text-sm text-slate-400 mt-0.5">Analisis transaksi billing dengan filter periode lengkap</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg shadow-sm transition-all ${
+              showCharts
+                ? 'bg-primary-600 text-white shadow-primary-200 hover:bg-primary-700'
+                : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50'
+            }`}
+            onClick={() => setShowCharts(prev => !prev)}
+          >
+            <BarChart3 className="w-4 h-4" />
+            {showCharts ? 'Sembunyikan Grafik & Ringkasan' : 'Tampilkan Grafik & Ringkasan'}
+          </button>
           <button className="btn-secondary" onClick={exportPDF}>
             <FileText className="w-4 h-4" />PDF
           </button>
@@ -440,14 +468,15 @@ export default function BillingReportPage() {
       <div className="card card-body">
         <div className="flex items-center gap-2 mb-4">
           <Filter className="w-4 h-4 text-primary-600" />
-          <h3 className="font-semibold text-slate-700">Filter Periode</h3>
+          <h3 className="font-semibold text-slate-700">Filter Periode & Dokter</h3>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <div>
             <label className="form-label">Tipe Filter Periode</label>
-            <select className="form-select" value={filterType} onChange={e => setFilterType(e.target.value)}>
-              <option value="DAILY">Harian</option>
+            <select className="form-select font-medium" value={filterType} onChange={e => setFilterType(e.target.value)}>
+              <option value="ALL">Semua Transaksi (Tanpa Filter)</option>
+              <option value="DAILY">Harian / Rentang Tanggal</option>
               <option value="MONTHLY">Bulanan</option>
               <option value="QUARTERLY">Triwulanan</option>
               <option value="SEMESTER">Semesteran</option>
@@ -532,117 +561,16 @@ export default function BillingReportPage() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="Total Pendapatan"
-          value={fmtIDR(kpis.totalRevenue)}
-          icon={Wallet}
-          trend={null}
-          color="blue"
-        />
-        <KpiCard
-          title="Total Jasa Medis"
-          value={fmtIDR(kpis.totalServices)}
-          icon={Activity}
-          trend={null}
-          color="green"
-        />
-        <KpiCard
-          title="Total Farmasi"
-          value={fmtIDR(kpis.totalPharmacy)}
-          icon={ShoppingBag}
-          trend={null}
-          color="purple"
-        />
-        <KpiCard
-          title="Total Pasien"
-          value={kpis.totalPatients}
-          subtitle={`Avg: ${fmtIDR(kpis.avgTransaction)}`}
-          icon={Users}
-          trend={null}
-          color="orange"
-        />
-      </div>
-
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Revenue Trend Chart */}
-        <div className="card card-body">
-          <h3 className="font-semibold text-slate-700 mb-4">Tren Pendapatan</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey={filterType === 'MONTHLY' ? 'day' : filterType === 'DAILY' ? 'date' : 'month'} tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={(val) => fmtIDR(val).replace(/Rp\s?/, '')} />
-              <Tooltip formatter={(val) => fmtIDR(val)} />
-              <Legend />
-              <Line type="monotone" dataKey="revenue" name="Pendapatan" stroke="#3b82f6" strokeWidth={2} dot={{ fill: '#3b82f6' }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Patient Count Chart */}
-        <div className="card card-body">
-          <h3 className="font-semibold text-slate-700 mb-4">Jumlah Pasien</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey={filterType === 'MONTHLY' ? 'day' : filterType === 'DAILY' ? 'date' : 'month'} tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="patients" name="Jumlah Pasien" fill="#10b981" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Payment Method Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="card card-body">
-          <h3 className="font-semibold text-slate-700 mb-4">Metode Pembayaran</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={paymentMethodData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
-                outerRadius={100}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {paymentMethodData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(val) => fmtIDR(val)} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="card card-body">
-          <h3 className="font-semibold text-slate-700 mb-4">Detail Metode Pembayaran</h3>
-          <div className="space-y-3">
-            {paymentMethodData.map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-4 h-4 rounded" style={{ backgroundColor: COLORS[idx % COLORS.length] }}></div>
-                  <span className="text-sm font-medium text-slate-700">{item.name}</span>
-                </div>
-                <span className="text-sm font-bold text-slate-900">{fmtIDR(item.value)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Transaction Table */}
+      {/* Transaction Table (Preview Detail Transaksi di Atas di Bawah Filter) */}
       <div className="card">
-        <div className="card-body border-b border-slate-100">
-          <h3 className="font-semibold text-slate-700">Detail Transaksi ({filteredBillings.length})</h3>
+        <div className="card-body border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-slate-800">Detail Transaksi Billing</h3>
+            <span className="badge badge-blue font-bold">{filteredBillings.length} Transaksi</span>
+          </div>
+          <span className="text-xs text-slate-400">
+            {filterType === 'ALL' ? 'Semua Riwayat Billing' : `Periode: ${filterType}`}
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="table-base">
@@ -692,10 +620,10 @@ export default function BillingReportPage() {
                         </button>
                         <button
                           className="p-1.5 text-slate-500 hover:text-emerald-600 rounded hover:bg-slate-100 transition-colors"
-                          title="Cetak PDF Nota"
+                          title="Cetak PDF Nota (1/2 A4)"
                           onClick={() => {
                             const items = effectiveBillingItems.filter(i => i.billingId === b.id || i.billing_id === b.id)
-                            exportBillingReceiptPDF(b, items)
+                            exportBillingReceiptPDF(b, items, appSettings)
                             toast.success(`Nota ${b.billingNumber} berhasil dicetak.`)
                           }}
                         >
@@ -721,6 +649,118 @@ export default function BillingReportPage() {
           </table>
         </div>
       </div>
+
+      {/* Kartu Skor & Grafik (Hanya tampil saat tombol Tampilkan Grafik diklik) */}
+      {showCharts && (
+        <div className="space-y-5 animate-fadeIn">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard
+              title="Total Pendapatan"
+              value={fmtIDR(kpis.totalRevenue)}
+              icon={Wallet}
+              trend={null}
+              color="blue"
+            />
+            <KpiCard
+              title="Total Jasa Medis"
+              value={fmtIDR(kpis.totalServices)}
+              icon={Activity}
+              trend={null}
+              color="green"
+            />
+            <KpiCard
+              title="Total Farmasi"
+              value={fmtIDR(kpis.totalPharmacy)}
+              icon={ShoppingBag}
+              trend={null}
+              color="purple"
+            />
+            <KpiCard
+              title="Total Pasien"
+              value={kpis.totalPatients}
+              subtitle={`Avg: ${fmtIDR(kpis.avgTransaction)}`}
+              icon={Users}
+              trend={null}
+              color="orange"
+            />
+          </div>
+
+          {/* Charts Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Revenue Trend Chart */}
+            <div className="card card-body">
+              <h3 className="font-semibold text-slate-700 mb-4">Tren Pendapatan</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={trendData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey={filterType === 'MONTHLY' ? 'day' : filterType === 'DAILY' ? 'date' : 'month'} tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(val) => fmtIDR(val).replace(/Rp\s?/, '')} />
+                  <Tooltip formatter={(val) => fmtIDR(val)} />
+                  <Legend />
+                  <Line type="monotone" dataKey="revenue" name="Pendapatan" stroke="#3b82f6" strokeWidth={2} dot={{ fill: '#3b82f6' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Patient Count Chart */}
+            <div className="card card-body">
+              <h3 className="font-semibold text-slate-700 mb-4">Jumlah Pasien</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={trendData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey={filterType === 'MONTHLY' ? 'day' : filterType === 'DAILY' ? 'date' : 'month'} tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="patients" name="Jumlah Pasien" fill="#10b981" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Payment Method Breakdown */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="card card-body">
+              <h3 className="font-semibold text-slate-700 mb-4">Metode Pembayaran</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={paymentMethodData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
+                    outerRadius={100}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {paymentMethodData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(val) => fmtIDR(val)} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="card card-body">
+              <h3 className="font-semibold text-slate-700 mb-4">Detail Metode Pembayaran</h3>
+              <div className="space-y-3">
+                {paymentMethodData.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-4 h-4 rounded" style={{ backgroundColor: COLORS[idx % COLORS.length] }}></div>
+                      <span className="text-sm font-medium text-slate-700">{item.name}</span>
+                    </div>
+                    <span className="text-sm font-bold text-slate-900">{fmtIDR(item.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── View Detail Billing Modal ──────────────────────────── */}
       <Modal open={modal === 'detail'} onClose={() => setModal(null)} title={`Detail Billing — ${selectedBilling?.billingNumber}`} size="lg">

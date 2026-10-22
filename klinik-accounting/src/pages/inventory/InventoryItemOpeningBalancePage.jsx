@@ -213,7 +213,7 @@ export default function InventoryItemOpeningBalancePage() {
                             id: uuidv4(),
                             batch_id: batchId,
                             item_id: item.itemId,
-                            transaction_type: 'GRN',
+                            transaction_type: 'SALDO_AWAL',
                             reference_number: 'SALDO-AWAL',
                             quantity_in: item.quantity,
                             quantity_out: 0,

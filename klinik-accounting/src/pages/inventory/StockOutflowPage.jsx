@@ -189,6 +189,7 @@ export default function StockOutflowPage() {
 
           const qOut = Number(s.quantityOut ?? s.quantity_out ?? 0)
           const uCost = Number(s.unitCost ?? s.unit_cost ?? 0)
+          const isPaid = billing?.status === 'PAID'
 
           list.push({
             id: s.id,
@@ -199,7 +200,9 @@ export default function StockOutflowPage() {
             unitCost: uCost,
             totalValue: Number(s.totalValue ?? s.total_value ?? (qOut * uCost)),
             source: 'BILLING',
-            patientName: billing?.patientName || billing?.patient_name || '-'
+            patientName: billing?.patientName || billing?.patient_name || '-',
+            isPaid,
+            paymentStatus: isPaid ? 'LUNAS' : 'BELUM LUNAS'
           })
         })
     }
@@ -222,6 +225,7 @@ export default function StockOutflowPage() {
             const qty = Number(bi.quantity || 1)
             const unitPrice = Number(bi.unitPrice ?? bi.unit_price ?? bi.price ?? 0)
             const itemCost = Number(item?.purchasePrice || item?.purchase_price || item?.hpp || unitPrice)
+            const isPaid = billing.status === 'PAID'
 
             list.push({
               id: bi.id,
@@ -232,7 +236,9 @@ export default function StockOutflowPage() {
               unitCost: itemCost,
               totalValue: qty * itemCost,
               source: 'BILLING',
-              patientName: billing.patientName || billing.patient_name || '-'
+              patientName: billing.patientName || billing.patient_name || '-',
+              isPaid,
+              paymentStatus: isPaid ? 'LUNAS' : 'BELUM LUNAS'
             })
           }
         })
@@ -310,21 +316,22 @@ export default function StockOutflowPage() {
 
   // ── Patient Medicine Outflow Helpers ─────────────────────────
   const patientBillingOptions = useMemo(() => {
-    return (billings || []).map(b => {
-      const doc = (doctors || []).find(d => d.id === (b.doctorId || b.doctor_id))
-      const docName = doc?.fullName || doc?.full_name || 'Dokter Pemeriksa'
-      const pName = b.patientName || b.patient_name || 'Pasien'
-      const bNum = b.billingNumber || b.billing_number || 'INV'
-      const mrn = b.patientMRN || b.patient_mrn || '-'
-      const date = fmtDate(b.visitDate || b.visit_date || b.createdAt || b.created_at)
-      const status = b.paymentStatus || b.payment_status || 'PENDING'
-      return {
-        value: b.id,
-        label: `${bNum} — ${pName} (RM: ${mrn}) | ${date} [${status}]`,
-        billing: b,
-        docName
-      }
-    })
+    return (billings || [])
+      .filter(b => b.status === 'UNPAID' || b.status === 'BELUM_LUNAS' || b.status === 'DRAFT' || b.status !== 'PAID')
+      .map(b => {
+        const doc = (doctors || []).find(d => d.id === (b.doctorId || b.doctor_id))
+        const docName = doc?.fullName || doc?.full_name || 'Dokter Pemeriksa'
+        const pName = b.patientName || b.patient_name || 'Pasien'
+        const bNum = b.billingNumber || b.billing_number || 'INV'
+        const mrn = b.patientMRN || b.patient_mrn || '-'
+        const date = fmtDate(b.visitDate || b.visit_date || b.createdAt || b.created_at)
+        return {
+          value: b.id,
+          label: `${bNum} — ${pName} (RM: ${mrn}) | ${date} [BELUM LUNAS]`,
+          billing: b,
+          docName
+        }
+      })
   }, [billings, doctors])
 
   const selectedBilling = useMemo(() => {
@@ -581,7 +588,7 @@ export default function StockOutflowPage() {
       await refreshAll()
 
       toast.success(`Pengeluaran obat untuk ${patientDisplay} berhasil! Data otomatis terupdate di billing pasien.`)
-      setModal(null)
+      setModal('billing')
       resetPatientMedForm()
     } catch (err) {
       console.error('[handleSavePatientMedicine] Error:', err)
@@ -1011,19 +1018,20 @@ export default function StockOutflowPage() {
             <table className="w-full text-left border-collapse table-auto">
               <thead>
                 <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                  <th className="py-2.5 px-2.5" style={{ width: '100px' }}>Tanggal</th>
+                  <th className="py-2.5 px-2.5" style={{ width: '90px' }}>Tanggal</th>
                   <th className="py-2.5 px-2.5" style={{ width: '130px' }}>No. Billing</th>
                   <th className="py-2.5 px-2.5" style={{ minWidth: '130px' }}>Nama Pasien</th>
-                  <th className="py-2.5 px-2.5" style={{ minWidth: '160px' }}>Item</th>
-                  <th className="py-2.5 px-2.5 text-right" style={{ width: '60px' }}>Qty</th>
-                  <th className="py-2.5 px-2.5 text-right" style={{ width: '110px' }}>Harga Pokok</th>
-                  <th className="py-2.5 px-2.5 text-right" style={{ width: '120px' }}>Total Nilai</th>
+                  <th className="py-2.5 px-2.5" style={{ minWidth: '160px' }}>Item Obat</th>
+                  <th className="py-2.5 px-2.5 text-right" style={{ width: '50px' }}>Qty</th>
+                  <th className="py-2.5 px-2.5 text-right" style={{ width: '100px' }}>Harga Pokok</th>
+                  <th className="py-2.5 px-2.5 text-right" style={{ width: '110px' }}>Total Nilai</th>
+                  <th className="py-2.5 px-2.5 text-center" style={{ width: '120px' }}>Status Pembayaran</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white text-[11px]">
                 {billingOutflows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-12 text-slate-400">
+                    <td colSpan={8} className="text-center py-12 text-slate-400">
                       Belum ada pengeluaran dari billing
                     </td>
                   </tr>
@@ -1037,6 +1045,17 @@ export default function StockOutflowPage() {
                       <td className="py-2 px-2.5 text-right font-sans text-[11px] font-bold text-slate-800 whitespace-nowrap">{fmtNum(o.quantity)}</td>
                       <td className="py-2 px-2.5 text-right font-sans text-[11px] font-medium text-slate-700 whitespace-nowrap">{fmtIDR(o.unitCost)}</td>
                       <td className="py-2 px-2.5 text-right font-sans text-[11px] font-extrabold text-slate-800 whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
+                      <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                        {o.isPaid ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm">
+                            ✓ LUNAS
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-red-100 text-red-800 border border-red-300 shadow-sm">
+                            ⚠ BELUM LUNAS
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -1048,6 +1067,7 @@ export default function StockOutflowPage() {
                     <td className="py-2.5 px-2.5 text-right font-mono text-primary-700 font-bold">
                       {fmtIDR(billingOutflows.reduce((sum, o) => sum + o.totalValue, 0))}
                     </td>
+                    <td></td>
                   </tr>
                 </tfoot>
               )}

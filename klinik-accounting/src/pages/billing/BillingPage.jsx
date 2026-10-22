@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Plus, Eye, CheckCircle, Trash2, Stethoscope, Package, Printer, Pencil } from 'lucide-react'
+import { Plus, Eye, CheckCircle, Trash2, Stethoscope, Package, Printer, Pencil, UserCheck, CreditCard } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
@@ -8,9 +8,9 @@ import SearchableSelect from '../../components/ui/SearchableSelect'
 import AddPharmacyItemModal from '../../components/billing/AddPharmacyItemModal'
 import { exportBillingReceiptPDF } from '../../utils/exportPDF'
 import {
-  updateBilling, deleteBillingItemsByBilling, insertBillingItems,
-  deleteDoctorFeeRecordByBilling, updateBatchQty, insertStockLedger, fetchStockLedger,
-  insertAuditLog
+  updateBilling, deleteBillingItemsByBilling, insertBillingItems, fetchBillingItems,
+  deleteDoctorFeeRecordByBilling, insertDoctorFeeRecord, updateBatchQty,
+  insertStockLedger, fetchStockLedger, insertAuditLog
 } from '../../lib/db'
 import {
   fmtIDR, fmtDate, todayISO,
@@ -61,6 +61,34 @@ export default function BillingPage() {
     setPharmacyLines(ls => [...ls, { ...item, id: uuidv4() }])
     setShowAddPharmModal(false)
   }
+
+  const [modalItems, setModalItems] = useState([])
+  const [loadingItems, setLoadingItems] = useState(false)
+
+  const handleOpenViewModal = async (b) => {
+    setSelected(b)
+    setModal('view')
+    const inStore = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+    if (inStore.length > 0) {
+      setModalItems(inStore)
+    } else {
+      setLoadingItems(true)
+      try {
+        const fetched = await fetchBillingItems([b.id])
+        setModalItems(fetched || [])
+      } catch (e) {
+        console.warn('Failed to fetch modal billing items:', e)
+      } finally {
+        setLoadingItems(false)
+      }
+    }
+  }
+
+  const viewItems = useMemo(() => {
+    if (!selected) return []
+    const fromStore = (billingItems || []).filter(i => (i.billingId || i.billing_id) === selected.id)
+    return fromStore.length > 0 ? fromStore : modalItems
+  }, [billingItems, selected, modalItems])
 
   const billingNumber = useMemo(() => generateBillingNumber(), [billings])
   const activeDoctors = useMemo(() =>
@@ -164,16 +192,9 @@ export default function BillingPage() {
   const patientPortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? grandTotal * (1 - BPJS_RATIO) : grandTotal
   const insurancePortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? grandTotal * BPJS_RATIO : 0
 
-  // Doctor fee/commission applies ONLY to pure consultation service (4-11-001/4-11-002), excluding BHP/Actions (4-11-003)
-  const doctorConsultationSubtotal = serviceLines
-    .filter(l => {
-      const code = l.revenueAccountCode || '4-11-001'
-      return code === '4-11-001' || code === '4-11-002'
-    })
-    .reduce((s, l) => s + (parseFloat(l.qty) || 1) * (parseFloat(l.price) || 0), 0)
-
-  const feeRate = selectedDoctor ? (selectedDoctor.feePercentage || 70) : 0
-  const grossDoctorFee = doctorConsultationSubtotal * (feeRate / 100)
+  // Doctor fee/commission applies ONLY to examination & procedures performed by doctor (serviceLines), excluding lab and pharmacy
+  const feeRate = selectedDoctor ? (Number(selectedDoctor.feePercentage ?? selectedDoctor.fee_percentage) || 70) : 70
+  const grossDoctorFee = subService * (feeRate / 100)
   const pph21Calc = calcPPh21Doctor(grossDoctorFee)
 
   const addSvc = (sId) => {
@@ -247,6 +268,58 @@ export default function BillingPage() {
     setServiceLines([]); setLabLines([]); setPharmacyLines([]); setDiscount(0)
   }
 
+  const handleRegisterPatient = async () => {
+    if (isSubmitting) return
+    if (!patientName.trim()) { toast.error('Nama pasien wajib diisi.'); return }
+    if (!serviceLines.length && !labLines.length && !pharmacyLines.length) { toast.error('Minimal 1 item layanan, lab, atau farmasi.'); return }
+
+    setIsSubmitting(true)
+    try {
+      const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName}`.trim() : ''
+      const bId = uuidv4()
+      const items = [
+        ...serviceLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'SERVICE', itemName: l.name, serviceTariffId: l.serviceId || l.id || null, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
+        ...labLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'LAB', itemName: l.name, serviceTariffId: l.serviceId || l.id || null, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
+        ...pharmacyLines.filter(l => l.itemId).map(l => ({ id: uuidv4(), billingId: bId, itemType: 'PHARMACY', itemName: l.name, pharmacyItemId: l.itemId, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
+      ]
+      const billing = {
+        id: bId,
+        branchId: activeBranchId,
+        billingNumber,
+        patientName,
+        patientMRN,
+        doctorId: selectedDoctor?.id || null,
+        doctorName: docName,
+        visitDate,
+        paymentMethod: payMethod,
+        bpjsClaimNumber: bpjsClaimNo,
+        subtotalDoctorServices: subService,
+        subtotalLab: subLab,
+        subtotalServices: subService + subLab,
+        subtotalPharmacy: subPharmacy,
+        discountAmount: discountAmt,
+        ppnAmount,
+        grandTotal,
+        patientPortion,
+        insurancePortion,
+        status: 'UNPAID',
+        createdBy: 'Pendaftaran / Kasir',
+        journalEntryId: null,
+      }
+
+      await saveBilling(billing, items)
+      await refreshAll()
+      toast.success(`Pendaftaran ${billingNumber} (${patientName}) berhasil disimpan. Status: BELUM LUNAS.`)
+      setModal(null)
+      resetForm()
+    } catch (err) {
+      console.error('[handleRegisterPatient] Error:', err)
+      toast.error(`Gagal menyimpan pendaftaran: ${err.message}`)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const handleCheckout = async () => {
     if (isSubmitting) return
     if (!patientName.trim()) { toast.error('Nama pasien wajib diisi.'); return }
@@ -272,15 +345,18 @@ export default function BillingPage() {
       const bId = uuidv4()
       const eId = uuidv4()
       const items = [
-        ...serviceLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'SERVICE', itemName: l.name, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
-        ...labLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'LAB', itemName: l.name, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
+        ...serviceLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'SERVICE', itemName: l.name, serviceTariffId: l.serviceId || l.id || null, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
+        ...labLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'LAB', itemName: l.name, serviceTariffId: l.serviceId || l.id || null, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
         ...pharmacyLines.filter(l => l.itemId).map(l => ({ id: uuidv4(), billingId: bId, itemType: 'PHARMACY', itemName: l.name, pharmacyItemId: l.itemId, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
       ]
       const billing = {
         id: bId, branchId: activeBranchId, billingNumber, patientName, patientMRN,
         doctorId: selectedDoctor?.id || null, doctorName: docName,
         visitDate, paymentMethod: payMethod, bpjsClaimNumber: bpjsClaimNo,
-        subtotalServices: subService + subLab, subtotalPharmacy: subPharmacy,
+        subtotalDoctorServices: subService,
+        subtotalLab: subLab,
+        subtotalServices: subService + subLab,
+        subtotalPharmacy: subPharmacy,
         discountAmount: discountAmt, ppnAmount, grandTotal, patientPortion, insurancePortion,
         status: 'PAID', createdBy: 'Kasir',
         journalEntryId: eId,
@@ -385,6 +461,30 @@ export default function BillingPage() {
       await saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
       await saveBilling(billing, items)
       await postJournalEntry(eId, 'System-Billing')
+
+      // Record doctor fee and PPh21 to doctor_fee_records
+      if (selectedDoctor && grossDoctorFee > 0) {
+        try {
+          await insertDoctorFeeRecord({
+            id: uuidv4(),
+            billingId: bId,
+            doctorId: selectedDoctor.id,
+            doctorName: docName,
+            doctorNpwp: selectedDoctor.npwp || selectedDoctor.doctor_npwp || '',
+            grossJasaMedis: grossDoctorFee,
+            dppAmount: pph21Calc.dpp,
+            taxRate: pph21Calc.rate * 100,
+            pph21Amount: pph21Calc.pph21Amount,
+            netToDoctor: pph21Calc.netToDoctor,
+            cumulativeGrossYtd: 0,
+            journalEntryId: eId,
+            createdAt: new Date().toISOString()
+          })
+        } catch (dfErr) {
+          console.warn('[handleCheckout] Doctor fee record insert error:', dfErr.message)
+        }
+      }
+
       toast.success(`Billing ${billingNumber} berhasil. Jurnal diposting.`)
       setModal(null); resetForm()
     } catch (err) {
@@ -395,14 +495,30 @@ export default function BillingPage() {
     }
   }
 
-  const handlePrintReceipt = (b) => {
-    const bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+  const handlePrintReceipt = async (b) => {
+    let bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+    if (bItems.length === 0) {
+      try {
+        const fetched = await fetchBillingItems([b.id])
+        if (fetched && fetched.length > 0) bItems = fetched
+      } catch (e) {
+        console.warn('Could not fetch billing items for PDF:', e)
+      }
+    }
     exportBillingReceiptPDF(b, bItems, appSettings)
   }
 
-  const handleOpenEditModal = (b) => {
+  const handleOpenEditModal = async (b) => {
     setEditingBilling(b)
-    const bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+    let bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+    if (bItems.length === 0) {
+      try {
+        const fetched = await fetchBillingItems([b.id])
+        if (fetched && fetched.length > 0) bItems = fetched
+      } catch (e) {
+        console.warn('Could not fetch billing items for edit:', e)
+      }
+    }
 
     setPatientName(b.patientName || b.patient_name || '')
     setPatientMRN(b.patientMRN || b.patient_mrn || '')
@@ -439,11 +555,84 @@ export default function BillingPage() {
     setModal('edit')
   }
 
-  const handleSaveEditBilling = async () => {
+  const handleSaveEditBilling = async (actionType = 'PAY_NOW') => {
     if (!editingBilling) return
     if (!patientName.trim()) { toast.error('Nama pasien wajib diisi'); return }
     setIsSubmitting(true)
     try {
+      const subService = serviceLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
+      const subLab = labLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
+      const subPharmacy = pharmacyLines.reduce((sum, l) => sum + ((parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)), 0)
+      const discountAmt = Math.min(Number(discount) || 0, subService + subLab + subPharmacy)
+      const ppnAmount = Math.round(subPharmacy * PPN_RATE)
+      const grandTotal = Math.max(0, subService + subLab + subPharmacy + ppnAmount - discountAmt)
+
+      let patientPortion = grandTotal
+      let insurancePortion = 0
+      if (payMethod === 'BPJS') {
+        insurancePortion = Math.round(grandTotal * BPJS_RATIO)
+        patientPortion = grandTotal - insurancePortion
+      } else if (payMethod === 'ASURANSI') {
+        insurancePortion = grandTotal
+        patientPortion = 0
+      }
+
+      const docFeePct = selectedDoctor ? (Number(selectedDoctor.feePercentage ?? selectedDoctor.fee_percentage) || 70) : 70
+      const docName = selectedDoctor?.fullName || selectedDoctor?.name || 'Dokter'
+      const grossDoctorFee = selectedDoctor ? Math.round(subService * (docFeePct / 100)) : 0
+      const pph21Calc = calcPPh21Doctor(grossDoctorFee, false)
+
+      const items = [
+        ...serviceLines.map(l => ({
+          id: uuidv4(), billingId: editingBilling.id, itemType: 'SERVICE',
+          serviceTariffId: l.id, itemName: l.name, quantity: l.qty,
+          unitPrice: l.price, totalPrice: l.qty * l.price
+        })),
+        ...labLines.map(l => ({
+          id: uuidv4(), billingId: editingBilling.id, itemType: 'LAB',
+          serviceTariffId: l.id, itemName: l.name, quantity: l.qty,
+          unitPrice: l.price, totalPrice: l.qty * l.price
+        })),
+        ...pharmacyLines.filter(l => l.itemId).map(l => ({
+          id: uuidv4(), billingId: editingBilling.id, itemType: 'PHARMACY',
+          pharmacyItemId: l.itemId, itemName: l.name, quantity: parseInt(l.qty) || 1,
+          unitPrice: parseFloat(l.price) || 0, totalPrice: (parseInt(l.qty) || 1) * (parseFloat(l.price) || 0)
+        })),
+      ]
+
+      if (actionType === 'KEEP_UNPAID' || (editingBilling.status === 'UNPAID' && actionType !== 'PAY_NOW')) {
+        const updatedBillingObj = {
+          id: editingBilling.id,
+          patientName,
+          patientMRN,
+          doctorId: selectedDoctor?.id || null,
+          doctorName: docName,
+          visitDate,
+          paymentMethod: payMethod,
+          bpjsClaimNumber: bpjsClaimNo,
+          subtotalDoctorServices: subService,
+          subtotalLab: subLab,
+          subtotalServices: subService + subLab,
+          subtotalPharmacy,
+          discountAmount: discountAmt,
+          ppnAmount,
+          grandTotal,
+          patientPortion,
+          insurancePortion,
+          status: 'UNPAID',
+          updatedAt: new Date().toISOString()
+        }
+        await updateBilling(editingBilling.id, updatedBillingObj)
+        await deleteBillingItemsByBilling(editingBilling.id)
+        await insertBillingItems(items)
+        await refreshAll()
+        toast.success(`Data pendaftaran ${editingBilling.billingNumber} berhasil diperbarui. Status tetap: BELUM LUNAS.`)
+        setModal(null)
+        setEditingBilling(null)
+        resetForm()
+        return
+      }
+
       if (editingBilling.journalEntryId) {
         await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Billing ${editingBilling.billingNumber}`)
       }
@@ -478,28 +667,6 @@ export default function BillingPage() {
 
       await deleteDoctorFeeRecordByBilling(editingBilling.id)
 
-      const subService = serviceLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
-      const subLab = labLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
-      const subPharmacy = pharmacyLines.reduce((sum, l) => sum + ((parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)), 0)
-      const discountAmt = Math.min(Number(discount) || 0, subService + subLab + subPharmacy)
-      const ppnAmount = Math.round(subPharmacy * PPN_RATE)
-      const grandTotal = Math.max(0, subService + subLab + subPharmacy + ppnAmount - discountAmt)
-
-      let patientPortion = grandTotal
-      let insurancePortion = 0
-      if (payMethod === 'BPJS') {
-        insurancePortion = Math.round(grandTotal * BPJS_RATIO)
-        patientPortion = grandTotal - insurancePortion
-      } else if (payMethod === 'ASURANSI') {
-        insurancePortion = grandTotal
-        patientPortion = 0
-      }
-
-      const docFeePct = selectedDoctor?.feePercentage || 30
-      const docName = selectedDoctor?.fullName || selectedDoctor?.name || 'Dokter'
-      const grossDoctorFee = selectedDoctor ? Math.round((subService + subLab) * (docFeePct / 100)) : 0
-      const pph21Calc = calcPPh21Doctor(grossDoctorFee, true)
-
       const newJournalId = uuidv4()
       const updatedBillingObj = {
         id: editingBilling.id,
@@ -510,6 +677,8 @@ export default function BillingPage() {
         visitDate,
         paymentMethod: payMethod,
         bpjsClaimNumber: bpjsClaimNo,
+        subtotalDoctorServices: subService,
+        subtotalLab: subLab,
         subtotalServices: subService + subLab,
         subtotalPharmacy,
         discountAmount: discountAmt,
@@ -517,29 +686,12 @@ export default function BillingPage() {
         grandTotal,
         patientPortion,
         insurancePortion,
+        status: 'PAID',
         journalEntryId: newJournalId,
         updatedAt: new Date().toISOString()
       }
       await updateBilling(editingBilling.id, updatedBillingObj)
-
       await deleteBillingItemsByBilling(editingBilling.id)
-      const items = [
-        ...serviceLines.map(l => ({
-          id: uuidv4(), billingId: editingBilling.id, itemType: 'SERVICE',
-          serviceTariffId: l.id, itemName: l.name, quantity: l.qty,
-          unitPrice: l.price, totalPrice: l.qty * l.price
-        })),
-        ...labLines.map(l => ({
-          id: uuidv4(), billingId: editingBilling.id, itemType: 'LAB',
-          serviceTariffId: l.id, itemName: l.name, quantity: l.qty,
-          unitPrice: l.price, totalPrice: l.qty * l.price
-        })),
-        ...pharmacyLines.filter(l => l.itemId).map(l => ({
-          id: uuidv4(), billingId: editingBilling.id, itemType: 'PHARMACY',
-          pharmacyItemId: l.itemId, itemName: l.name, quantity: parseInt(l.qty) || 1,
-          unitPrice: parseFloat(l.price) || 0, totalPrice: (parseInt(l.qty) || 1) * (parseFloat(l.price) || 0)
-        })),
-      ]
       await insertBillingItems(items)
 
       const hppDebits = {}
@@ -559,13 +711,13 @@ export default function BillingPage() {
       const eNum = generateEntryNumber('BILLING')
       const journalItems = []
       if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Kas Tunai (Revisi) — ${editingBilling.billingNumber}`, debit: grandTotal, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Kas Tunai — ${editingBilling.billingNumber}`, debit: grandTotal, credit: 0 })
       } else if (payMethod === 'BPJS') {
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Bayar Pasien BPJS (Revisi) — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-12-001', description: `Piutang BPJS (Revisi) — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Bayar Pasien BPJS — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-12-001', description: `Piutang BPJS — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
       } else {
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Bayar Pasien Asuransi (Revisi) — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-12-002', description: `Piutang Asuransi (Revisi) — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Bayar Pasien Asuransi — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-12-002', description: `Piutang Asuransi — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
       }
 
       const revenueByAccount = {}
@@ -584,7 +736,6 @@ export default function BillingPage() {
         }
       })
 
-      // Group pharmacy revenue by item master COA revenue account (DPP = selling price, PPN exclusive)
       const pharmacyRevAccounts = {}
       pharmacyLines.filter(l => l.itemId).forEach(l => {
         const lineVal = (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)
@@ -625,24 +776,47 @@ export default function BillingPage() {
       const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
       const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
 
-      await saveJournalDraft({ id: newJournalId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${editingBilling.billingNumber} (Revisi)`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
+      await saveJournalDraft({ id: newJournalId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${editingBilling.billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
       await postJournalEntry(newJournalId, 'System-Billing')
+
+      // Record doctor fee and PPh21 to doctor_fee_records
+      if (selectedDoctor && grossDoctorFee > 0) {
+        try {
+          await insertDoctorFeeRecord({
+            id: uuidv4(),
+            billingId: editingBilling.id,
+            doctorId: selectedDoctor.id,
+            doctorName: docName,
+            doctorNpwp: selectedDoctor.npwp || selectedDoctor.doctor_npwp || '',
+            grossJasaMedis: grossDoctorFee,
+            dppAmount: pph21Calc.dpp,
+            taxRate: pph21Calc.rate * 100,
+            pph21Amount: pph21Calc.pph21Amount,
+            netToDoctor: pph21Calc.netToDoctor,
+            cumulativeGrossYtd: 0,
+            journalEntryId: newJournalId,
+            createdAt: new Date().toISOString()
+          })
+        } catch (dfErr) {
+          console.warn('[handleSaveEditBilling] Doctor fee record insert error:', dfErr.message)
+        }
+      }
 
       await insertAuditLog({
         id: uuidv4(), user_id: 'system', user_name: 'Kasir', user_role: 'system',
-        action: 'EDIT_BILLING_REVISION', module: 'BILLING',
-        detail: `Revisi billing ${editingBilling.billingNumber} (${patientName})`,
+        action: 'PAY_BILLING', module: 'BILLING',
+        detail: `Pembayaran billing ${editingBilling.billingNumber} (${patientName}) selesai. Status: PAID`,
         created_at: new Date().toISOString()
       })
 
       await refreshAll()
-      toast.success(`Billing ${editingBilling.billingNumber} berhasil direvisi & jurnal diposting ulang!`)
+      toast.success(`Pembayaran billing ${editingBilling.billingNumber} berhasil diproses. Status: LUNAS. Jurnal diposting.`)
       setModal(null)
       setEditingBilling(null)
       resetForm()
     } catch (err) {
       console.error('[handleSaveEditBilling] Error:', err.message)
-      toast.error(`Gagal merevisi billing: ${err.message}`)
+      toast.error(`Gagal memproses billing: ${err.message}`)
     } finally {
       setIsSubmitting(false)
     }
@@ -664,15 +838,13 @@ export default function BillingPage() {
       .sort((a, b) => new Date(b.visitDate || b.createdAt || 0) - new Date(a.visitDate || a.createdAt || 0)),
     [billings, statusFilter, search])
 
-  const viewItems = selected ? (billingItems || []).filter(i => (i.billingId || i.billing_id) === selected.id) : []
-
   return (
     <div className="space-y-5">
       {/* ── Header ──────────────────────────────────────────── */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="page-title">Kasir &amp; Billing Pasien</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Checkout pasien — split BPJS — PPh 21 dokter otomatis</p>
+          <p className="text-sm text-slate-400 mt-0.5">Pendaftaran pasien &amp; transaksi bertahap — kasir checkout — PPh 21 dokter otomatis</p>
         </div>
         <button className="btn-danger-red" onClick={() => { resetForm(); setModal('new') }}>
           <Plus className="w-4 h-4" />Billing Baru
@@ -683,9 +855,10 @@ export default function BillingPage() {
       <div className="card card-body">
         <div className="flex flex-wrap gap-3 items-center">
           <SearchInput value={search} onChange={setSearch} placeholder="Cari nama pasien atau no. billing…" className="w-64" />
-          <select className="form-select w-40" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="form-select w-44" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="ALL">Semua Status</option>
-            <option value="PAID">Lunas</option>
+            <option value="UNPAID">Belum Lunas (Tertunda)</option>
+            <option value="PAID">Lunas (Selesai)</option>
             <option value="DRAFT">Draft</option>
             <option value="CANCELLED">Batal</option>
           </select>
@@ -719,15 +892,25 @@ export default function BillingPage() {
                   <td><StatusBadge status={b.status} /></td>
                   <td className="text-center">
                     <div className="flex items-center justify-center gap-1.5">
-                      <button className="btn-action-edit" onClick={() => { setSelected(b); setModal('view') }} title="Lihat Detail">
+                      <button className="btn-action-edit" onClick={() => handleOpenViewModal(b)} title="Lihat Rincian & Nota">
                         <Eye className="w-3.5 h-3.5" />
                       </button>
-                      <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors" onClick={() => handlePrintReceipt(b)} title="Cetak Nota (PDF)">
+                      <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors" onClick={() => handlePrintReceipt(b)} title="Cetak Kuitansi Nota (PDF 1/2 A4)">
                         <Printer className="w-3.5 h-3.5" />
                       </button>
-                      <button className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors" onClick={() => handleOpenEditModal(b)} title="Edit & Revisi Billing">
+                      <button className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors" onClick={() => handleOpenEditModal(b)} title="Edit / Tambah Transaksi">
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
+                      {b.status === 'UNPAID' && (
+                        <button
+                          className="px-2 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-sm flex items-center gap-1 transition-colors ml-0.5"
+                          onClick={() => handleOpenEditModal(b)}
+                          title="Klik untuk Proses Pembayaran Pasien (Bayar)"
+                        >
+                          <CreditCard className="w-3 h-3" />
+                          Bayar
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -740,12 +923,58 @@ export default function BillingPage() {
       {/* ── New / Edit Billing Modal ─────────────────────────── */}
       <Modal open={modal === 'new' || modal === 'edit'} onClose={() => { setModal(null); setEditingBilling(null) }} title={modal === 'edit' ? `Edit & Revisi Billing — ${editingBilling?.billingNumber}` : `Billing Baru — ${billingNumber}`} size="xl"
         footer={
-          <>
+          <div className="flex items-center justify-between w-full">
             <button className="btn-secondary" onClick={() => { setModal(null); setEditingBilling(null) }}>Batal</button>
-            <button className="btn-success px-6" onClick={modal === 'edit' ? handleSaveEditBilling : handleCheckout} disabled={isSubmitting}>
-              <CheckCircle className="w-4 h-4" />{modal === 'edit' ? 'Simpan Revisi' : 'Proses Pembayaran'}
-            </button>
-          </>
+            <div className="flex items-center gap-2">
+              {modal === 'new' ? (
+                <>
+                  <button
+                    type="button"
+                    className="px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                    onClick={handleRegisterPatient}
+                    disabled={isSubmitting}
+                    title="Simpan pendaftaran pasien dengan transaksi tertunda (Belum Lunas)"
+                  >
+                    <UserCheck className="w-4 h-4 text-amber-600" />
+                    Daftar (Belum Lunas)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-success px-5 flex items-center gap-1.5"
+                    onClick={handleCheckout}
+                    disabled={isSubmitting}
+                    title="Proses checkout dan bayar penuh (Status: Lunas)"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Bayar (Lunas)
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                    onClick={() => handleSaveEditBilling('KEEP_UNPAID')}
+                    disabled={isSubmitting}
+                    title="Simpan perubahan data pendaftaran pasien (Status tetap Belum Lunas)"
+                  >
+                    <UserCheck className="w-4 h-4 text-amber-600" />
+                    Simpan (Belum Lunas)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-success px-5 flex items-center gap-1.5"
+                    onClick={() => handleSaveEditBilling('PAY_NOW')}
+                    disabled={isSubmitting}
+                    title="Selesaikan transaksi dan proses pembayaran kasir (Status: Lunas)"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    Bayar Sekarang (Lunas)
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         }
       >
         <div className="space-y-5">
@@ -1012,7 +1241,7 @@ export default function BillingPage() {
             {selectedDoctor && grossDoctorFee > 0 && (
               <div className="border-t border-slate-200 pt-2 space-y-1">
                 <p className="text-xs font-semibold text-slate-600">PPh 21 Dokter — {selectedDoctor.title} {selectedDoctor.fullName}:</p>
-                <div className="flex justify-between text-xs text-slate-500"><span>Bruto ({feeRate}% × Jasa Medis + Lab)</span><span className="font-mono">{fmtIDR(grossDoctorFee)}</span></div>
+                <div className="flex justify-between text-xs text-slate-500"><span>Bruto ({feeRate}% × Jasa Medis Dokter)</span><span className="font-mono">{fmtIDR(grossDoctorFee)}</span></div>
                 <div className="flex justify-between text-xs text-slate-500"><span>DPP (50%)</span><span className="font-mono">{fmtIDR(pph21Calc.dpp)}</span></div>
                 <div className="flex justify-between text-xs text-red-600"><span>PPh 21 ({(pph21Calc.rate * 100).toFixed(0)}%)</span><span className="font-mono">({fmtIDR(pph21Calc.pph21Amount)})</span></div>
                 <div className="flex justify-between text-xs text-emerald-700 font-medium"><span>Bersih ke Dokter</span><span className="font-mono">{fmtIDR(pph21Calc.netToDoctor)}</span></div>
@@ -1022,59 +1251,237 @@ export default function BillingPage() {
         </div>
       </Modal>
 
-      {/* ── View Detail Modal ────────────────────────────────── */}
-      <Modal open={modal === 'view'} onClose={() => setModal(null)} title={`Detail Billing — ${selected?.billingNumber}`} size="lg">
-        {selected && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-              <div><span className="text-slate-500">Pasien:</span><strong className="ml-2">{selected.patientName}</strong></div>
-              <div><span className="text-slate-500">Tanggal:</span><span className="ml-2">{fmtDate(selected.visitDate)}</span></div>
-              <div><span className="text-slate-500">Dokter:</span><span className="ml-2">{selected.doctorName || '—'}</span></div>
-              <div><span className="text-slate-500">Metode:</span><span className="ml-2">{paymentMethodLabel(selected.paymentMethod)}</span></div>
-              <div><span className="text-slate-500">Grand Total:</span><span className="ml-2 font-bold font-mono">{fmtIDR(selected.grandTotal)}</span></div>
-              <div><span className="text-slate-500">Status:</span><StatusBadge status={selected.status} /></div>
+      {/* ── View Detail Modal (Professional Half-A4 Receipt Preview) ── */}
+      <Modal
+        open={modal === 'view'}
+        onClose={() => { setModal(null); setModalItems([]) }}
+        title={`Rincian Kuitansi & Nota — ${selected?.billingNumber || ''}`}
+        size="xl"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <span className="text-xs text-slate-400">
+              Ukuran Kertas: 1/2 A4 (A5 Landscape: 210 × 148 mm)
+            </span>
+            <div className="flex items-center gap-2">
+              <button className="btn-secondary" onClick={() => setModal(null)}>Tutup</button>
+              {selected && (
+                <button
+                  className="btn-primary flex items-center gap-1.5"
+                  onClick={() => handlePrintReceipt(selected)}
+                >
+                  <Printer className="w-4 h-4" />
+                  Cetak Nota (PDF 1/2 A4)
+                </button>
+              )}
             </div>
-            <table className="table-base border border-slate-200 rounded-xl overflow-hidden">
-              <thead>
-                <tr><th>Item</th><th>Tipe</th><th className="text-right">Qty</th><th className="text-right">Harga</th><th className="text-right">Total</th></tr>
-              </thead>
-              <tbody>
-                {viewItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="text-center py-6 text-slate-400">
-                      Belum ada rincian item transaksi untuk billing ini
-                    </td>
-                  </tr>
+          </div>
+        }
+      >
+        {selected && (
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm font-sans space-y-4">
+            {/* Kop Surat Klinik */}
+            <div className="flex items-start justify-between border-b-2 border-primary-900 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-primary-700 text-white rounded-xl flex items-center justify-center font-bold text-xl shadow-md">
+                  {(appSettings?.companyName || 'K').charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-slate-900 tracking-wide">
+                    {appSettings?.companyName || 'KLINIK PRATAMA SUBEKTI'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {appSettings?.address || 'Jl. Raya Subekti No. 12, Jakarta'}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {appSettings?.phone || '(021) 7890-1234'} • Izin Operasional Klinik No: 503/KLINIK/2024
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Stamp Badge */}
+              <div className="text-right">
+                <div className="text-xs font-semibold uppercase text-slate-400 tracking-wider mb-1">Status Pembayaran</div>
+                {selected.status === 'PAID' ? (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-50 border-2 border-emerald-500 text-emerald-700 font-extrabold text-sm rounded-lg shadow-sm">
+                    ✓ LUNAS
+                  </span>
                 ) : (
-                  viewItems.map(i => {
-                    const iType = (i.itemType || i.item_type || 'SERVICE').toUpperCase()
-                    const iName = i.itemName || i.item_name || 'Layanan / Obat'
-                    const iQty = Number(i.quantity || 1)
-                    const iPrice = Number(i.unitPrice ?? i.unit_price ?? 0)
-                    const iTotal = Number(i.totalPrice ?? i.total_price ?? (iQty * iPrice))
-                    return (
-                      <tr key={i.id || Math.random()}>
-                        <td className="text-sm font-medium text-slate-800">{iName}</td>
-                        <td>
-                          <span className={`badge text-xs ${iType === 'SERVICE' ? 'badge-blue' : iType === 'LAB' ? 'badge-purple' : 'badge-green'}`}>
-                            {iType === 'SERVICE' ? 'Jasa Medis' : iType === 'LAB' ? 'Laboratorium' : 'Farmasi / Obat'}
-                          </span>
-                        </td>
-                        <td className="text-right text-sm">{iQty}</td>
-                        <td className="text-right font-mono text-sm">{fmtIDR(iPrice)}</td>
-                        <td className="text-right font-mono text-sm font-bold text-slate-900">{fmtIDR(iTotal)}</td>
-                      </tr>
-                    )
-                  })
+                  <span className="inline-flex items-center gap-1 px-3 py-1 bg-red-50 border-2 border-red-500 text-red-700 font-extrabold text-sm rounded-lg shadow-sm">
+                    ⚠ BELUM LUNAS
+                  </span>
                 )}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-50 font-semibold">
-                  <td colSpan={4} className="text-right pr-4">Grand Total</td>
-                  <td className="text-right font-mono text-primary-700">{fmtIDR(selected.grandTotal)}</td>
-                </tr>
-              </tfoot>
-            </table>
+              </div>
+            </div>
+
+            {/* Title */}
+            <div className="text-center py-1">
+              <h4 className="text-sm font-extrabold text-primary-900 uppercase tracking-widest">
+                Kuitansi / Nota Pembayaran Rawat Jalan
+              </h4>
+              <p className="text-xs text-slate-400">Dokumen Transaksi Keuangan Resmi (Ukuran 1/2 A4)</p>
+            </div>
+
+            {/* Info Grid */}
+            <div className="grid grid-cols-2 gap-4 bg-slate-50 rounded-lg p-3 text-xs border border-slate-200">
+              <div className="space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">No. Billing</span>
+                  <span className="font-mono font-bold text-slate-900">{selected.billingNumber}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Nama Pasien</span>
+                  <span className="font-semibold text-slate-900">{selected.patientName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">No. Rekam Medis (MRN)</span>
+                  <span className="font-mono text-slate-700">{selected.patientMRN || '—'}</span>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Tanggal Transaksi</span>
+                  <span className="font-medium text-slate-900">{fmtDate(selected.visitDate)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Dokter Pemeriksa</span>
+                  <span className="font-medium text-slate-900">{selected.doctorName || '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Metode Pembayaran</span>
+                  <span className="font-semibold text-primary-700">
+                    {paymentMethodLabel(selected.paymentMethod)} {selected.bpjsClaimNumber ? `(${selected.bpjsClaimNumber})` : ''}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Items Table */}
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-100 border-b border-slate-200 text-slate-700">
+                  <tr>
+                    <th className="py-2 px-3 text-center w-10">No</th>
+                    <th className="py-2 px-3 text-left">Deskripsi Layanan / Obat</th>
+                    <th className="py-2 px-3 text-left w-32">Kategori</th>
+                    <th className="py-2 px-3 text-right w-14">Qty</th>
+                    <th className="py-2 px-3 text-right w-28">Harga Satuan</th>
+                    <th className="py-2 px-3 text-right w-32">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loadingItems ? (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-slate-400">
+                        Memuat rincian transaksi...
+                      </td>
+                    </tr>
+                  ) : viewItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-slate-400">
+                        Tidak ada rincian item transaksi terlampir
+                      </td>
+                    </tr>
+                  ) : (
+                    viewItems.map((item, idx) => {
+                      const iType = (item.itemType || item.item_type || 'SERVICE').toUpperCase()
+                      const typeLabel = iType === 'SERVICE' ? 'Jasa Medis' : iType === 'LAB' ? 'Laboratorium' : 'Farmasi / Obat'
+                      const name = item.itemName || item.item_name || 'Layanan / Obat'
+                      const qty = Number(item.quantity || 1)
+                      const price = Number(item.unitPrice ?? item.unit_price ?? 0)
+                      const total = Number(item.totalPrice ?? item.total_price ?? (qty * price))
+                      return (
+                        <tr key={item.id || idx} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 text-center text-slate-400">{idx + 1}</td>
+                          <td className="py-2 px-3 font-medium text-slate-800">{name}</td>
+                          <td className="py-2 px-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                              iType === 'SERVICE' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                              iType === 'LAB' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                              'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}>
+                              {typeLabel}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right text-slate-700">{qty}</td>
+                          <td className="py-2 px-3 text-right font-mono text-slate-700">{fmtIDR(price)}</td>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">{fmtIDR(total)}</td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Ringkasan Subtotal */}
+            <div className="flex justify-end pt-1">
+              <div className="w-72 space-y-1.5 text-xs">
+                {(selected.subtotalDoctorServices || selected.subtotal_doctor_services || selected.subtotalServices) > 0 && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Subtotal Jasa Dokter:</span>
+                    <span className="font-mono">{fmtIDR(selected.subtotalDoctorServices || selected.subtotal_doctor_services || selected.subtotalServices)}</span>
+                  </div>
+                )}
+                {(selected.subtotalLab || selected.subtotal_lab) > 0 && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Subtotal Laboratorium:</span>
+                    <span className="font-mono">{fmtIDR(selected.subtotalLab || selected.subtotal_lab)}</span>
+                  </div>
+                )}
+                {(selected.subtotalPharmacy || selected.subtotal_pharmacy) > 0 && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Subtotal Farmasi &amp; Obat:</span>
+                    <span className="font-mono">{fmtIDR(selected.subtotalPharmacy || selected.subtotal_pharmacy)}</span>
+                  </div>
+                )}
+                {(selected.ppnAmount || selected.ppn_amount) > 0 && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>PPN 11% (Farmasi):</span>
+                    <span className="font-mono">{fmtIDR(selected.ppnAmount || selected.ppn_amount)}</span>
+                  </div>
+                )}
+                {(selected.discountAmount || selected.discount_amount) > 0 && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Diskon / Potongan:</span>
+                    <span className="font-mono text-red-600">-{fmtIDR(selected.discountAmount || selected.discount_amount)}</span>
+                  </div>
+                )}
+                <div className="border-t-2 border-slate-300 pt-1.5 flex justify-between font-bold text-sm text-primary-900">
+                  <span>Grand Total:</span>
+                  <span className="font-mono text-base">{fmtIDR(selected.grandTotal)}</span>
+                </div>
+                {['BPJS', 'ASURANSI'].includes(selected.paymentMethod) && (
+                  <div className="bg-slate-50 rounded p-2 text-[11px] space-y-1 border border-slate-200 mt-1">
+                    <div className="flex justify-between text-emerald-700">
+                      <span>Bagian Pasien:</span>
+                      <span className="font-mono font-bold">{fmtIDR(selected.patientPortion)}</span>
+                    </div>
+                    <div className="flex justify-between text-blue-700">
+                      <span>Klaim {selected.paymentMethod}:</span>
+                      <span className="font-mono font-bold">{fmtIDR(selected.insurancePortion)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Tanda Tangan Footer */}
+            <div className="grid grid-cols-2 pt-6 text-center text-xs text-slate-600">
+              <div>
+                <p>Pasien / Keluarga Pasien,</p>
+                <div className="h-14"></div>
+                <p className="font-bold border-t border-slate-300 inline-block px-8 pt-1">
+                  ( {selected.patientName || 'Pasien'} )
+                </p>
+              </div>
+              <div>
+                <p>Petugas Kasir / Administrasi,</p>
+                <div className="h-14"></div>
+                <p className="font-bold border-t border-slate-300 inline-block px-8 pt-1">
+                  ( Bagian Kasir Klinik )
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </Modal>

@@ -1221,7 +1221,7 @@ export default function GRNPage() {
                     const item = itemMap[b.itemId || b.item_id]
                     const uStr = item?.unit || item?.smallUnit || item?.satuan || item?.uom || 'Unit'
                     const unitPrice = Number(b.unitCostPrice ?? b.unit_cost_price ?? 0)
-                    const sellPrice = Number(b.sellingPrice ?? b.selling_price ?? 0)
+                    const sellPrice = Number(b.sellingPrice ?? b.selling_price ?? 0) || Number(item?.sellingPrice || item?.selling_price || 0) || Math.round(unitPrice * 1.25)
                     const qty = Number(b.quantityReceived ?? b.quantity_received ?? 0)
                     const total = qty * unitPrice
                     return (

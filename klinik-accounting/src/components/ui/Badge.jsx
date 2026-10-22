@@ -25,6 +25,8 @@ export function StatusBadge({ status }) {
     REVERSED: { label: 'Dibalik', variant: 'red' },
     // Billing
     PAID: { label: 'Lunas', variant: 'green' },
+    UNPAID: { label: 'Belum Lunas', variant: 'red' },
+    BELUM_LUNAS: { label: 'Belum Lunas', variant: 'red' },
     CANCELLED: { label: 'Dibatalkan', variant: 'red' },
     REFUNDED: { label: 'Dikembalikan', variant: 'orange' },
     // Expense
