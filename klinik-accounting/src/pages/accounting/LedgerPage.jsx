@@ -35,6 +35,29 @@ export default function LedgerPage() {
         (activeBranchId ? ob.branchId === activeBranchId : true)
     )
 
+    const isDebitNormal = (selectedAccount?.naturalBalance || selectedAccount?.normalBalance || (['ASSET', 'EXPENSE'].includes(selectedAccount?.accountType) ? 'DEBIT' : 'CREDIT')) === 'DEBIT'
+
+    // Calculate movements prior to dateFrom in the same fiscal year
+    const priorEntries = (journalEntries || []).filter(j =>
+      j &&
+      j.status === 'POSTED' &&
+      j.transactionDate >= `${fiscalYear}-01-01` &&
+      j.transactionDate < dateFrom &&
+      (activeBranchId ? j.branchId === activeBranchId : true)
+    )
+    const priorEntryIds = new Set(priorEntries.map(j => j.id))
+    let priorMovement = 0
+    ;(journalItems || []).forEach(i => {
+      if (i && i.accountCode === selectedCode && priorEntryIds.has(i.journalEntryId)) {
+        const d = parseFloat(i.debit || 0)
+        const c = parseFloat(i.credit || 0)
+        priorMovement += isDebitNormal ? (d - c) : (c - d)
+      }
+    })
+
+    const initialObAmount = parseFloat(openingBalance?.openingBalance || 0)
+    const totalStartingBalance = initialObAmount + priorMovement
+
     const relevantEntries = (journalEntries || []).filter(j =>
       j &&
       j.status === 'POSTED' &&
@@ -57,35 +80,29 @@ export default function LedgerPage() {
       }))
       .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate) || a.entryNumber.localeCompare(b.entryNumber))
 
-    // Add opening balance as first entry if exists
+    // Add opening balance as first entry if exists or has prior movements
     const allLines = []
-    let balance = 0
+    let balance = totalStartingBalance
 
-    if (openingBalance && parseFloat(openingBalance.openingBalance || 0) !== 0) {
-      const obAmount = parseFloat(openingBalance.openingBalance || 0)
-      const isDebitNormal = selectedAccount?.normalBalance === 'DEBIT'
-
-      // Opening balance entry
+    if (totalStartingBalance !== 0 || dateFrom > `${fiscalYear}-01-01`) {
       const openingEntry = {
         id: `opening-${selectedCode}`,
-        transactionDate: openingBalance.openingDate || dateFrom,
+        transactionDate: dateFrom,
         entryNumber: 'SALDO AWAL',
-        description: openingBalance.description || `Saldo Awal Tahun ${fiscalYear}`,
+        description: `Saldo Awal per ${fmtDate(dateFrom)}`,
         entryType: 'OPENING_BALANCE',
-        debit: isDebitNormal ? obAmount : 0,
-        credit: isDebitNormal ? 0 : obAmount,
-        runningBalance: obAmount,
-        balanceSide: selectedAccount?.normalBalance || 'DEBIT',
+        debit: (isDebitNormal && totalStartingBalance > 0) ? totalStartingBalance : (!isDebitNormal && totalStartingBalance < 0 ? Math.abs(totalStartingBalance) : 0),
+        credit: (!isDebitNormal && totalStartingBalance > 0) ? totalStartingBalance : (isDebitNormal && totalStartingBalance < 0 ? Math.abs(totalStartingBalance) : 0),
+        runningBalance: totalStartingBalance,
+        balanceSide: totalStartingBalance >= 0 ? (isDebitNormal ? 'DEBIT' : 'CREDIT') : (isDebitNormal ? 'CREDIT' : 'DEBIT'),
         isOpeningBalance: true,
       }
-
-      balance = obAmount
       allLines.push(openingEntry)
     }
 
     // Running balance for transaction lines
     lines.forEach(line => {
-      if (selectedAccount?.normalBalance === 'DEBIT') {
+      if (isDebitNormal) {
         balance += line.debit - line.credit
       } else {
         balance += line.credit - line.debit
@@ -93,7 +110,7 @@ export default function LedgerPage() {
       allLines.push({
         ...line,
         runningBalance: balance,
-        balanceSide: balance >= 0 ? (selectedAccount?.normalBalance || 'DEBIT') : (selectedAccount?.normalBalance === 'DEBIT' ? 'CREDIT' : 'DEBIT'),
+        balanceSide: balance >= 0 ? (isDebitNormal ? 'DEBIT' : 'CREDIT') : (isDebitNormal ? 'CREDIT' : 'DEBIT'),
         isOpeningBalance: false,
       })
     })

@@ -5,6 +5,7 @@ import Modal from '../components/ui/Modal'
 import SearchInput from '../components/ui/SearchInput'
 import { StatusBadge } from '../components/ui/Badge'
 import { fmtIDR, fmtDate, todayISO, paymentMethodLabel } from '../utils/format'
+import { getAccountCode, EXPENSE_CATEGORY_MAPPING_KEY } from '../utils/accountMapping'
 import SearchableSelect from '../components/ui/SearchableSelect'
 import { fetchBatches, fetchExpenses, upsertExpense } from '../lib/db'
 import toast from 'react-hot-toast'
@@ -36,7 +37,7 @@ const EXPENSE_CATEGORIES = [
   { label: 'Beban Lain-Lain', coa: '6-91-004' }
 ]
 
-function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, vendors = [], storeBatches = [], storeExpenses = [] }) {
+function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, vendors = [], storeBatches = [], storeExpenses = [], appSettings = {} }) {
   const [form, setForm] = useState(() => ({
     expenseNumber: typeof generateExpenseNumber === 'function' ? generateExpenseNumber() : '',
     expenseDate: todayISO(),
@@ -85,7 +86,12 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     return list.sort((a, b) => a.label.localeCompare(b.label))
   }, [vendors, storeBatches])
 
-  const selectedCat = EXPENSE_CATEGORIES.find(c => c.label === form.category) || EXPENSE_CATEGORIES[0]
+  const selectedCat = useMemo(() => {
+    const cat = EXPENSE_CATEGORIES.find(c => c.label === form.category) || EXPENSE_CATEGORIES[0]
+    const mapKey = EXPENSE_CATEGORY_MAPPING_KEY[form.category]
+    const effectiveCoa = (mapKey ? getAccountCode(mapKey, appSettings) : null) || cat.coa || '6-91-004'
+    return { ...cat, coa: effectiveCoa }
+  }, [form.category, appSettings])
 
   // Calculate unpaid GRNs for the selected vendor
   const vendorUnpaidGRNs = useMemo(() => {
@@ -474,7 +480,7 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
 }
 
 export default function ExpensePage() {
-  const { expenses, invBatches, journalEntries, generateExpenseNumber, saveExpense, postExpense, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber, vendors, refreshAll } = useStore()
+  const { expenses, invBatches, journalEntries, generateExpenseNumber, saveExpense, postExpense, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber, vendors, refreshAll, appSettings } = useStore()
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
@@ -566,9 +572,13 @@ export default function ExpensePage() {
       const entryId = uuidv4()
       const entryNumber = generateEntryNumber('EXP')
 
-      // Debit account priority: stored expense.coaCode -> exact category lookup -> fallback 6-91-004
+      // Dynamic mapping lookup for categories from centralized accountMapping
+      const mapKey = EXPENSE_CATEGORY_MAPPING_KEY[expense.category]
+      const mappedCoa = mapKey ? getAccountCode(mapKey, appSettings) : null
+
+      // Debit account priority: active mapping from /coa -> stored expense.coaCode -> exact category lookup -> fallback 6-91-004
       const catObj = EXPENSE_CATEGORIES.find(c => c.label === expense.category) || { coa: '6-91-004' }
-      const debitAcc = expense.coaCode || catObj.coa || '6-91-004'
+      const debitAcc = mappedCoa || expense.coaCode || catObj.coa || '6-91-004'
 
       // Credit account priority: stored expense.creditCoaCode -> paymentMethod lookup -> fallback 1-11-002
       const creditAccMap = {
@@ -751,6 +761,7 @@ export default function ExpensePage() {
           onClose={() => setModal(null)}
           generateExpenseNumber={generateExpenseNumber}
           activeBranchId={activeBranchId}
+          appSettings={appSettings}
         />
       </Modal>
 

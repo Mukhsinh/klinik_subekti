@@ -460,10 +460,38 @@ export async function fetchBillings(branchId = null) {
   handleError(error, 'fetchBillings')
   return normArr(data)
 }
+export async function getNextBillingNumber() {
+  const d = new Date()
+  const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  const prefix = `INV/${ym}/`
+  try {
+    const { data } = await supabase
+      .from('patient_billings')
+      .select('billing_number')
+      .like('billing_number', `${prefix}%`)
+      .order('billing_number', { ascending: false })
+      .limit(1)
+
+    let maxSeq = 0
+    if (data && data.length > 0) {
+      const parts = (data[0].billing_number || '').split('/')
+      const seq = parseInt(parts[2], 10)
+      if (!isNaN(seq)) maxSeq = seq
+    }
+    return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`
+  } catch (e) {
+    console.warn('[getNextBillingNumber] Error querying supabase:', e.message)
+    return `${prefix}00001`
+  }
+}
+
 export async function insertBilling(billing) {
   const row = snake(billing)
-    // Ensure numeric
-    ;['subtotal_services', 'subtotal_doctor_services', 'subtotal_lab', 'subtotal_pharmacy', 'discount_amount', 'ppn_amount', 'grand_total', 'patient_portion', 'insurance_portion'].forEach(k => { row[k] = Number(row[k] || 0) })
+  if (!row.branch_id) {
+    row.branch_id = 'f265df27-e277-4775-8b1d-5f28e585599a'
+  }
+  // Ensure numeric
+  ;['subtotal_services', 'subtotal_doctor_services', 'subtotal_lab', 'subtotal_pharmacy', 'discount_amount', 'ppn_amount', 'grand_total', 'patient_portion', 'insurance_portion'].forEach(k => { row[k] = Number(row[k] || 0) })
   const { data, error } = await supabase
     .from('patient_billings').upsert(row, { onConflict: 'id' }).select().single()
   handleError(error, 'insertBilling')
@@ -527,6 +555,15 @@ export async function deleteDoctorFeeRecordByBilling(billingId) {
     .delete()
     .eq('billing_id', billingId)
   handleError(error, 'deleteDoctorFeeRecordByBilling')
+}
+export async function deleteBilling(billingId) {
+  await deleteBillingItemsByBilling(billingId)
+  await deleteDoctorFeeRecordByBilling(billingId)
+  const { error } = await supabase
+    .from('patient_billings')
+    .delete()
+    .eq('id', billingId)
+  handleError(error, 'deleteBilling')
 }
 
 

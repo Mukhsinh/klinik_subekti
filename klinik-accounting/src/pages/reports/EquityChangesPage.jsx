@@ -12,7 +12,7 @@ function buildEquityData(coa, journalEntries, journalItems, dateFrom, dateTo, br
         j.status === 'POSTED' &&
         j.transactionDate >= dateFrom &&
         j.transactionDate <= dateTo &&
-        (branchFilter === 'ALL' || j.branchId === branchFilter)
+        (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter)
     )
     const periodJournalIds = new Set(postedJournalsInPeriod.map(j => j.id))
 
@@ -20,7 +20,7 @@ function buildEquityData(coa, journalEntries, journalItems, dateFrom, dateTo, br
     const postedJournalsPrior = journalEntries.filter(j =>
         j.status === 'POSTED' &&
         j.transactionDate < dateFrom &&
-        (branchFilter === 'ALL' || j.branchId === branchFilter)
+        (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter)
     )
     const priorJournalIds = new Set(postedJournalsPrior.map(j => j.id))
 
@@ -104,9 +104,10 @@ function buildEquityData(coa, journalEntries, journalItems, dateFrom, dateTo, br
 export default function EquityChangesPage() {
     const { coa, journalEntries, journalItems, branches, activeBranchId, appSettings } = useStore()
 
-    const [dateFrom, setDateFrom] = useState(monthStart())
-    const [dateTo, setDateTo] = useState(monthEnd())
-    const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
+    const currentYear = new Date().getFullYear()
+    const [dateFrom, setDateFrom] = useState(`${currentYear}-01-01`)
+    const [dateTo, setDateTo] = useState(`${currentYear}-12-31`)
+    const [branchFilter, setBranchFilter] = useState('ALL')
 
     const equityData = useMemo(() =>
         buildEquityData(coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter),
@@ -114,7 +115,7 @@ export default function EquityChangesPage() {
     )
 
     const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
-    const branchName = branches.find(b => b.id === branchFilter)?.entityName || 'Semua Cabang'
+    const branchName = appSettings?.companyName || 'Klinik Subekti'
 
     // Structured rows for report export & table display
     const reportRows = useMemo(() => [
@@ -156,13 +157,6 @@ export default function EquityChangesPage() {
                 <div className="flex flex-wrap gap-4 items-end">
                     <div><label className="form-label">Dari Tanggal</label><input type="date" className="form-input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
                     <div><label className="form-label">Sampai Tanggal</label><input type="date" className="form-input" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
-                    <div>
-                        <label className="form-label">Cabang</label>
-                        <select className="form-select" value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
-                            <option value="ALL">Semua Cabang</option>
-                            {branches.map(b => <option key={b.id} value={b.id}>{b.entityName}</option>)}
-                        </select>
-                    </div>
                 </div>
             </div>
 

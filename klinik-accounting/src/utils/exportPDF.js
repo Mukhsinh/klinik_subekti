@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import 'jspdf-autotable'
 import { fmtDate, fmtDateTime, fmtIDR } from './format'
+import { resolveBillingItemCategory } from './billingCategory'
 
 const CLINIC_NAME = 'Klinik Medis Antigravity'
 const CLINIC_ADDR = 'Jl. Sudirman No. 1, Jakarta Pusat'
@@ -265,7 +266,7 @@ export function exportJournalPDF(entry, items, coa, appSettings = null) {
 }
 
 // ─── Billing / Receipt PDF (Nota Transaksi Kasir — Setengah Kertas A4 / A5) ───
-export function exportBillingReceiptPDF(billing, items = [], appSettings = null) {
+export function exportBillingReceiptPDF(billing, items = [], appSettings = null, options = {}) {
   // A5 Landscape is 210mm x 148mm (exactly half of A4 210mm x 297mm)
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' })
   const pageW = doc.internal.pageSize.getWidth()
@@ -324,7 +325,7 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null)
     doc.setTextColor(22, 163, 74)
     doc.text('✓ LUNAS', pageW - 30, 21, { align: 'center' })
   } else {
-    doc.setFillColor(254, 226, 226)
+    doc.setFillColor(254, 242, 242)
     doc.setDrawColor(220, 38, 38)
     doc.roundedRect(pageW - 55, 16, 43, 7, 1.5, 1.5, 'FD')
     doc.setFontSize(8)
@@ -383,8 +384,7 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null)
 
   // 3. ITEMS TABLE
   const body = (items || []).map((it, idx) => {
-    const iType = (it.itemType || it.item_type || 'SERVICE').toUpperCase()
-    const typeLabel = iType === 'SERVICE' ? 'Jasa Medis' : iType === 'LAB' ? 'Laboratorium' : 'Farmasi / Obat'
+    const typeLabel = resolveBillingItemCategory(it, options?.serviceTariffs || [], options?.pharmacyItems || [])
     const q = Number(it.quantity || 1)
     const price = Number(it.unitPrice ?? it.unit_price ?? 0)
     const total = Number(it.totalPrice ?? it.total_price ?? (q * price))

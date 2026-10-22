@@ -9,17 +9,7 @@ import { fmtIDR } from '../../utils/format'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
-const SERVICE_CATEGORIES = [
-    { value: 'KONSULTASI_UMUM', label: 'Konsultasi Dokter Umum' },
-    { value: 'KONSULTASI_SPESIALIS', label: 'Konsultasi Dokter Spesialis' },
-    { value: 'TINDAKAN_MEDIS_MINOR', label: 'Tindakan Medis Minor' },
-    { value: 'TINDAKAN_MEDIS_MAYOR', label: 'Tindakan Medis Mayor' },
-    { value: 'IMUNISASI_VAKSINASI', label: 'Imunisasi & Vaksinasi' },
-    { value: 'MCU', label: 'MCU (Medical Check Up)' },
-    { value: 'KLINIK_GIGI', label: 'Klinik Gigi' },
-    { value: 'LABORATORIUM', label: 'Pemeriksaan Laboratorium' },
-    { value: 'LAINNYA', label: 'Lainnya' },
-]
+export { SERVICE_CATEGORIES, SERVICE_CATEGORY_MAP } from '../../utils/billingCategory'
 
 function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, nextCode, revenueAccounts }) {
     const [form, setForm] = useState({

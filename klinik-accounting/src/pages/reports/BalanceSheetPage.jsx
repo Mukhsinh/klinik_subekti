@@ -9,7 +9,7 @@ import { exportBalanceSheetPDF } from '../../utils/exportPDF'
 function buildBalancesUpTo(coa, journalEntries, journalItems, asOf, branchFilter) {
   const postedIds = new Set(
     journalEntries
-      .filter(j => j.status === 'POSTED' && j.transactionDate <= asOf && (branchFilter === 'ALL' || j.branchId === branchFilter))
+      .filter(j => j.status === 'POSTED' && j.transactionDate <= asOf && (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter))
       .map(j => j.id)
   )
   const balances = {}
@@ -58,8 +58,9 @@ function BSSection({ title, groups, total, colorClass = '' }) {
 
 export default function BalanceSheetPage() {
   const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances, appSettings } = useStore()
-  const [asOf, setAsOf] = useState(monthEnd())
-  const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
+  const currentYear = new Date().getFullYear()
+  const [asOf, setAsOf] = useState(`${currentYear}-12-31`)
+  const [branchFilter, setBranchFilter] = useState('ALL')
 
   const balances = useMemo(() => {
     const fiscalYear = new Date(asOf).getFullYear()
@@ -67,7 +68,7 @@ export default function BalanceSheetPage() {
     // Get opening balances for the fiscal year
     const openingBalanceMap = {}
     openingBalances.forEach(ob => {
-      if (ob.fiscalYear === fiscalYear && (branchFilter === 'ALL' || ob.branchId === branchFilter)) {
+      if (ob.fiscalYear === fiscalYear && (branchFilter === 'ALL' || !ob.branchId || ob.branchId === branchFilter)) {
         openingBalanceMap[ob.accountCode] = parseFloat(ob.openingBalance || 0)
       }
     })
@@ -148,7 +149,7 @@ export default function BalanceSheetPage() {
   const totalLiabEquity = totalLiab + totalEquity
 
   const isBalanced = Math.abs(totalAssets - totalLiabEquity) < 0.01
-  const branchName = branches.find(b => b.id === branchFilter)?.entityName || 'Semua Cabang'
+  const branchName = appSettings?.companyName || 'Klinik Subekti'
   const periodLabel = `Per ${fmtDate(asOf)}`
 
   // Group helpers for sections
@@ -187,13 +188,6 @@ export default function BalanceSheetPage() {
       <div className="card card-body">
         <div className="flex flex-wrap gap-4 items-end">
           <div><label className="form-label">Per Tanggal</label><input type="date" className="form-input" value={asOf} onChange={e => setAsOf(e.target.value)} /></div>
-          <div>
-            <label className="form-label">Cabang</label>
-            <select className="form-select" value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
-              <option value="ALL">Semua Cabang</option>
-              {branches.map(b => <option key={b.id} value={b.id}>{b.entityName}</option>)}
-            </select>
-          </div>
           <div className={`px-4 py-2 rounded-lg text-sm font-medium ${isBalanced ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
             {isBalanced ? '✓ Neraca Balance' : '⚠ Tidak Balance — selisih ' + fmtIDR(Math.abs(totalAssets - totalLiabEquity))}
           </div>

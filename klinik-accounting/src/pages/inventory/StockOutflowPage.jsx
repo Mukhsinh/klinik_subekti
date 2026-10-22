@@ -25,6 +25,7 @@ import SearchInput from '../../components/ui/SearchInput'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import { StatusBadge } from '../../components/ui/Badge'
 import { fmtIDR, fmtDate, fmtNum, todayISO } from '../../utils/format'
+import { getAccountCode } from '../../utils/accountMapping'
 import { calculateFifoValuation, depleteFefoPhysicalStock } from '../../lib/inventoryEngine'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
@@ -40,7 +41,7 @@ const OUTFLOW_TYPES = [
 export default function StockOutflowPage() {
   const {
     pharmacyItems, invBatches, stockLedger, stockOutflows, stockOutflowItems, billings, billingItems,
-    branches, activeBranchId, refreshAll, doctors
+    branches, activeBranchId, refreshAll, doctors, appSettings
   } = useStore()
 
   const [modal, setModal] = useState(null)
@@ -317,7 +318,10 @@ export default function StockOutflowPage() {
   // ── Patient Medicine Outflow Helpers ─────────────────────────
   const patientBillingOptions = useMemo(() => {
     return (billings || [])
-      .filter(b => b.status === 'UNPAID' || b.status === 'BELUM_LUNAS' || b.status === 'DRAFT' || b.status !== 'PAID')
+      .filter(b => {
+        const s = (b.status || '').toUpperCase()
+        return s === 'UNPAID' || s === 'BELUM_LUNAS' || s === 'DRAFT' || s === 'PENDING'
+      })
       .map(b => {
         const doc = (doctors || []).find(d => d.id === (b.doctorId || b.doctor_id))
         const docName = doc?.fullName || doc?.full_name || 'Dokter Pemeriksa'
@@ -430,6 +434,12 @@ export default function StockOutflowPage() {
       return
     }
 
+    const bStatus = (selectedBilling.status || '').toUpperCase()
+    if (bStatus === 'PAID' || bStatus === 'LUNAS') {
+      toast.error('Billing pasien ini sudah LUNAS. Obat tidak dapat dikeluarkan untuk transaksi yang sudah lunas.')
+      return
+    }
+
     const validItems = patientMedItems.filter(i => i.itemId && Number(i.quantity) > 0)
     if (validItems.length === 0) {
       toast.error('Minimal harus ada 1 obat valid dengan kuantitas > 0')
@@ -507,6 +517,7 @@ export default function StockOutflowPage() {
           billingId: selectedBilling.id,
           itemType: 'PHARMACY',
           pharmacyItemId: item.itemId,
+          serviceTariffId: null,
           itemId: item.itemId,
           itemName: item.itemName,
           quantity: Number(item.quantity),
@@ -556,14 +567,15 @@ export default function StockOutflowPage() {
       // 4. Update patient_billings totals in database
       const addedPharmacySubtotal = newBillingItems.reduce((sum, it) => sum + (it.totalPrice || 0), 0)
       const currentPharmSubtotal = Number(selectedBilling.subtotalPharmacy || selectedBilling.subtotal_pharmacy || 0)
-      const currentSvcSubtotal = Number(selectedBilling.subtotalServices || selectedBilling.subtotal_services || 0)
+      const currentDoctorSvc = Number(selectedBilling.subtotalDoctorServices || selectedBilling.subtotal_doctor_services || 0)
+      const currentLab = Number(selectedBilling.subtotalLab || selectedBilling.subtotal_lab || 0)
+      const currentSvcSubtotal = Number(selectedBilling.subtotalServices || selectedBilling.subtotal_services || (currentDoctorSvc + currentLab))
       const currentDiscount = Number(selectedBilling.discountAmount || selectedBilling.discount_amount || 0)
 
       const updatedPharmSubtotal = currentPharmSubtotal + addedPharmacySubtotal
-      const subtotalBeforeTax = Math.max(0, currentSvcSubtotal + updatedPharmSubtotal - currentDiscount)
-      const prevPpn = Number(selectedBilling.ppnAmount || selectedBilling.ppn_amount || 0)
-      const updatedPpn = prevPpn > 0 ? Math.round(subtotalBeforeTax * 0.11) : 0
-      const updatedGrandTotal = subtotalBeforeTax + updatedPpn
+      // PPN 11% is strictly applied on pharmacy items
+      const updatedPpn = Math.round(updatedPharmSubtotal * 0.11)
+      const updatedGrandTotal = Math.max(0, currentSvcSubtotal + updatedPharmSubtotal + updatedPpn - currentDiscount)
 
       const payMethod = selectedBilling.paymentMethod || selectedBilling.payment_method || 'TUNAI'
       let patientPortion = updatedGrandTotal
@@ -582,6 +594,7 @@ export default function StockOutflowPage() {
         grand_total: updatedGrandTotal,
         patient_portion: patientPortion,
         insurance_portion: insurancePortion,
+        updated_at: now
       })
 
       // 5. Refresh full store state across all components in real time!
@@ -713,22 +726,25 @@ export default function StockOutflowPage() {
         await insertStockLedger(ledgerEntries)
       }
 
-      // Journal entry creation
+      // Journal entry creation using dynamic account mapping
       const OUTFLOW_EXPENSE_MAP = {
-        INTERNAL_USE: '6-18-001',
-        SAMPLE: '6-13-001',
-        DONATION: '6-91-002',
-        WASTE: '6-91-003',
-        OTHER: '6-18-001',
+        INTERNAL_USE: getAccountCode('outflow_internal', appSettings, '6-18-001'),
+        SAMPLE: getAccountCode('outflow_sample', appSettings, '6-17-001'),
+        DONATION: getAccountCode('outflow_donation', appSettings, '6-91-002'),
+        WASTE: getAccountCode('outflow_waste', appSettings, '6-18-001'),
+        OTHER: getAccountCode('outflow_other', appSettings, '6-18-006'),
       }
-      const targetExpenseAccount = OUTFLOW_EXPENSE_MAP[outflowType] || '6-18-001'
+      const targetExpenseAccount = OUTFLOW_EXPENSE_MAP[outflowType] || getAccountCode('outflow_internal', appSettings, '6-18-001')
       const entryNumber = `OUT/${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(10000 + Math.random() * 90000)}`
 
       const inventoryCredits = {}
       processedItems.forEach(item => {
         const pharmacyItem = activePharmacyItems.find(p => p.id === item.itemId)
         const isBHP = pharmacyItem?.category === 'BHP' || pharmacyItem?.category === 'PEMAKAIAN BHP' || (pharmacyItem?.itemCode || pharmacyItem?.item_code || '').startsWith('BHP-')
-        const accCode = pharmacyItem?.coaInventoryCode || pharmacyItem?.coa_inventory_code || (isBHP ? '1-13-003' : '1-13-001')
+        const isOTC = (pharmacyItem?.category || pharmacyItem?.itemCategory || '').toUpperCase().includes('OTC') || (pharmacyItem?.category || pharmacyItem?.itemCategory || '').toUpperCase().includes('GENERIK') || (pharmacyItem?.category || pharmacyItem?.itemCategory || '').toUpperCase().includes('BEBAS')
+        const defaultInv = isBHP ? getAccountCode('inv_bhp', appSettings, '1-13-003') : (isOTC ? getAccountCode('inv_otc', appSettings, '1-13-002') : getAccountCode('inv_ethical', appSettings, '1-13-001'))
+        const itemInv = pharmacyItem?.coaInventoryCode || pharmacyItem?.coa_inventory_code
+        const accCode = (itemInv && !['1-13-001', '1-13-002', '1-13-003'].includes(itemInv)) ? itemInv : defaultInv
         inventoryCredits[accCode] = (inventoryCredits[accCode] || 0) + (item.totalCost || 0)
       })
 

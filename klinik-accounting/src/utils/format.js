@@ -49,15 +49,17 @@ export function fmtMonthYear(d) {
   return dt.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
 }
 export function todayISO() {
-  return new Date().toISOString().split('T')[0]
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 export function monthStart(d = new Date()) {
   const dt = new Date(d)
-  return new Date(dt.getFullYear(), dt.getMonth(), 1).toISOString().split('T')[0]
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-01`
 }
 export function monthEnd(d = new Date()) {
   const dt = new Date(d)
-  return new Date(dt.getFullYear(), dt.getMonth() + 1, 0).toISOString().split('T')[0]
+  const lastDay = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate()
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 }
 export function daysBetween(a, b) {
   const ms = new Date(b) - new Date(a)
@@ -66,7 +68,8 @@ export function daysBetween(a, b) {
 
 // ─── Accounting helpers ───────────────────────────────────────
 export function calcBalance(account, totalDebit, totalCredit) {
-  if (account.naturalBalance === 'DEBIT') return totalDebit - totalCredit
+  const norm = account?.naturalBalance || account?.normalBalance || (['ASSET', 'EXPENSE'].includes(account?.accountType) ? 'DEBIT' : 'CREDIT')
+  if (norm === 'DEBIT') return totalDebit - totalCredit
   return totalCredit - totalDebit
 }
 

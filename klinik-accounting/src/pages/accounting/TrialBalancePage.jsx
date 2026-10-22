@@ -26,6 +26,26 @@ export default function TrialBalancePage() {
       }
     })
 
+    const priorPostedIds = new Set(
+      (journalEntries || [])
+        .filter(j =>
+          j &&
+          j.status === 'POSTED' &&
+          j.transactionDate >= `${fiscalYear}-01-01` &&
+          j.transactionDate < dateFrom &&
+          (branchFilter === 'ALL' || j.branchId === branchFilter)
+        )
+        .map(j => j.id)
+    )
+
+    const priorBalances = {}
+    ;(journalItems || []).forEach(item => {
+      if (!item || !priorPostedIds.has(item.journalEntryId)) return
+      if (!priorBalances[item.accountCode]) priorBalances[item.accountCode] = { debit: 0, credit: 0 }
+      priorBalances[item.accountCode].debit += parseFloat(item.debit || 0)
+      priorBalances[item.accountCode].credit += parseFloat(item.credit || 0)
+    })
+
     const postedIds = new Set(
       (journalEntries || [])
         .filter(j =>
@@ -50,18 +70,22 @@ export default function TrialBalancePage() {
       .filter(a => a && !a.isHeader)
       .map(a => {
         const b = balances[a.accountCode] || { totalDebit: 0, totalCredit: 0 }
-        const openingBalance = openingBalanceMap[a.accountCode] || 0
+        const isDebit = (a.naturalBalance || a.normalBalance || (['ASSET', 'EXPENSE'].includes(a.accountType) ? 'DEBIT' : 'CREDIT')) === 'DEBIT'
+        const rawOb = openingBalanceMap[a.accountCode] || 0
+        const pb = priorBalances[a.accountCode] || { debit: 0, credit: 0 }
+        const priorMovement = isDebit ? (pb.debit - pb.credit) : (pb.credit - pb.debit)
+        const openingBalance = rawOb + priorMovement
 
         // Calculate ending balance: opening + period movements
         let endingBalance = openingBalance
-        if (a.normalBalance === 'DEBIT') {
+        if (isDebit) {
           endingBalance += b.totalDebit - b.totalCredit
         } else {
           endingBalance += b.totalCredit - b.totalDebit
         }
 
-        const finalDebit = (a.normalBalance === 'DEBIT' && endingBalance > 0) ? endingBalance : 0
-        const finalCredit = (a.normalBalance === 'CREDIT' && endingBalance > 0) ? endingBalance : 0
+        const finalDebit = (isDebit && endingBalance > 0) ? endingBalance : (!isDebit && endingBalance < 0 ? Math.abs(endingBalance) : 0)
+        const finalCredit = (!isDebit && endingBalance > 0) ? endingBalance : (isDebit && endingBalance < 0 ? Math.abs(endingBalance) : 0)
 
         return {
           ...a,

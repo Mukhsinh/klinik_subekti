@@ -36,6 +36,7 @@ import {
 } from '../lib/db'
 import { initialCOA } from '../data/initialCOA'
 import { initialBranches } from '../data/initialData'
+import { getAccountCode } from '../utils/accountMapping'
 
 // ── Singleton state ───────────────────────────────────────────
 let _state = {
@@ -697,9 +698,22 @@ export function useStore() {
     } catch (_) { }
 
     const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || item?.itemCategory === 'BHP' || item?.item_category === 'BHP' || item?.category === 'BHP_MEDIS' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
-    // DB column coa_cogs_code → toCamel → coaCogsCode (lowercase), also check legacy coaCOGSCode
-    const coaCOGSCode = item?.coaCogsCode || item?.coaCOGSCode || item?.coa_cogs_code || (isBHP ? '5-11-003' : '5-11-001')
-    const coaInventoryCode = item?.coaInventoryCode || item?.coa_inventory_code || (isBHP ? '1-13-003' : '1-13-001')
+    const isOTC = (item?.category || item?.itemCategory || '').toUpperCase().includes('OTC') || (item?.category || item?.itemCategory || '').toUpperCase().includes('GENERIK') || (item?.category || item?.itemCategory || '').toUpperCase().includes('BEBAS')
+
+    const cogsKey = isBHP ? 'cogs_bhp' : (isOTC ? 'cogs_otc' : 'cogs_ethical')
+    const invKey = isBHP ? 'inv_bhp' : (isOTC ? 'inv_otc' : 'inv_ethical')
+    const defaultCogs = isBHP ? '5-11-003' : (isOTC ? '5-11-002' : '5-11-001')
+    const defaultInv = isBHP ? '1-13-003' : (isOTC ? '1-13-002' : '1-13-001')
+
+    const mappedCogs = getAccountCode(cogsKey, s.appSettings, defaultCogs)
+    const mappedInv = getAccountCode(invKey, s.appSettings, defaultInv)
+
+    const itemCogs = item?.coaCogsCode || item?.coaCOGSCode || item?.coa_cogs_code
+    const itemInv = item?.coaInventoryCode || item?.coa_inventory_code
+
+    // Prioritaskan hasil mapping akun yang diatur pada /coa jika item memakai default lama, atau gunakan override khusus
+    const coaCOGSCode = (itemCogs && !['5-11-001', '5-11-002', '5-11-003'].includes(itemCogs)) ? itemCogs : mappedCogs
+    const coaInventoryCode = (itemInv && !['1-13-001', '1-13-002', '1-13-003'].includes(itemInv)) ? itemInv : mappedInv
 
     const activeBatches = [...s.invBatches]
       .filter(b => b.itemId === itemId && b.quantityCurrent > 0)
@@ -794,31 +808,71 @@ export function useStore() {
   const generateBillingNumber = useCallback(() => {
     const d = new Date()
     const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
-    return `INV/${ym}/${String(s.billings.length + 1).padStart(5, '0')}`
+    const prefix = `INV/${ym}/`
+    let maxSeq = 0
+    ;(s.billings || []).forEach(b => {
+      const bNum = b.billingNumber || b.billing_number || ''
+      if (bNum.startsWith(prefix)) {
+        const parts = bNum.split('/')
+        const seq = parseInt(parts[parts.length - 1], 10)
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq
+      }
+    })
+    return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`
   }, [s.billings])
 
   const saveBilling = useCallback(async (billing, items = []) => {
     const id = billing.id || uuidv4()
-    const entry = { ...billing, id, createdAt: billing.createdAt || new Date().toISOString() }
-    const bItems = items.map(it => ({ ...it, id: it.id || uuidv4(), billingId: id }))
+    let billingNumber = billing.billingNumber
+    if (!billingNumber) {
+      billingNumber = generateBillingNumber()
+    }
+    let entry = { ...billing, id, billingNumber, createdAt: billing.createdAt || new Date().toISOString() }
+    let bItems = items.map(it => ({ ...it, id: it.id || uuidv4(), billingId: id }))
+
+    let attempts = 0
+    let saved = null
+    while (attempts < 5) {
+      try {
+        saved = await insertBilling(entry)
+        break
+      } catch (err) {
+        if (err.message && err.message.includes('patient_billings_billing_number_key')) {
+          attempts++
+          console.warn(`[saveBilling] Duplicate billing number ${entry.billingNumber}, resolving next sequence... attempt ${attempts}`)
+          const d = new Date()
+          const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+          const prefix = `INV/${ym}/`
+          let curSeq = 0
+          const parts = entry.billingNumber.split('/')
+          const lastSeq = parseInt(parts[parts.length - 1], 10)
+          if (!isNaN(lastSeq)) curSeq = lastSeq
+          entry = { ...entry, billingNumber: `${prefix}${String(curSeq + 1).padStart(5, '0')}` }
+        } else {
+          console.error('[saveBilling]', err.message)
+          throw err
+        }
+      }
+    }
+
+    try {
+      if (bItems.length > 0) {
+        await deleteBillingItemsByBilling(id)
+        await insertBillingItems(bItems)
+      }
+    } catch (e) {
+      console.error('[saveBilling items]', e.message)
+      throw e
+    }
 
     setState(prev => ({
       ...prev,
       billings: [...prev.billings.filter(b => b.id !== id && b.billingNumber !== entry.billingNumber), entry],
       billingItems: [...prev.billingItems.filter(i => i.billingId !== id), ...bItems],
     }))
-    try {
-      await insertBilling(entry)
-      if (bItems.length > 0) {
-        await deleteBillingItemsByBilling(id)
-        await insertBillingItems(bItems)
-      }
-    } catch (e) {
-      console.error('[saveBilling]', e.message)
-      throw e
-    }
-    return id
-  }, [])
+
+    return entry
+  }, [generateBillingNumber])
 
   // ── Expense ───────────────────────────────────────────────
   const generateExpenseNumber = useCallback(() => {

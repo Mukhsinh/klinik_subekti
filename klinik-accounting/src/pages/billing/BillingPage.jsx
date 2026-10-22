@@ -7,6 +7,7 @@ import { StatusBadge } from '../../components/ui/Badge'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import AddPharmacyItemModal from '../../components/billing/AddPharmacyItemModal'
 import { exportBillingReceiptPDF } from '../../utils/exportPDF'
+import { resolveBillingItemCategory, getBillingCategoryBadgeClass } from '../../utils/billingCategory'
 import {
   updateBilling, deleteBillingItemsByBilling, insertBillingItems, fetchBillingItems,
   deleteDoctorFeeRecordByBilling, insertDoctorFeeRecord, updateBatchQty,
@@ -16,6 +17,7 @@ import {
   fmtIDR, fmtDate, todayISO,
   calcPPh21Doctor, PPN_RATE, paymentMethodLabel,
 } from '../../utils/format'
+import { getAccountCode } from '../../utils/accountMapping'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -210,7 +212,7 @@ export default function BillingPage() {
       name: s.name,
       qty: 1,
       price: s.price,
-      revenueAccountCode: s.revenueAccountCode || s.revenue_account_code || '4-11-001'
+      revenueAccountCode: s.revenueAccountCode || s.revenue_account_code || getAccountCode('billing_action', appSettings, '4-11-003')
     }])
   }
   const removeSvc = (id) => setServiceLines(ls => ls.filter(l => l.id !== id))
@@ -228,7 +230,7 @@ export default function BillingPage() {
       name: s.name,
       qty: 1,
       price: s.price,
-      revenueAccountCode: s.revenueAccountCode || s.revenue_account_code || '4-12-001'
+      revenueAccountCode: s.revenueAccountCode || s.revenue_account_code || getAccountCode('billing_lab', appSettings, '4-12-001')
     }])
   }
   const removeLab = (id) => setLabLines(ls => ls.filter(l => l.id !== id))
@@ -277,15 +279,48 @@ export default function BillingPage() {
     try {
       const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName}`.trim() : ''
       const bId = uuidv4()
+      const freshBillingNumber = generateBillingNumber()
+      const effectiveBranchId = activeBranchId || 'f265df27-e277-4775-8b1d-5f28e585599a'
+
       const items = [
-        ...serviceLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'SERVICE', itemName: l.name, serviceTariffId: l.serviceId || l.id || null, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
-        ...labLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'LAB', itemName: l.name, serviceTariffId: l.serviceId || l.id || null, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
-        ...pharmacyLines.filter(l => l.itemId).map(l => ({ id: uuidv4(), billingId: bId, itemType: 'PHARMACY', itemName: l.name, pharmacyItemId: l.itemId, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
+        ...serviceLines.map(l => ({
+          id: uuidv4(),
+          billingId: bId,
+          itemType: 'SERVICE',
+          itemName: l.name,
+          serviceTariffId: l.serviceId || l.id || null,
+          quantity: l.qty,
+          unitPrice: l.price,
+          totalPrice: l.qty * l.price,
+          discountPct: 0
+        })),
+        ...labLines.map(l => ({
+          id: uuidv4(),
+          billingId: bId,
+          itemType: 'LAB',
+          itemName: l.name,
+          serviceTariffId: l.serviceId || l.id || null,
+          quantity: l.qty,
+          unitPrice: l.price,
+          totalPrice: l.qty * l.price,
+          discountPct: 0
+        })),
+        ...pharmacyLines.filter(l => l.itemId).map(l => ({
+          id: uuidv4(),
+          billingId: bId,
+          itemType: 'PHARMACY',
+          itemName: l.name,
+          pharmacyItemId: l.itemId,
+          quantity: l.qty,
+          unitPrice: l.price,
+          totalPrice: l.qty * l.price,
+          discountPct: 0
+        })),
       ]
       const billing = {
         id: bId,
-        branchId: activeBranchId,
-        billingNumber,
+        branchId: effectiveBranchId,
+        billingNumber: freshBillingNumber,
         patientName,
         patientMRN,
         doctorId: selectedDoctor?.id || null,
@@ -307,9 +342,10 @@ export default function BillingPage() {
         journalEntryId: null,
       }
 
-      await saveBilling(billing, items)
+      const savedBilling = await saveBilling(billing, items)
       await refreshAll()
-      toast.success(`Pendaftaran ${billingNumber} (${patientName}) berhasil disimpan. Status: BELUM LUNAS.`)
+      const finalNum = savedBilling?.billingNumber || freshBillingNumber
+      toast.success(`Pendaftaran ${finalNum} (${patientName}) berhasil disimpan. Status: BELUM LUNAS.`)
       setModal(null)
       resetForm()
     } catch (err) {
@@ -344,13 +380,15 @@ export default function BillingPage() {
       const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName}`.trim() : ''
       const bId = uuidv4()
       const eId = uuidv4()
+      const freshBillingNumber = generateBillingNumber()
+      const effectiveBranchId = activeBranchId || 'f265df27-e277-4775-8b1d-5f28e585599a'
       const items = [
         ...serviceLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'SERVICE', itemName: l.name, serviceTariffId: l.serviceId || l.id || null, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
         ...labLines.map(l => ({ id: uuidv4(), billingId: bId, itemType: 'LAB', itemName: l.name, serviceTariffId: l.serviceId || l.id || null, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
         ...pharmacyLines.filter(l => l.itemId).map(l => ({ id: uuidv4(), billingId: bId, itemType: 'PHARMACY', itemName: l.name, pharmacyItemId: l.itemId, quantity: l.qty, unitPrice: l.price, totalPrice: l.qty * l.price, discountPct: 0 })),
       ]
       const billing = {
-        id: bId, branchId: activeBranchId, billingNumber, patientName, patientMRN,
+        id: bId, branchId: effectiveBranchId, billingNumber: freshBillingNumber, patientName, patientMRN,
         doctorId: selectedDoctor?.id || null, doctorName: docName,
         visitDate, paymentMethod: payMethod, bpjsClaimNumber: bpjsClaimNo,
         subtotalDoctorServices: subService,
@@ -399,18 +437,20 @@ export default function BillingPage() {
       // Group revenue by account code from service tariff
       const revenueByAccount = {}
       serviceLines.forEach(l => {
-        const accCode = l.revenueAccountCode || '4-11-001'
+        const defaultActionAcc = getAccountCode('billing_action', appSettings, '4-11-003')
+        const accCode = l.revenueAccountCode || defaultActionAcc
         revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
       })
       labLines.forEach(l => {
-        const accCode = l.revenueAccountCode || '4-12-001'
+        const defaultLabAcc = getAccountCode('billing_lab', appSettings, '4-12-001')
+        const accCode = l.revenueAccountCode || defaultLabAcc
         revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
       })
 
       // Add revenue entries
       Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
         if (amount > 0) {
-          const accDesc = accCode === '4-11-003' ? 'Pendapatan Tindakan Medis & BHP' : accCode === '4-12-001' ? 'Pendapatan Laboratorium' : 'Pendapatan Konsultasi Dokter'
+          const accDesc = accCode === getAccountCode('billing_action', appSettings, '4-11-003') ? 'Pendapatan Tindakan Medis & BHP' : accCode === getAccountCode('billing_lab', appSettings, '4-12-001') ? 'Pendapatan Laboratorium' : 'Pendapatan Konsultasi Dokter'
           journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `${accDesc} — ${billingNumber}`, debit: 0, credit: amount })
         }
       })
@@ -422,7 +462,14 @@ export default function BillingPage() {
         if (lineVal > 0) {
           const item = pharmacyItems.find(p => p.id === l.itemId)
           const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
-          const revAcc = item?.coaRevenueCode || item?.coa_revenue_code || (isBHP ? '4-13-003' : item?.category === 'GENERIK' ? '4-13-002' : '4-13-001')
+          const isOTC = (item?.category || item?.itemCategory || '').toUpperCase().includes('OTC') || (item?.category || item?.itemCategory || '').toUpperCase().includes('GENERIK') || (item?.category || item?.itemCategory || '').toUpperCase().includes('BEBAS')
+          const defaultRev = isBHP
+            ? getAccountCode('billing_pharmacy_bhp', appSettings, '4-13-003')
+            : isOTC
+              ? getAccountCode('billing_pharmacy_otc', appSettings, '4-13-002')
+              : getAccountCode('billing_pharmacy_ethical', appSettings, '4-13-001')
+          const itemRev = item?.coaRevenueCode || item?.coa_revenue_code
+          const revAcc = (itemRev && !['4-13-001', '4-13-002', '4-13-003'].includes(itemRev)) ? itemRev : defaultRev
           const dppLine = lineVal
           pharmacyRevAccounts[revAcc] = (pharmacyRevAccounts[revAcc] || 0) + dppLine
         }
@@ -438,11 +485,12 @@ export default function BillingPage() {
       if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-14-001', description: `Utang PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
       if (discountAmt > 0) {
         // Discount reduces the first revenue account
-        const firstRevAccount = Object.keys(revenueByAccount)[0] || '4-11-001'
+        const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
         journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon Billing — ${billingNumber}`, debit: discountAmt, credit: 0 })
       }
       if (grossDoctorFee > 0 && selectedDoctor) {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '6-12-001', description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
+        const docFeeAcc = getAccountCode('billing_doctor_fee', appSettings, '6-12-001')
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: docFeeAcc, description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
         journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-13-001', description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
         journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-12-003', description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
       }
@@ -459,7 +507,7 @@ export default function BillingPage() {
       const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
 
       await saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
-      await saveBilling(billing, items)
+      const savedBilling = await saveBilling(billing, items)
       await postJournalEntry(eId, 'System-Billing')
 
       // Record doctor fee and PPh21 to doctor_fee_records
@@ -485,7 +533,7 @@ export default function BillingPage() {
         }
       }
 
-      toast.success(`Billing ${billingNumber} berhasil. Jurnal diposting.`)
+      toast.success(`Billing ${savedBilling?.billingNumber || freshBillingNumber} berhasil. Jurnal diposting.`)
       setModal(null); resetForm()
     } catch (err) {
       console.error('[handleCheckout] Error:', err.message)
@@ -505,7 +553,7 @@ export default function BillingPage() {
         console.warn('Could not fetch billing items for PDF:', e)
       }
     }
-    exportBillingReceiptPDF(b, bItems, appSettings)
+    exportBillingReceiptPDF(b, bItems, appSettings, { serviceTariffs, pharmacyItems })
   }
 
   const handleOpenEditModal = async (b) => {
@@ -585,17 +633,17 @@ export default function BillingPage() {
       const items = [
         ...serviceLines.map(l => ({
           id: uuidv4(), billingId: editingBilling.id, itemType: 'SERVICE',
-          serviceTariffId: l.id, itemName: l.name, quantity: l.qty,
+          serviceTariffId: l.serviceId || l.id || null, itemName: l.name, quantity: l.qty,
           unitPrice: l.price, totalPrice: l.qty * l.price
         })),
         ...labLines.map(l => ({
           id: uuidv4(), billingId: editingBilling.id, itemType: 'LAB',
-          serviceTariffId: l.id, itemName: l.name, quantity: l.qty,
+          serviceTariffId: l.serviceId || l.id || null, itemName: l.name, quantity: l.qty,
           unitPrice: l.price, totalPrice: l.qty * l.price
         })),
         ...pharmacyLines.filter(l => l.itemId).map(l => ({
           id: uuidv4(), billingId: editingBilling.id, itemType: 'PHARMACY',
-          pharmacyItemId: l.itemId, itemName: l.name, quantity: parseInt(l.qty) || 1,
+          pharmacyItemId: l.itemId || l.pharmacyItemId || null, itemName: l.name, quantity: parseInt(l.qty) || 1,
           unitPrice: parseFloat(l.price) || 0, totalPrice: (parseInt(l.qty) || 1) * (parseFloat(l.price) || 0)
         })),
       ]
@@ -722,16 +770,18 @@ export default function BillingPage() {
 
       const revenueByAccount = {}
       serviceLines.forEach(l => {
-        const accCode = l.revenueAccountCode || '4-11-001'
+        const defaultActionAcc = getAccountCode('billing_action', appSettings, '4-11-003')
+        const accCode = l.revenueAccountCode || defaultActionAcc
         revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
       })
       labLines.forEach(l => {
-        const accCode = l.revenueAccountCode || '4-12-001'
+        const defaultLabAcc = getAccountCode('billing_lab', appSettings, '4-12-001')
+        const accCode = l.revenueAccountCode || defaultLabAcc
         revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
       })
       Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
         if (amount > 0) {
-          const accDesc = accCode === '4-11-003' ? 'Pendapatan Tindakan Medis & BHP' : accCode === '4-12-001' ? 'Pendapatan Laboratorium' : 'Pendapatan Konsultasi Dokter'
+          const accDesc = accCode === getAccountCode('billing_action', appSettings, '4-11-003') ? 'Pendapatan Tindakan Medis & BHP' : accCode === getAccountCode('billing_lab', appSettings, '4-12-001') ? 'Pendapatan Laboratorium' : 'Pendapatan Konsultasi Dokter'
           journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: accCode, description: `${accDesc} — ${editingBilling.billingNumber}`, debit: 0, credit: amount })
         }
       })
@@ -742,7 +792,14 @@ export default function BillingPage() {
         if (lineVal > 0) {
           const item = pharmacyItems.find(p => p.id === l.itemId)
           const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
-          const revAcc = item?.coaRevenueCode || item?.coa_revenue_code || (isBHP ? '4-13-003' : item?.category === 'GENERIK' ? '4-13-002' : '4-13-001')
+          const isOTC = (item?.category || item?.itemCategory || '').toUpperCase().includes('OTC') || (item?.category || item?.itemCategory || '').toUpperCase().includes('GENERIK') || (item?.category || item?.itemCategory || '').toUpperCase().includes('BEBAS')
+          const defaultRev = isBHP
+            ? getAccountCode('billing_pharmacy_bhp', appSettings, '4-13-003')
+            : isOTC
+              ? getAccountCode('billing_pharmacy_otc', appSettings, '4-13-002')
+              : getAccountCode('billing_pharmacy_ethical', appSettings, '4-13-001')
+          const itemRev = item?.coaRevenueCode || item?.coa_revenue_code
+          const revAcc = (itemRev && !['4-13-001', '4-13-002', '4-13-003'].includes(itemRev)) ? itemRev : defaultRev
           const dppLine = lineVal
           pharmacyRevAccounts[revAcc] = (pharmacyRevAccounts[revAcc] || 0) + dppLine
         }
@@ -757,11 +814,12 @@ export default function BillingPage() {
 
       if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '2-14-001', description: `Utang PPN 11% — ${editingBilling.billingNumber}`, debit: 0, credit: ppnAmount })
       if (discountAmt > 0) {
-        const firstRevAccount = Object.keys(revenueByAccount)[0] || '4-11-001'
+        const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
         journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: firstRevAccount, description: `Diskon Billing — ${editingBilling.billingNumber}`, debit: discountAmt, credit: 0 })
       }
       if (grossDoctorFee > 0 && selectedDoctor) {
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '6-12-001', description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
+        const docFeeAcc = getAccountCode('billing_doctor_fee', appSettings, '6-12-001')
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: docFeeAcc, description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
         journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '2-13-001', description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
         journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '2-12-003', description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
       }
@@ -1383,8 +1441,8 @@ export default function BillingPage() {
                     </tr>
                   ) : (
                     viewItems.map((item, idx) => {
-                      const iType = (item.itemType || item.item_type || 'SERVICE').toUpperCase()
-                      const typeLabel = iType === 'SERVICE' ? 'Jasa Medis' : iType === 'LAB' ? 'Laboratorium' : 'Farmasi / Obat'
+                      const typeLabel = resolveBillingItemCategory(item, serviceTariffs, pharmacyItems)
+                      const badgeClass = getBillingCategoryBadgeClass(typeLabel)
                       const name = item.itemName || item.item_name || 'Layanan / Obat'
                       const qty = Number(item.quantity || 1)
                       const price = Number(item.unitPrice ?? item.unit_price ?? 0)
@@ -1394,11 +1452,7 @@ export default function BillingPage() {
                           <td className="py-2 px-3 text-center text-slate-400">{idx + 1}</td>
                           <td className="py-2 px-3 font-medium text-slate-800">{name}</td>
                           <td className="py-2 px-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                              iType === 'SERVICE' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                              iType === 'LAB' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
-                              'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            }`}>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${badgeClass}`}>
                               {typeLabel}
                             </span>
                           </td>

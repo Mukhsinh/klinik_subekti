@@ -16,14 +16,15 @@ const FINANCING_CODES = ['2-21-001', '2-21-002', '3-11-001', '3-11-002', '3-13-0
 export default function CashFlowPage() {
   const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
   const { appSettings } = useAuth()
-  const [dateFrom, setDateFrom] = useState(monthStart())
-  const [dateTo, setDateTo] = useState(monthEnd())
-  const [branchFilter, setBranchFilter] = useState(activeBranchId || 'ALL')
+  const currentYear = new Date().getFullYear()
+  const [dateFrom, setDateFrom] = useState(`${currentYear}-01-01`)
+  const [dateTo, setDateTo] = useState(`${currentYear}-12-31`)
+  const [branchFilter, setBranchFilter] = useState('ALL')
 
   const postedItems = useMemo(() => {
     const ids = new Set(
       journalEntries
-        .filter(j => j.status === 'POSTED' && j.transactionDate >= dateFrom && j.transactionDate <= dateTo && (branchFilter === 'ALL' || j.branchId === branchFilter))
+        .filter(j => j.status === 'POSTED' && j.transactionDate >= dateFrom && j.transactionDate <= dateTo && (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter))
         .map(j => j.id)
     )
     return journalItems.filter(i => ids.has(i.journalEntryId))
@@ -73,21 +74,33 @@ export default function CashFlowPage() {
   const financingCF = getNetFlow(FINANCING_CODES)
   const netCashFlow = operatingCF + investingCF + financingCF
 
-  // Get opening cash balance (sum of all cash accounts' opening balances)
+  // Get opening cash balance (sum of all cash accounts' opening balances + prior cash movements)
   const fiscalYear = new Date(dateFrom).getFullYear()
-  const openingCashBalance = OPERATING_CASH_CODES.reduce((sum, code) => {
+  const rawOpeningCash = OPERATING_CASH_CODES.reduce((sum, code) => {
     const ob = openingBalances.find(
       o => o.accountCode === code &&
         o.fiscalYear === fiscalYear &&
-        (branchFilter === 'ALL' || o.branchId === branchFilter)
+        (branchFilter === 'ALL' || !o.branchId || o.branchId === branchFilter)
     )
     return sum + parseFloat(ob?.openingBalance || 0)
   }, 0)
 
+  const priorCashMovements = useMemo(() => {
+    const priorIds = new Set(
+      journalEntries
+        .filter(j => j.status === 'POSTED' && j.transactionDate >= `${fiscalYear}-01-01` && j.transactionDate < dateFrom && (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter))
+        .map(j => j.id)
+    )
+    return journalItems
+      .filter(i => priorIds.has(i.journalEntryId) && OPERATING_CASH_CODES.includes(i.accountCode))
+      .reduce((s, i) => s + (parseFloat(i.debit || 0) - parseFloat(i.credit || 0)), 0)
+  }, [journalEntries, journalItems, dateFrom, fiscalYear, branchFilter])
+
+  const openingCashBalance = rawOpeningCash + priorCashMovements
   const endingCashBalance = openingCashBalance + netCashFlow
 
   const periodLabel = `${fmtDate(dateFrom)} s/d ${fmtDate(dateTo)}`
-  const branchName = branches.find(b => b.id === branchFilter)?.entityName || 'Semua Cabang'
+  const branchName = appSettings?.companyName || 'Klinik Subekti'
 
   const cashFlowData = {
     netProfit,
@@ -156,13 +169,6 @@ export default function CashFlowPage() {
         <div className="flex flex-wrap gap-4 items-end">
           <div><label className="form-label">Dari Tanggal</label><input type="date" className="form-input" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
           <div><label className="form-label">Sampai Tanggal</label><input type="date" className="form-input" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
-          <div>
-            <label className="form-label">Cabang</label>
-            <select className="form-select" value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
-              <option value="ALL">Semua Cabang</option>
-              {branches.map(b => <option key={b.id} value={b.id}>{b.entityName}</option>)}
-            </select>
-          </div>
         </div>
       </div>
 
