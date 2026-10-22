@@ -583,7 +583,8 @@ const ALLOWED_EXPENSE_COLUMNS = new Set([
   'description', 'vendor_name', 'payment_method', 'gross_amount',
   'ppn_amount', 'pph_amount', 'net_amount', 'receipt_file_url',
   'status', 'journal_entry_id', 'created_by', 'authorized_by',
-  'created_at', 'selected_grn_refs', 'coa_code', 'credit_coa_code'
+  'created_at', 'selected_grn_refs', 'coa_code', 'credit_coa_code',
+  'selected_asset_ids', 'debt_type'
 ])
 
 export async function upsertExpense(expense) {

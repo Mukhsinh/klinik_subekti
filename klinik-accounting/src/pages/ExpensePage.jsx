@@ -1,5 +1,9 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Plus, CheckCircle, Eye, CheckSquare, Square, Building2, AlertCircle } from 'lucide-react'
+import {
+  Plus, CheckCircle, Eye, CheckSquare, Square, Building2, AlertCircle,
+  CreditCard, Receipt, FileText, Check, ArrowRight, RefreshCw, Layers,
+  Search, ShieldCheck, Banknote, Wallet
+} from 'lucide-react'
 import { useStore } from '../store/useStore'
 import Modal from '../components/ui/Modal'
 import SearchInput from '../components/ui/SearchInput'
@@ -7,12 +11,13 @@ import { StatusBadge } from '../components/ui/Badge'
 import { fmtIDR, fmtDate, todayISO, paymentMethodLabel } from '../utils/format'
 import { getAccountCode, EXPENSE_CATEGORY_MAPPING_KEY } from '../utils/accountMapping'
 import SearchableSelect from '../components/ui/SearchableSelect'
-import { fetchBatches, fetchExpenses, upsertExpense } from '../lib/db'
+import { fetchBatches, fetchExpenses, upsertExpense, updateFixedAsset } from '../lib/db'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
 const EXPENSE_CATEGORIES = [
   { label: 'Pembayaran Utang PBF / Supplier', coa: '2-11-001' },
+  { label: 'Pembayaran Utang Pembelian Aset Tetap', coa: '2-11-002' },
   { label: 'Listrik', coa: '6-13-003' },
   { label: 'Air (PDAM)', coa: '6-13-004' },
   { label: 'Telepon & Internet', coa: '6-13-005' },
@@ -37,11 +42,20 @@ const EXPENSE_CATEGORIES = [
   { label: 'Beban Lain-Lain', coa: '6-91-004' }
 ]
 
+// Helper untuk parsing nominal persis tanpa pembulatan distorsif
+function parseExactNominal(val) {
+  if (val === '' || val === null || val === undefined) return 0
+  if (typeof val === 'number') return val
+  const clean = String(val).replace(/[^0-9.-]+/g, '')
+  const num = parseFloat(clean)
+  return isNaN(num) ? 0 : num
+}
+
 function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, vendors = [], storeBatches = [], storeExpenses = [], appSettings = {} }) {
   const [form, setForm] = useState(() => ({
     expenseNumber: typeof generateExpenseNumber === 'function' ? generateExpenseNumber() : '',
     expenseDate: todayISO(),
-    category: EXPENSE_CATEGORIES[0].label,
+    category: EXPENSE_CATEGORIES[2].label, // Listrik
     description: '',
     vendorName: '',
     paymentMethod: 'KAS_BESAR',
@@ -51,37 +65,32 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     selectedGrnRefs: [],
   }))
 
-  // Selected unpaid GRN debt items state: { [grnRef]: { selected: boolean, payAmount: number, totalVal: number, unpaid: number } }
-  const [grnDebtSelections, setGrnDebtSelections] = useState({})
-
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const vendorOptions = useMemo(() => {
     const list = []
     const nameSet = new Set()
 
-      // 1. Master Vendors from settings / database
-      ; (vendors || []).forEach(v => {
-        if (v.name && v.isActive !== false) {
-          const key = v.name.toLowerCase().trim()
-          if (!nameSet.has(key)) {
-            nameSet.add(key)
-            list.push({ value: v.name, label: `${v.code ? v.code + ' — ' : ''}${v.name}` })
-          }
+    ;(vendors || []).forEach(v => {
+      if (v.name && v.isActive !== false) {
+        const key = v.name.toLowerCase().trim()
+        if (!nameSet.has(key)) {
+          nameSet.add(key)
+          list.push({ value: v.name, label: `${v.code ? v.code + ' — ' : ''}${v.name}` })
         }
-      })
+      }
+    })
 
-      // 2. Suppliers from inventory batches / GRNs
-      ; (storeBatches || []).forEach(b => {
-        const sName = (b.supplierName || b.supplier_name || '').trim()
-        if (sName && !sName.toLowerCase().includes('saldo awal')) {
-          const key = sName.toLowerCase()
-          if (!nameSet.has(key)) {
-            nameSet.add(key)
-            list.push({ value: sName, label: `Supplier GRN: ${sName}` })
-          }
+    ;(storeBatches || []).forEach(b => {
+      const sName = (b.supplierName || b.supplier_name || '').trim()
+      if (sName && !sName.toLowerCase().includes('saldo awal')) {
+        const key = sName.toLowerCase()
+        if (!nameSet.has(key)) {
+          nameSet.add(key)
+          list.push({ value: sName, label: `Supplier GRN: ${sName}` })
         }
-      })
+      }
+    })
 
     return list.sort((a, b) => a.label.localeCompare(b.label))
   }, [vendors, storeBatches])
@@ -93,163 +102,10 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     return { ...cat, coa: effectiveCoa }
   }, [form.category, appSettings])
 
-  // Calculate unpaid GRNs for the selected vendor
-  const vendorUnpaidGRNs = useMemo(() => {
-    if (!form.vendorName) return []
-
-    // Group batches by GRN reference for this vendor
-    const grnMap = {}
-    const batchesForVendor = (storeBatches || []).filter(b => {
-      const grnRef = (b.grnReference || b.grn_reference || '').toUpperCase()
-      const batchNo = (b.batchNumber || b.batch_number || '').toUpperCase()
-      const suppName = (b.supplierName || b.supplier_name || '').toLowerCase()
-      if (grnRef === 'SALDO-AWAL' || batchNo === 'SALDO-AWAL' || suppName.includes('saldo awal')) return false
-      const sName = b.supplierName || b.supplier_name || ''
-      return sName.toLowerCase().trim() === form.vendorName.toLowerCase().trim()
-    })
-
-    batchesForVendor.forEach(b => {
-      const ref = b.grnReference || b.grn_reference || 'GRN-UNKNOWN'
-      if (!grnMap[ref]) {
-        grnMap[ref] = {
-          grnReference: ref,
-          supplierName: form.vendorName,
-          receivedAt: b.receivedAt || b.received_at || b.createdAt,
-          totalVal: 0,
-        }
-      }
-      const qty = Number(b.quantityReceived ?? b.quantity_received ?? 0)
-      const cost = Number(b.unitCostPrice ?? b.unit_cost_price ?? 0)
-      grnMap[ref].totalVal += qty * cost
-    })
-
-    // Calculate total paid per GRN reference from existing expenses
-    const paidPerGrn = {}
-      ; (storeExpenses || []).forEach(e => {
-        if (e.status !== 'VOID' && e.vendorName && e.vendorName.toLowerCase().trim() === form.vendorName.toLowerCase().trim()) {
-          const refs = e.selectedGrnRefs || []
-          if (Array.isArray(refs) && refs.length > 0) {
-            const portion = (e.grossAmount || 0) / refs.length
-            refs.forEach(r => {
-              paidPerGrn[r] = (paidPerGrn[r] || 0) + portion
-            })
-          }
-        }
-      })
-
-    const grnList = Object.values(grnMap).map(g => {
-      const totalPaid = paidPerGrn[g.grnReference] || 0
-      const unpaid = Math.max(0, g.totalVal - totalPaid)
-      return {
-        ...g,
-        totalPaid,
-        unpaid,
-      }
-    }).filter(g => g.unpaid > 0)
-
-    return grnList.sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt))
-  }, [form.vendorName, storeBatches, storeExpenses])
-
-  // Stable primitive key to avoid infinite rerenders in useEffect
-  const grnSignature = useMemo(() =>
-    vendorUnpaidGRNs.map(g => `${g.grnReference}:${Math.round(g.unpaid)}`).join('|'),
-    [vendorUnpaidGRNs]
-  )
-
-  // Initialize or reset selections when vendorName or GRN debt list changes
-  useEffect(() => {
-    if (vendorUnpaidGRNs.length > 0) {
-      const initialSelections = {}
-      vendorUnpaidGRNs.forEach(g => {
-        initialSelections[g.grnReference] = {
-          selected: false,
-          payAmount: Math.round(g.unpaid),
-          totalVal: Math.round(g.totalVal),
-          unpaid: Math.round(g.unpaid),
-        }
-      })
-      setGrnDebtSelections(initialSelections)
-    } else {
-      setGrnDebtSelections({})
-    }
-  }, [grnSignature])
-
-  // Handle toggling GRN checkbox
-  const handleToggleGrn = (grnRef) => {
-    setGrnDebtSelections(prev => {
-      const current = prev[grnRef] || { selected: false, payAmount: 0 }
-      const updated = {
-        ...prev,
-        [grnRef]: {
-          ...current,
-          selected: !current.selected,
-        }
-      }
-
-      // Auto update total gross amount and description
-      const checkedRefs = Object.keys(updated).filter(ref => updated[ref].selected)
-      const sumAmount = checkedRefs.reduce((s, ref) => s + (Number(updated[ref].payAmount) || 0), 0)
-
-      if (sumAmount > 0) {
-        set('grossAmount', sumAmount)
-        set('description', `Pelunasan Utang PBF: ${checkedRefs.join(', ')}`)
-        set('selectedGrnRefs', checkedRefs)
-      }
-
-      return updated
-    })
-  }
-
-  // Handle changing payment amount for a specific GRN
-  const handlePayAmountChange = (grnRef, val) => {
-    const numVal = parseFloat(val) || 0
-    setGrnDebtSelections(prev => {
-      const updated = {
-        ...prev,
-        [grnRef]: {
-          ...prev[grnRef],
-          payAmount: numVal,
-        }
-      }
-
-      const checkedRefs = Object.keys(updated).filter(ref => updated[ref].selected)
-      const sumAmount = checkedRefs.reduce((s, ref) => s + (Number(updated[ref].payAmount) || 0), 0)
-
-      if (sumAmount > 0) {
-        set('grossAmount', sumAmount)
-      }
-
-      return updated
-    })
-  }
-
-  // Select/Unselect All Unpaid Invoices
-  const handleSelectAll = (selectAll) => {
-    setGrnDebtSelections(prev => {
-      const updated = {}
-      Object.keys(prev).forEach(ref => {
-        updated[ref] = {
-          ...prev[ref],
-          selected: selectAll,
-        }
-      })
-
-      const checkedRefs = selectAll ? Object.keys(updated) : []
-      const sumAmount = checkedRefs.reduce((s, ref) => s + (Number(updated[ref].payAmount) || 0), 0)
-
-      if (selectAll) {
-        set('grossAmount', sumAmount)
-        set('description', `Pelunasan Utang PBF: ${checkedRefs.join(', ')}`)
-        set('selectedGrnRefs', checkedRefs)
-      }
-
-      return updated
-    })
-  }
-
-  const gross = parseFloat(form.grossAmount) || 0
-  const ppn = parseFloat(form.ppnAmount) || 0
-  const pph = parseFloat(form.pphAmount) || 0
+  const gross = parseExactNominal(form.grossAmount)
+  const ppn = parseExactNominal(form.ppnAmount)
+  const pph = parseExactNominal(form.pphAmount)
+  // Nominal kas terbayar persis
   const netAmount = gross + ppn - pph
 
   const creditAccountCode = useMemo(() => {
@@ -259,7 +115,7 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
       TRANSFER: '1-11-003',
       KARTU_KREDIT: '2-11-005'
     }
-    return map[form.paymentMethod] || '1-11-003'
+    return map[form.paymentMethod] || '1-11-002'
   }, [form.paymentMethod])
 
   const submit = (e) => {
@@ -268,7 +124,7 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
       toast.error('Keterangan pengeluaran wajib diisi.')
       return
     }
-    if (!(parseFloat(form.grossAmount) > 0)) {
+    if (!(gross > 0)) {
       toast.error('Nominal pengeluaran harus lebih dari 0.')
       return
     }
@@ -286,35 +142,35 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
   }
 
   return (
-    <form onSubmit={submit} className="space-y-5">
+    <form onSubmit={submit} className="space-y-4 text-xs">
       {/* Top Banner */}
-      <div className="p-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-md flex items-center justify-between">
+      <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-xs flex items-center justify-between">
         <div>
-          <p className="text-xs uppercase tracking-wider text-blue-200 font-bold">Form Transit Pengeluaran Kas/Bank</p>
-          <h3 className="text-lg font-extrabold">{form.expenseNumber}</h3>
+          <p className="text-[11px] uppercase tracking-wider text-blue-200 font-bold">Pencatatan Pengeluaran Kas/Bank</p>
+          <h3 className="text-base font-extrabold">{form.expenseNumber}</h3>
         </div>
         <div className="text-right">
-          <p className="text-xs text-blue-200">Perkiraan COA (Debet / Kredit)</p>
-          <p className="text-xs font-bold font-mono bg-blue-800/80 px-2.5 py-1 rounded-lg border border-blue-400">
+          <p className="text-[11px] text-blue-200">Perkiraan COA Terpetakan</p>
+          <p className="text-xs font-bold font-mono bg-blue-800/80 px-2 py-0.5 rounded border border-blue-400">
             DR: {selectedCat.coa} | CR: {creditAccountCode}
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="form-label">No. Transaksi</label>
-          <input className="form-input font-mono bg-slate-100 text-slate-800 font-bold" value={form.expenseNumber} readOnly />
+          <label className="form-label text-xs">No. Transaksi</label>
+          <input className="form-input text-xs font-mono bg-slate-100 text-slate-800 font-bold" value={form.expenseNumber} readOnly />
         </div>
         <div>
-          <label className="form-label">Tanggal Transaksi *</label>
-          <input type="date" className="form-input" value={form.expenseDate} onChange={e => set('expenseDate', e.target.value)} required />
+          <label className="form-label text-xs">Tanggal Transaksi *</label>
+          <input type="date" className="form-input text-xs" value={form.expenseDate} onChange={e => set('expenseDate', e.target.value)} required />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="form-label">Kategori Beban (COA) *</label>
+          <label className="form-label text-xs">Kategori Beban (COA) *</label>
           <SearchableSelect
             value={form.category}
             onChange={val => set('category', val)}
@@ -323,14 +179,14 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
           />
         </div>
         <div>
-          <label className="form-label">Metode Pembayaran *</label>
+          <label className="form-label text-xs">Metode Pembayaran *</label>
           <SearchableSelect
             value={form.paymentMethod}
             onChange={val => set('paymentMethod', val)}
             options={[
-              { value: 'KAS', label: 'Kas Kecil Klinik (1-11-001)' },
+              { value: 'KAS', label: 'Kas Kecil Kasir (1-11-001)' },
               { value: 'KAS_BESAR', label: 'Kas Besar Klinik (1-11-002)' },
-              { value: 'TRANSFER', label: 'Transfer Bank / Rekening (1-11-003)' },
+              { value: 'TRANSFER', label: 'Transfer Bank BCA (1-11-003)' },
               { value: 'KARTU_KREDIT', label: 'Kartu Kredit Operasional (2-11-005)' },
             ]}
             placeholder="— Pilih Metode Pembayaran —"
@@ -339,203 +195,365 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
       </div>
 
       <div>
-        <label className="form-label">Vendor / Supplier Rekanan *</label>
+        <label className="form-label text-xs">Vendor / Pihak Terkait (Opsional)</label>
         <SearchableSelect
           value={form.vendorName}
           onChange={val => set('vendorName', val)}
           options={vendorOptions}
-          placeholder="— Pilih Master Vendor (/settings/vendors) —"
+          placeholder="— Pilih Vendor / Supplier —"
         />
-        {vendorOptions.length === 0 && (
-          <p className="text-xs text-amber-600 mt-1">Belum ada vendor terdaftar di Master Vendor. Anda dapat menambahkannya di /settings/vendors.</p>
-        )}
       </div>
-
-      {/* Unpaid Vendor Debt Selection Section */}
-      {form.vendorName && (
-        <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-amber-700" />
-              <p className="text-xs font-bold uppercase tracking-wider text-amber-900">
-                Daftar Utang / Faktur GRN Belum Lunas — {form.vendorName}
-              </p>
-            </div>
-            {vendorUnpaidGRNs.length > 0 && (
-              <div className="flex gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => handleSelectAll(true)}
-                  className="text-amber-800 font-bold hover:underline"
-                >
-                  Pilih Semua
-                </button>
-                <span className="text-amber-300">|</span>
-                <button
-                  type="button"
-                  onClick={() => handleSelectAll(false)}
-                  className="text-amber-800 font-bold hover:underline"
-                >
-                  Reset
-                </button>
-              </div>
-            )}
-          </div>
-
-          {vendorUnpaidGRNs.length === 0 ? (
-            <p className="text-xs text-amber-700 italic">
-              ℹ Tidak ada utang/faktur GRN gantung yang belum lunas untuk vendor ini.
-            </p>
-          ) : (
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {vendorUnpaidGRNs.map(g => {
-                const sel = grnDebtSelections[g.grnReference] || { selected: false, payAmount: Math.round(g.unpaid) }
-                return (
-                  <div
-                    key={g.grnReference}
-                    className={`flex flex-wrap items-center justify-between p-2.5 rounded-lg border text-xs transition-colors ${sel.selected ? 'bg-amber-100 border-amber-400 font-medium' : 'bg-white border-amber-200 hover:bg-amber-50/50'}`}
-                  >
-                    <div
-                      className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-[200px]"
-                      onClick={() => handleToggleGrn(g.grnReference)}
-                    >
-                      {sel.selected ? (
-                        <CheckSquare className="w-4 h-4 text-amber-700 flex-shrink-0" />
-                      ) : (
-                        <Square className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                      )}
-                      <div>
-                        <p className="font-bold text-slate-900 font-mono">{g.grnReference}</p>
-                        <p className="text-[10px] text-slate-500">Tgl Penerimaan: {fmtDate(g.receivedAt)}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-4 text-right">
-                      <div>
-                        <p className="text-[10px] text-slate-500">Sisa Utang</p>
-                        <p className="font-bold font-mono text-red-600">{fmtIDR(g.unpaid)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-500">Jumlah Dibayar (Rp)</p>
-                        <input
-                          type="number"
-                          className="w-28 form-input text-right font-mono font-bold py-1 text-xs"
-                          value={sel.payAmount}
-                          onChange={e => handlePayAmountChange(g.grnReference, e.target.value)}
-                          disabled={!sel.selected}
-                          min={0}
-                          max={g.unpaid}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
 
       <div>
-        <label className="form-label">Keterangan Transaksi *</label>
-        <textarea className="form-textarea" rows={2} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Tulis rincian atau peruntukan pengeluaran…" required />
+        <label className="form-label text-xs">Keterangan Transaksi *</label>
+        <textarea className="form-textarea text-xs" rows={2} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Tulis rincian peruntukan pengeluaran…" required />
       </div>
 
-      {/* Rincian Nominal */}
-      <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Rincian Perhitungan Beban & Pajak</p>
-        <div className="grid grid-cols-3 gap-4">
+      {/* Rincian Nominal: Sama Persis dengan yang diinput */}
+      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-700">Rincian Nominal & Pajak (Sama Persis)</p>
+        <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="form-label">Nilai Bruto (Rp) *</label>
-            <input type="number" className="form-input font-mono font-bold text-slate-900" value={form.grossAmount} onChange={e => set('grossAmount', e.target.value)} min={0} step={1000} required placeholder="0" />
+            <label className="form-label text-xs">Nilai Pokok / Bruto (Rp) *</label>
+            <input
+              type="number"
+              step="any"
+              className="form-input text-xs font-mono font-bold text-slate-900"
+              value={form.grossAmount}
+              onChange={e => set('grossAmount', e.target.value)}
+              required
+              placeholder="mis. 500000"
+            />
+            {gross > 0 && <p className="text-[10px] text-slate-500 mt-1 font-mono">{fmtIDR(gross)}</p>}
           </div>
           <div>
-            <label className="form-label">PPN Masukan (Rp)</label>
-            <input type="number" className="form-input font-mono" value={form.ppnAmount} onChange={e => set('ppnAmount', e.target.value)} min={0} step={1000} placeholder="0" />
+            <label className="form-label text-xs">PPN Masukan (Rp)</label>
+            <input
+              type="number"
+              step="any"
+              className="form-input text-xs font-mono"
+              value={form.ppnAmount}
+              onChange={e => set('ppnAmount', e.target.value)}
+              placeholder="0"
+            />
           </div>
           <div>
-            <label className="form-label">PPh Dipotong (Rp)</label>
-            <input type="number" className="form-input font-mono" value={form.pphAmount} onChange={e => set('pphAmount', e.target.value)} min={0} step={1000} placeholder="0" />
+            <label className="form-label text-xs">PPh Dipotong (Rp)</label>
+            <input
+              type="number"
+              step="any"
+              className="form-input text-xs font-mono"
+              value={form.pphAmount}
+              onChange={e => set('pphAmount', e.target.value)}
+              placeholder="0"
+            />
           </div>
         </div>
       </div>
 
       {/* Total Net Banner */}
-      <div className="flex justify-between items-center bg-blue-600 text-white rounded-xl px-5 py-3.5 shadow-md">
-        <span className="text-sm font-semibold">Total Net Kas Terbayar:</span>
-        <span className="font-mono text-xl font-extrabold">{fmtIDR(netAmount)}</span>
+      <div className="flex justify-between items-center bg-blue-600 text-white rounded-xl px-4 py-2.5 shadow-xs">
+        <span className="text-xs font-semibold">Total Nominal Terbayar:</span>
+        <span className="font-mono text-lg font-bold">{fmtIDR(netAmount)}</span>
       </div>
 
-      <div className="p-3 bg-emerald-600 text-white rounded-xl text-xs flex items-center justify-between">
-        <span>ℹ Jurnal Otomatis PSAK:</span>
-        <span className="font-mono font-bold">DR: {selectedCat.coa} | CR: {creditAccountCode}</span>
-      </div>
-
-      <div className="flex justify-end gap-3 pt-2">
-        <button type="button" className="btn-secondary" onClick={onClose}>Batal</button>
-        <button type="submit" className="btn-primary px-6">Simpan Draft Pengeluaran</button>
+      <div className="flex justify-end gap-2 pt-2">
+        <button type="button" className="btn-secondary text-xs" onClick={onClose}>Batal</button>
+        <button type="submit" className="btn-primary text-xs px-5">Simpan Draft Pengeluaran</button>
       </div>
     </form>
   )
 }
 
 export default function ExpensePage() {
-  const { expenses, invBatches, journalEntries, generateExpenseNumber, saveExpense, postExpense, activeBranchId, saveJournalDraft, postJournalEntry, generateEntryNumber, vendors, refreshAll, appSettings } = useStore()
+  const {
+    expenses, invBatches, fixedAssets, journalEntries, generateExpenseNumber,
+    saveExpense, postExpense, activeBranchId, saveJournalDraft, postJournalEntry,
+    generateEntryNumber, vendors, refreshAll, appSettings
+  } = useStore()
+
+  // Main Page Tab: 'expenses' (Daftar Pengeluaran) | 'debts' (Fitur Bayar Utang & Tagihan)
+  const [activeTab, setActiveTab] = useState('debts') // Langsung buka fitur Bayar Utang sesuai permintaan fokus user
+
   const [modal, setModal] = useState(null)
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
   const [catFilter, setCatFilter] = useState('ALL')
 
-  const effectiveBatches = useMemo(() => invBatches || [], [invBatches])
+  // Debt Tab State
+  const [debtSearch, setDebtSearch] = useState('')
+  const [debtStatusFilter, setDebtStatusFilter] = useState('UNPAID') // 'ALL' | 'UNPAID' | 'PAID'
+  const [debtTypeFilter, setDebtTypeFilter] = useState('ALL') // 'ALL' | 'GRN' | 'ASSET'
+  const [payingDebtItem, setPayingDebtItem] = useState(null)
+  const [payForm, setPayForm] = useState({
+    payAmount: '',
+    paymentMethod: 'TRANSFER',
+    payDate: todayISO(),
+    notes: ''
+  })
+  const [isProcessingPay, setIsProcessingPay] = useState(false)
 
+  const effectiveBatches = useMemo(() => invBatches || [], [invBatches])
+  const effectiveFixedAssets = useMemo(() => fixedAssets || [], [fixedAssets])
+
+  // Reconciled expenses
   const effectiveExpenses = useMemo(() => {
     const map = new Map()
-      ; (expenses || []).forEach(e => {
-        const key = e.id || e.expenseNumber
-        if (key) map.set(key, e)
-      })
-      // Reconcile missing expense records from posted/draft expense journals
-      ; (journalEntries || []).forEach(j => {
-        if (j.entryType === 'EXPENSE' || j.entryNumber?.startsWith('EXP/')) {
-          const exists = Array.from(map.values()).some(
-            e => e.id === j.id || e.journalEntryId === j.id || e.expenseNumber === j.entryNumber
-          )
-          if (!exists) {
-            let cat = 'Beban Lain-Lain'
-            let desc = j.description || ''
-            if (desc.startsWith('Pengeluaran: ')) {
-              const clean = desc.replace('Pengeluaran: ', '')
-              const parts = clean.split(' — ')
-              if (parts.length >= 1) cat = parts[0]
-              if (parts.length >= 2) desc = parts.slice(1).join(' — ')
-            }
-            const synthExpense = {
-              id: j.id,
-              expenseNumber: j.entryNumber || `EXP-${j.id.slice(0, 8)}`,
-              expenseDate: j.transactionDate,
-              category: cat,
-              description: desc,
-              vendorName: '',
-              paymentMethod: 'KAS_BESAR',
-              grossAmount: Number(j.totalDebit || 0),
-              ppnAmount: 0,
-              pphAmount: 0,
-              netAmount: Number(j.totalDebit || 0),
-              status: j.status === 'POSTED' ? 'POSTED' : 'DRAFT',
-              journalEntryId: j.id,
-              branchId: j.branchId,
-              createdAt: j.createdAt || new Date().toISOString(),
-            }
-            map.set(synthExpense.id, synthExpense)
-            // Persist back to Supabase database so expense_entries table stays populated
-            upsertExpense(synthExpense).catch(() => { })
-          }
-        }
-      })
+    ;(expenses || []).forEach(e => {
+      const key = e.id || e.expenseNumber
+      if (key) map.set(key, e)
+    })
     return Array.from(map.values())
-  }, [expenses, journalEntries])
+  }, [expenses])
 
-  const filtered = useMemo(() =>
+  // ══════════════════════════════════════════════════════════════
+  // INTEGRATED DEBT LIST: 1) GRN Supplier PBF + 2) Aset Tetap Baru
+  // ══════════════════════════════════════════════════════════════
+  const allDebtItems = useMemo(() => {
+    const items = []
+
+    // 1. Tagihan dari Penerimaan Stok / GRN
+    const grnMap = {}
+    effectiveBatches.forEach(b => {
+      const grnRef = (b.grnReference || b.grn_reference || '').toUpperCase().trim()
+      const batchNo = (b.batchNumber || b.batch_number || '').toUpperCase().trim()
+      const sName = (b.supplierName || b.supplier_name || '').trim()
+      if (!grnRef || grnRef === 'SALDO-AWAL' || batchNo === 'SALDO-AWAL' || sName.toLowerCase().includes('saldo awal')) return
+
+      if (!grnMap[grnRef]) {
+        grnMap[grnRef] = {
+          id: `GRN_${grnRef}`,
+          debtType: 'GRN',
+          refNumber: grnRef,
+          title: `Faktur Penerimaan Stok Farmasi — ${grnRef}`,
+          partyName: sName || 'Supplier PBF Farmasi',
+          transactionDate: b.receivedAt || b.received_at || b.createdAt,
+          debtAccountCode: '2-11-001',
+          debtAccountName: 'Utang Pembelian Obat & BHP (PBF)',
+          totalAmount: 0,
+        }
+      }
+      const qty = Number(b.quantityReceived ?? b.quantity_received ?? 0)
+      const cost = Number(b.unitCostPrice ?? b.unit_cost_price ?? 0)
+      grnMap[grnRef].totalAmount += (qty * cost)
+    })
+
+    // Hitung total terbayar untuk setiap GRN dari tabel expenses
+    const paidPerGrn = {}
+    const expenseMapPerGrn = {}
+    effectiveExpenses.forEach(e => {
+      if (e.status !== 'VOID') {
+        const refs = e.selectedGrnRefs || []
+        if (Array.isArray(refs) && refs.length > 0) {
+          const portion = Number(e.grossAmount || e.netAmount || 0) / refs.length
+          refs.forEach(r => {
+            paidPerGrn[r] = (paidPerGrn[r] || 0) + portion
+            expenseMapPerGrn[r] = e.expenseNumber
+          })
+        }
+      }
+    })
+
+    Object.values(grnMap).forEach(g => {
+      const totalPaid = paidPerGrn[g.refNumber] || 0
+      const unpaid = Math.max(0, g.totalAmount - totalPaid)
+      const isPaid = unpaid <= 0.01 // toleransi floating point kecil
+      items.push({
+        ...g,
+        totalPaid,
+        unpaid: isPaid ? 0 : unpaid,
+        status: isPaid ? 'PAID' : 'UNPAID',
+        paymentRef: expenseMapPerGrn[g.refNumber] || null
+      })
+    })
+
+    // 2. Tagihan dari Pembelian Aset Tetap Baru (/assets)
+    effectiveFixedAssets.forEach(a => {
+      if (!a || a.status !== 'ACTIVE') return
+      const cost = Number(a.acquisitionCost || 0)
+      if (cost <= 0) return
+
+      const paidAmount = Number(a.paidAmount || (a.paymentStatus === 'PAID' ? cost : 0))
+      const unpaid = Math.max(0, cost - paidAmount)
+      const isPaid = a.paymentStatus === 'PAID' || unpaid <= 0.01
+
+      const debtAcc = (a.category === 'PERALATAN_MEDIS' || (a.assetName || '').toLowerCase().includes('medis') || (a.assetName || '').toLowerCase().includes('alat'))
+        ? '2-11-002' // Utang Pembelian Alat Kesehatan
+        : '2-11-004' // Utang Pengadaan Lain-lain
+
+      items.push({
+        id: `ASSET_${a.id}`,
+        rawAssetId: a.id,
+        debtType: 'ASSET',
+        refNumber: a.assetCode,
+        title: `Pengadaan Aset Tetap: ${a.assetName}`,
+        partyName: a.location ? `${a.assetName} (${a.location})` : a.assetName,
+        transactionDate: a.acquisitionDate || a.createdAt,
+        debtAccountCode: debtAcc,
+        debtAccountName: debtAcc === '2-11-002' ? 'Utang Pembelian Alat Kesehatan' : 'Utang Pengadaan Lain-lain',
+        totalAmount: cost,
+        totalPaid: isPaid ? cost : paidAmount,
+        unpaid: isPaid ? 0 : unpaid,
+        status: isPaid ? 'PAID' : 'UNPAID',
+        paymentRef: a.paymentRef || null
+      })
+    })
+
+    return items.sort((a, b) => new Date(b.transactionDate || 0) - new Date(a.transactionDate || 0))
+  }, [effectiveBatches, effectiveFixedAssets, effectiveExpenses])
+
+  // Filtered Debts
+  const filteredDebts = useMemo(() => {
+    return allDebtItems.filter(item => {
+      const matchStatus = debtStatusFilter === 'ALL' || item.status === debtStatusFilter
+      const matchType = debtTypeFilter === 'ALL' || item.debtType === debtTypeFilter
+      const matchSearch = !debtSearch ||
+        item.refNumber.toLowerCase().includes(debtSearch.toLowerCase()) ||
+        item.title.toLowerCase().includes(debtSearch.toLowerCase()) ||
+        item.partyName.toLowerCase().includes(debtSearch.toLowerCase()) ||
+        item.debtAccountCode.toLowerCase().includes(debtSearch.toLowerCase())
+      return matchStatus && matchType && matchSearch
+    })
+  }, [allDebtItems, debtStatusFilter, debtTypeFilter, debtSearch])
+
+  // Summary statistik utang
+  const totalUnpaidDebt = useMemo(() => allDebtItems.filter(i => i.status === 'UNPAID').reduce((s, i) => s + i.unpaid, 0), [allDebtItems])
+  const grnUnpaidDebt = useMemo(() => allDebtItems.filter(i => i.status === 'UNPAID' && i.debtType === 'GRN').reduce((s, i) => s + i.unpaid, 0), [allDebtItems])
+  const assetUnpaidDebt = useMemo(() => allDebtItems.filter(i => i.status === 'UNPAID' && i.debtType === 'ASSET').reduce((s, i) => s + i.unpaid, 0), [allDebtItems])
+  const paidDebtCount = useMemo(() => allDebtItems.filter(i => i.status === 'PAID').length, [allDebtItems])
+
+  // Handlers Pembayaran Utang
+  const handleOpenPayDebt = (item) => {
+    setPayingDebtItem(item)
+    setPayForm({
+      payAmount: String(item.unpaid), // Sama persis dengan sisa utang yang diakui
+      paymentMethod: 'TRANSFER',
+      payDate: todayISO(),
+      notes: `Pelunasan Utang ${item.debtType === 'GRN' ? 'Faktur Supplier PBF' : 'Pengadaan Aset'} — ${item.refNumber} (${item.partyName})`
+    })
+    setModal('pay_debt')
+  }
+
+  const handleExecutePayDebt = async (e) => {
+    e.preventDefault()
+    if (!payingDebtItem) return
+
+    const amountToPay = parseExactNominal(payForm.payAmount)
+    if (amountToPay <= 0) {
+      toast.error('Nominal pembayaran harus lebih dari 0.')
+      return
+    }
+    if (amountToPay > payingDebtItem.unpaid + 1) {
+      toast.error(`Nominal tidak boleh melebihi sisa utang (${fmtIDR(payingDebtItem.unpaid)})`)
+      return
+    }
+
+    setIsProcessingPay(true)
+    try {
+      const expenseId = uuidv4()
+      const expenseNumber = typeof generateExpenseNumber === 'function' ? generateExpenseNumber() : `EXP-${Date.now().toString().slice(-6)}`
+      const journalEntryId = uuidv4()
+      const entryNumber = generateEntryNumber('EXP')
+
+      const creditAccMap = {
+        KAS: '1-11-001',
+        KAS_BESAR: '1-11-002',
+        TRANSFER: '1-11-003',
+        KARTU_KREDIT: '2-11-005'
+      }
+      const creditCoa = creditAccMap[payForm.paymentMethod] || '1-11-003'
+      const debitCoa = payingDebtItem.debtAccountCode // 2-11-001 (PBF) atau 2-11-002 (Aset)
+
+      // 1. Simpan dokumen pengeluaran kas (Expense) dengan nominal persis sama
+      const expenseDoc = {
+        id: expenseId,
+        branchId: activeBranchId || null,
+        expenseNumber,
+        expenseDate: payForm.payDate,
+        category: payingDebtItem.debtType === 'GRN' ? 'Pembayaran Utang PBF / Supplier' : 'Pembayaran Utang Pembelian Aset Tetap',
+        description: payForm.notes.trim() || `Pelunasan utang ${payingDebtItem.refNumber}`,
+        vendorName: payingDebtItem.partyName,
+        paymentMethod: payForm.paymentMethod,
+        grossAmount: amountToPay,
+        ppnAmount: 0,
+        pphAmount: 0,
+        netAmount: amountToPay,
+        coaCode: debitCoa,
+        creditCoaCode: creditCoa,
+        status: 'POSTED',
+        journalEntryId,
+        selectedGrnRefs: payingDebtItem.debtType === 'GRN' ? [payingDebtItem.refNumber] : [],
+        selectedAssetIds: payingDebtItem.debtType === 'ASSET' ? [payingDebtItem.rawAssetId] : [],
+        debtType: payingDebtItem.debtType,
+        createdAt: new Date().toISOString()
+      }
+
+      // 2. Buat Jurnal Otomatis Pelunasan Utang (DR: Utang Usaha / CR: Kas atau Bank)
+      const journalHeader = {
+        id: journalEntryId,
+        branchId: activeBranchId || null,
+        entryNumber,
+        transactionDate: payForm.payDate,
+        description: `Pelunasan Utang: ${payingDebtItem.refNumber} — ${payingDebtItem.partyName}`,
+        entryType: 'EXPENSE',
+        status: 'POSTED',
+        totalDebit: amountToPay,
+        totalCredit: amountToPay,
+        createdBy: 'System',
+        postedBy: 'Admin',
+        postedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+
+      const journalLines = [
+        {
+          id: uuidv4(),
+          journalEntryId,
+          accountCode: debitCoa,
+          description: `Pelunasan Utang ${payingDebtItem.refNumber} (${payingDebtItem.partyName})`,
+          debit: amountToPay,
+          credit: 0
+        },
+        {
+          id: uuidv4(),
+          journalEntryId,
+          accountCode: creditCoa,
+          description: `Kas/Bank Pembayaran — ${paymentMethodLabel(payForm.paymentMethod)}`,
+          debit: 0,
+          credit: amountToPay
+        }
+      ]
+
+      // Eksekusi simpan ke database Supabase
+      await saveJournalDraft(journalHeader, journalLines)
+      await postJournalEntry(journalEntryId, 'Admin')
+      await upsertExpense(expenseDoc)
+
+      // Jika merupakan pembayaran aset tetap, update status lunas di tabel fixed_assets
+      if (payingDebtItem.debtType === 'ASSET' && payingDebtItem.rawAssetId) {
+        await updateFixedAsset(payingDebtItem.rawAssetId, {
+          payment_status: 'PAID',
+          paid_amount: payingDebtItem.totalAmount,
+          payment_ref: expenseNumber,
+          paid_at: new Date().toISOString()
+        }).catch(err => console.warn('[updateFixedAsset payment_status]', err))
+      }
+
+      await refreshAll()
+      toast.success(`Pelunasan utang ${payingDebtItem.refNumber} sebesar ${fmtIDR(amountToPay)} berhasil! Status otomatis LUNAS dan tercatat di Buku Besar.`)
+      setModal(null)
+      setPayingDebtItem(null)
+    } catch (err) {
+      console.error('[handleExecutePayDebt] Error:', err)
+      toast.error(`Gagal memproses pelunasan utang: ${err.message || 'Terjadi kesalahan'}`)
+    } finally {
+      setIsProcessingPay(false)
+    }
+  }
+
+  // Filtered Regular Expenses
+  const filteredExpenses = useMemo(() =>
     effectiveExpenses
       .filter(e => {
         if (catFilter === 'ALL') return true
@@ -555,209 +573,511 @@ export default function ExpensePage() {
       .sort((a, b) => new Date(b.expenseDate || b.createdAt || 0) - new Date(a.expenseDate || a.createdAt || 0)),
     [effectiveExpenses, catFilter, search])
 
-  const handleSaveDraft = async (data) => {
-    try {
-      await saveExpense(data)
-      await refreshAll()
-      toast.success(`Draft pengeluaran ${data.expenseNumber} berhasil disimpan.`)
-      setModal(null)
-    } catch (err) {
-      console.error('[handleSaveDraft] Error:', err)
-      toast.error(`Gagal menyimpan draft pengeluaran: ${err.message || 'Terjadi kesalahan'}`)
-    }
-  }
-
-  const handlePost = async (expense) => {
-    try {
-      const entryId = uuidv4()
-      const entryNumber = generateEntryNumber('EXP')
-
-      // Dynamic mapping lookup for categories from centralized accountMapping
-      const mapKey = EXPENSE_CATEGORY_MAPPING_KEY[expense.category]
-      const mappedCoa = mapKey ? getAccountCode(mapKey, appSettings) : null
-
-      // Debit account priority: active mapping from /coa -> stored expense.coaCode -> exact category lookup -> fallback 6-91-004
-      const catObj = EXPENSE_CATEGORIES.find(c => c.label === expense.category) || { coa: '6-91-004' }
-      const debitAcc = mappedCoa || expense.coaCode || catObj.coa || '6-91-004'
-
-      // Credit account priority: stored expense.creditCoaCode -> paymentMethod lookup -> fallback 1-11-002
-      const creditAccMap = {
-        KAS: '1-11-001',
-        KAS_BESAR: '1-11-002',
-        TRANSFER: '1-11-003',
-        KARTU_KREDIT: '2-11-005'
-      }
-      const creditAcc = expense.creditCoaCode || creditAccMap[expense.paymentMethod] || '1-11-002'
-
-      const gross = Number(expense.grossAmount || 0)
-      const ppn = Number(expense.ppnAmount || 0)
-      const pph = Number(expense.pphAmount || 0)
-      const net = Number(expense.netAmount || (gross + ppn - pph))
-
-      const totalDebit = gross + ppn
-      const totalCredit = pph + net
-
-      const header = {
-        id: entryId,
-        branchId: expense.branchId || activeBranchId,
-        entryNumber,
-        transactionDate: expense.expenseDate,
-        description: `Pengeluaran: ${expense.category} — ${expense.description}`,
-        entryType: 'EXPENSE',
-        totalDebit,
-        totalCredit,
-      }
-
-      const jItems = []
-
-      // Line 1: Debit Beban / Utang Usaha (Gross Amount)
-      jItems.push({
-        id: uuidv4(),
-        journalEntryId: entryId,
-        accountCode: debitAcc,
-        description: expense.description,
-        debit: gross,
-        credit: 0
-      })
-
-      // Line 2: Debit PPN Masukan (if PPN > 0) -> 1-14-002 (PPN Masukan)
-      if (ppn > 0) {
-        jItems.push({
-          id: uuidv4(),
-          journalEntryId: entryId,
-          accountCode: '1-14-002',
-          description: `PPN Masukan — ${expense.expenseNumber}`,
-          debit: ppn,
-          credit: 0
-        })
-      }
-
-      // Line 3: Credit Utang PPh (if PPh > 0) -> 2-13-003 (Utang PPh 23)
-      if (pph > 0) {
-        jItems.push({
-          id: uuidv4(),
-          journalEntryId: entryId,
-          accountCode: '2-13-003',
-          description: `PPh Dipotong — ${expense.expenseNumber}`,
-          debit: 0,
-          credit: pph
-        })
-      }
-
-      // Line 4: Credit Kas / Bank (Net Amount)
-      jItems.push({
-        id: uuidv4(),
-        journalEntryId: entryId,
-        accountCode: creditAcc,
-        description: `${paymentMethodLabel(expense.paymentMethod)} — ${expense.vendorName || ''}`,
-        debit: 0,
-        credit: net
-      })
-
-      await saveJournalDraft(header, jItems)
-      await postJournalEntry(entryId, 'Admin')
-      await postExpense(expense.id, entryId, 'Admin', {
-        ...expense,
-        coaCode: debitAcc,
-        creditCoaCode: creditAcc,
-      })
-
-      await refreshAll()
-
-      toast.success(`Pengeluaran ${expense.expenseNumber} berhasil diposting ke jurnal (${debitAcc} / ${creditAcc}).`)
-    } catch (err) {
-      console.error('[handlePost] Error:', err)
-      toast.error(`Gagal memposting pengeluaran: ${err.message || 'Terjadi kesalahan'}`)
-    }
-  }
-
-  const totalPosted = effectiveExpenses.filter(e => e.status === 'POSTED').reduce((s, e) => s + (e.grossAmount || 0), 0)
-  const totalDraft = effectiveExpenses.filter(e => e.status === 'DRAFT').length
+  const totalPostedExpense = effectiveExpenses.filter(e => e.status === 'POSTED').reduce((s, e) => s + (e.grossAmount || 0), 0)
+  const totalDraftExpense = effectiveExpenses.filter(e => e.status === 'DRAFT').length
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between">
+    <div className="space-y-4 max-w-full overflow-hidden text-xs">
+      {/* 1. Header Halaman */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
         <div>
-          <h1 className="page-title">Portal Pengeluaran (Expense)</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Pencatatan biaya operasional & pelunasan utang PBF</p>
+          <h1 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            Portal Pengeluaran & Bayar Utang
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200">
+              Integrasi Buku Besar
+            </span>
+          </h1>
+          <p className="text-slate-500 mt-0.5 text-xs">
+            Kelola pengeluaran kas operasional serta pelunasan utang faktur GRN supplier PBF dan utang pembelian aset tetap.
+          </p>
         </div>
-        <button className="btn-primary font-bold shadow-md flex items-center gap-1.5" onClick={() => setModal('add')}>
-          <Plus className="w-4 h-4" />Catat Pengeluaran
-        </button>
+
+        <div className="flex items-center gap-2">
+          {activeTab === 'debts' ? (
+            <button
+              onClick={() => refreshAll().then(() => toast.success('Data tagihan utang disinkronkan!'))}
+              className="btn-secondary text-xs flex items-center gap-1.5 py-1.5 px-3"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Sinkronkan Tagihan</span>
+            </button>
+          ) : (
+            <button
+              className="btn-primary text-xs font-bold shadow-xs flex items-center gap-1.5 py-1.5 px-3"
+              onClick={() => setModal('add')}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Catat Pengeluaran Baru</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 font-sans">
-        <div className="rounded-xl p-4 shadow-sm" style={{ background: '#DC2626' }}>
-          <p className="text-[11px] font-bold uppercase tracking-wider text-red-100">Total Pengeluaran (Posted)</p>
-          <p className="font-extrabold text-2xl text-white tracking-tight mt-1">{fmtIDR(totalPosted)}</p>
-        </div>
-        <div className="rounded-xl p-4 shadow-sm" style={{ background: '#D97706' }}>
-          <p className="text-[11px] font-bold uppercase tracking-wider text-amber-100">Menunggu Otorisasi</p>
-          <p className="font-extrabold text-2xl text-white tracking-tight mt-1">{totalDraft} <span className="text-xs font-semibold text-amber-200">draft</span></p>
-        </div>
-        <div className="rounded-xl p-4 shadow-sm" style={{ background: '#2563EB' }}>
-          <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100">Total Transaksi</p>
-          <p className="font-extrabold text-2xl text-white tracking-tight mt-1">{effectiveExpenses.length} <span className="text-xs font-semibold text-blue-200">dokumen</span></p>
-        </div>
+      {/* 2. Navigasi Tab Utama (Fitur Bayar Utang vs Pengeluaran Operasional) */}
+      <div className="bg-slate-100 p-1.5 rounded-xl border border-slate-200 shadow-xs">
+        <nav className="grid grid-cols-2 gap-2 w-full max-w-lg">
+          <button
+            onClick={() => setActiveTab('debts')}
+            className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 text-center shadow-xs ${
+              activeTab === 'debts'
+                ? 'bg-rose-600 text-white ring-2 ring-rose-400/50'
+                : 'bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-700 border border-slate-200'
+            }`}
+          >
+            <CreditCard className="w-4 h-4 shrink-0" />
+            <span>Tagihan & Bayar Utang</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+              activeTab === 'debts' ? 'bg-rose-800/90 text-white' : 'bg-rose-100 text-rose-800'
+            }`}>
+              {allDebtItems.filter(i => i.status === 'UNPAID').length} Tagihan
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('expenses')}
+            className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 text-center shadow-xs ${
+              activeTab === 'expenses'
+                ? 'bg-blue-600 text-white ring-2 ring-blue-400/50'
+                : 'bg-white text-slate-700 hover:bg-blue-50 hover:text-blue-700 border border-slate-200'
+            }`}
+          >
+            <Receipt className="w-4 h-4 shrink-0" />
+            <span>Pengeluaran Kas Operasional</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+              activeTab === 'expenses' ? 'bg-blue-800/90 text-white' : 'bg-blue-100 text-blue-800'
+            }`}>
+              {effectiveExpenses.length}
+            </span>
+          </button>
+        </nav>
       </div>
 
-      <div className="card card-body">
-        <div className="flex flex-wrap gap-3">
-          <SearchInput value={search} onChange={setSearch} placeholder="Cari keterangan, vendor…" className="w-64" />
-          <select className="form-select w-48 text-xs font-medium" value={catFilter} onChange={e => setCatFilter(e.target.value)}>
-            <option value="ALL">Semua Kategori</option>
-            {EXPENSE_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
-          </select>
-          <span className="ml-auto text-xs text-slate-400 self-center">{filtered.length} transaksi</span>
-        </div>
-      </div>
+      {/* ══════════════════════════════════════════════════════════════
+          TAB 1: FITUR 'BAYAR UTANG' (GRN & ASET TETAP BARU)
+          ══════════════════════════════════════════════════════════════ */}
+      {activeTab === 'debts' && (
+        <div className="space-y-3 animate-fadeIn">
+          {/* Summary Cards Utang - Solid & Cerah, Huruf Arial Narrow Profesional, Tanpa Sub-tulisan di Bawah Angka */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <div className="rounded-xl p-3 bg-[#e11d48] text-white shadow-xs">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/90">Total Sisa Utang Belum Lunas</p>
+              <p className="font-bold text-xl md:text-2xl mt-1 tracking-tight" style={{ fontFamily: '"Arial Narrow", "Arial", sans-serif' }}>
+                {fmtIDR(totalUnpaidDebt)}
+              </p>
+            </div>
+            <div className="rounded-xl p-3 bg-[#ea580c] text-white shadow-xs">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/90">Utang Faktur GRN PBF</p>
+              <p className="font-bold text-xl md:text-2xl mt-1 tracking-tight" style={{ fontFamily: '"Arial Narrow", "Arial", sans-serif' }}>
+                {fmtIDR(grnUnpaidDebt)}
+              </p>
+            </div>
+            <div className="rounded-xl p-3 bg-[#7c3aed] text-white shadow-xs">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/90">Utang Pengadaan Aset Tetap</p>
+              <p className="font-bold text-xl md:text-2xl mt-1 tracking-tight" style={{ fontFamily: '"Arial Narrow", "Arial", sans-serif' }}>
+                {fmtIDR(assetUnpaidDebt)}
+              </p>
+            </div>
+            <div className="rounded-xl p-3 bg-[#059669] text-white shadow-xs">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/90">Tagihan Sudah Lunas</p>
+              <p className="font-bold text-xl md:text-2xl mt-1 tracking-tight" style={{ fontFamily: '"Arial Narrow", "Arial", sans-serif' }}>
+                {paidDebtCount}
+              </p>
+            </div>
+          </div>
 
-      <div className="card">
-        <div className="overflow-x-auto">
-          <table className="table-base">
-            <thead>
-              <tr>
-                <th>No. Pengeluaran</th><th>Tanggal</th><th>Kategori</th><th>Keterangan</th>
-                <th>Vendor</th><th>Metode</th><th className="text-right">Nilai Bruto</th>
-                <th>Status</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-slate-400">Belum ada pengeluaran dicatat</td></tr>
-              ) : filtered.map(e => (
-                <tr key={e.id}>
-                  <td className="font-mono text-xs text-primary-700 font-semibold">{e.expenseNumber}</td>
-                  <td className="text-sm">{fmtDate(e.expenseDate)}</td>
-                  <td className="text-xs"><span className="badge badge-yellow">{e.category}</span></td>
-                  <td className="max-w-[180px] truncate text-sm">{e.description}</td>
-                  <td className="text-xs text-slate-500 font-medium">{e.vendorName || '—'}</td>
-                  <td className="text-xs font-mono">{paymentMethodLabel(e.paymentMethod)}</td>
-                  <td className="text-right font-mono text-sm font-bold">{fmtIDR(e.grossAmount)}</td>
-                  <td><StatusBadge status={e.status === 'POSTED' ? 'POSTED' : e.status === 'VOID' ? 'VOID' : 'DRAFT'} /></td>
-                  <td>
-                    <div className="flex items-center gap-1">
-                      <button className="btn-ghost p-1.5" onClick={() => { setSelected(e); setModal('view') }} title="Lihat Detail Preview"><Eye className="w-3.5 h-3.5" /></button>
-                      {e.status === 'DRAFT' && (
-                        <button className="btn-ghost p-1.5 text-emerald-600" onClick={() => handlePost(e)} title="Otorisasi & Post ke Jurnal">
-                          <CheckCircle className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+          {/* Filter & Controls */}
+          <div className="card p-2.5 bg-white border border-slate-200 rounded-xl shadow-xs flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 mr-1">Status:</span>
+              {[
+                { id: 'UNPAID', label: 'Belum Lunas' },
+                { id: 'PAID', label: 'Sudah Lunas' },
+                { id: 'ALL', label: 'Semua Status' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setDebtStatusFilter(tab.id)}
+                  className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold transition-colors ${
+                    debtStatusFilter === tab.id
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
+              <span className="text-[11px] font-bold text-slate-400 mx-1">|</span>
+              <span className="text-[11px] font-bold text-slate-500 mr-1">Sumber:</span>
+              {[
+                { id: 'ALL', label: 'Semua' },
+                { id: 'GRN', label: 'GRN Farmasi' },
+                { id: 'ASSET', label: 'Aset Tetap' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setDebtTypeFilter(tab.id)}
+                  className={`text-[11px] px-2.5 py-0.5 rounded-full font-semibold transition-colors ${
+                    debtTypeFilter === tab.id
+                      ? 'bg-slate-800 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="w-full sm:w-60">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cari faktur, aset, supplier..."
+                  value={debtSearch}
+                  onChange={e => setDebtSearch(e.target.value)}
+                  className="form-input text-xs pl-7 py-1 w-full"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Tabel Tagihan Utang - Tampilan Pas (Fit-to-Width) Tanpa Scroll Geser Kanan-Kiri */}
+          <div className="card border border-slate-200 rounded-xl shadow-xs bg-white overflow-hidden">
+            <div className="w-full">
+              <table className="w-full text-[11px] text-left table-fixed">
+                <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[11px]">
+                  <tr>
+                    <th className="py-2 px-2.5 w-[14%]">No. Tagihan / Ref</th>
+                    <th className="py-2 px-2 w-[11%]">Sumber Tagihan</th>
+                    <th className="py-2 px-2 w-[16%]">Supplier / Pihak Terkait</th>
+                    <th className="py-2 px-2 w-[9%]">Tgl Tagihan</th>
+                    <th className="py-2 px-2 w-[13%]">Akun Utang (COA)</th>
+                    <th className="py-2 px-2 text-right w-[11%]">Total Tagihan</th>
+                    <th className="py-2 px-2 text-right w-[9%]">Terbayar</th>
+                    <th className="py-2 px-2 text-right w-[10%]">Sisa Utang</th>
+                    <th className="py-2 px-1 text-center w-[7%]">Status</th>
+                    <th className="py-2 px-2 text-center w-[7%]">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredDebts.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-8 text-center text-slate-400">
+                        Tidak ada tagihan utang yang cocok dengan kriteria filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredDebts.map(item => (
+                      <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2 px-2.5 font-mono font-bold text-slate-900 truncate" title={item.refNumber}>
+                          {item.refNumber}
+                        </td>
+                        <td className="py-2 px-2 whitespace-nowrap">
+                          {item.debtType === 'GRN' ? (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              GRN Farmasi
+                            </span>
+                          ) : (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+                              Aset Tetap
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-2 font-medium text-slate-800 truncate" title={item.partyName}>
+                          {item.partyName}
+                        </td>
+                        <td className="py-2 px-2 text-slate-500 whitespace-nowrap">
+                          {fmtDate(item.transactionDate)}
+                        </td>
+                        <td className="py-2 px-2 leading-tight">
+                          <span className="font-mono font-bold text-slate-800 text-[11px] block">{item.debtAccountCode}</span>
+                          <span className="text-[10px] text-slate-500 block truncate" title={item.debtAccountName}>
+                            {item.debtAccountCode === '2-11-001' ? 'Utang Obat/PBF' : item.debtAccountCode === '2-11-002' ? 'Utang Alat Medis' : 'Utang Aset Tetap'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono font-semibold text-slate-800 whitespace-nowrap">
+                          {fmtIDR(item.totalAmount)}
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono text-emerald-700 whitespace-nowrap">
+                          {fmtIDR(item.totalPaid)}
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono font-bold whitespace-nowrap">
+                          <span className={item.unpaid > 0 ? 'text-rose-600' : 'text-slate-400'}>
+                            {fmtIDR(item.unpaid)}
+                          </span>
+                        </td>
+                        <td className="py-2 px-1 text-center whitespace-nowrap">
+                          {item.status === 'PAID' ? (
+                            <span className="inline-flex items-center justify-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              <Check className="w-2.5 h-2.5" /> LUNAS
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center justify-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                              <AlertCircle className="w-2.5 h-2.5" /> UTANG
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-2 text-center whitespace-nowrap">
+                          {item.status === 'UNPAID' ? (
+                            <button
+                              onClick={() => handleOpenPayDebt(item)}
+                              className="px-2 py-1 text-[11px] font-bold rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-xs flex items-center justify-center gap-1 w-full"
+                              title="Bayar Utang Sekarang"
+                            >
+                              <Wallet className="w-3 h-3" />
+                              <span>Bayar</span>
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-emerald-700 font-mono font-bold">
+                              Lunas
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════
+          TAB 2: PENGELUARAN KAS OPERASIONAL (REGULAR EXPENSES)
+          ══════════════════════════════════════════════════════════════ */}
+      {activeTab === 'expenses' && (
+        <div className="space-y-3 animate-fadeIn">
+          {/* Summary Cards Pengeluaran - Solid & Cerah, Huruf Arial Narrow Profesional, Tanpa Sub-tulisan di Bawah Angka */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            <div className="rounded-xl p-3 shadow-xs bg-[#e11d48] text-white">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/90">Total Pengeluaran (Posted)</p>
+              <p className="font-bold text-xl md:text-2xl mt-1 tracking-tight" style={{ fontFamily: '"Arial Narrow", "Arial", sans-serif' }}>
+                {fmtIDR(totalPostedExpense)}
+              </p>
+            </div>
+            <div className="rounded-xl p-3 shadow-xs bg-[#d97706] text-white">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/90">Menunggu Otorisasi (Draft)</p>
+              <p className="font-bold text-xl md:text-2xl mt-1 tracking-tight" style={{ fontFamily: '"Arial Narrow", "Arial", sans-serif' }}>
+                {totalDraftExpense}
+              </p>
+            </div>
+            <div className="rounded-xl p-3 shadow-xs bg-[#0284c7] text-white">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-white/90">Total Transaksi Pengeluaran</p>
+              <p className="font-bold text-xl md:text-2xl mt-1 tracking-tight" style={{ fontFamily: '"Arial Narrow", "Arial", sans-serif' }}>
+                {effectiveExpenses.length}
+              </p>
+            </div>
+          </div>
+
+          <div className="card p-2.5 bg-white border border-slate-200 rounded-xl shadow-xs">
+            <div className="flex flex-wrap gap-2.5 items-center justify-between">
+              <div className="flex flex-wrap gap-2 items-center">
+                <SearchInput value={search} onChange={setSearch} placeholder="Cari keterangan, vendor…" className="w-56 text-xs" />
+                <select className="form-select w-44 text-xs font-medium py-1" value={catFilter} onChange={e => setCatFilter(e.target.value)}>
+                  <option value="ALL">Semua Kategori</option>
+                  {EXPENSE_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
+                </select>
+              </div>
+              <span className="text-[11px] text-slate-400">{filteredExpenses.length} transaksi ditemukan</span>
+            </div>
+          </div>
+
+          {/* Tabel Pengeluaran Kas Operasional - Fit-to-Width Tanpa Scroll Geser Kanan-Kiri */}
+          <div className="card border border-slate-200 rounded-xl shadow-xs bg-white overflow-hidden">
+            <div className="w-full">
+              <table className="w-full text-[11px] text-left table-fixed">
+                <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 text-[11px]">
+                  <tr>
+                    <th className="py-2 px-2.5 w-[15%]">No. Pengeluaran</th>
+                    <th className="py-2 px-2 w-[9%]">Tanggal</th>
+                    <th className="py-2 px-2 w-[15%]">Kategori Beban</th>
+                    <th className="py-2 px-2 w-[21%]">Keterangan</th>
+                    <th className="py-2 px-2 w-[13%]">Vendor / Pihak</th>
+                    <th className="py-2 px-2 w-[11%]">Metode Bayar</th>
+                    <th className="py-2 px-2 text-right w-[11%]">Nominal (Rp)</th>
+                    <th className="py-2 px-1 text-center w-[6%]">Status</th>
+                    <th className="py-2 px-1 text-center w-[4%]">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredExpenses.length === 0 ? (
+                    <tr><td colSpan={9} className="text-center py-8 text-slate-400">Belum ada pengeluaran dicatat</td></tr>
+                  ) : filteredExpenses.map(e => (
+                    <tr key={e.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-2 px-2.5 font-mono font-bold text-primary-700 truncate" title={e.expenseNumber}>{e.expenseNumber}</td>
+                      <td className="py-2 px-2 whitespace-nowrap">{fmtDate(e.expenseDate)}</td>
+                      <td className="py-2 px-2 whitespace-nowrap"><span className="badge badge-yellow text-[9px] truncate max-w-full">{e.category}</span></td>
+                      <td className="py-2 px-2 truncate" title={e.description}>{e.description}</td>
+                      <td className="py-2 px-2 text-slate-600 truncate" title={e.vendorName || '—'}>{e.vendorName || '—'}</td>
+                      <td className="py-2 px-2 font-mono text-[10px] whitespace-nowrap">{paymentMethodLabel(e.paymentMethod)}</td>
+                      <td className="py-2 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                        {fmtIDR(e.grossAmount || e.netAmount)}
+                      </td>
+                      <td className="py-2 px-1 text-center whitespace-nowrap">
+                        <StatusBadge status={e.status === 'POSTED' ? 'POSTED' : e.status === 'VOID' ? 'VOID' : 'DRAFT'} />
+                      </td>
+                      <td className="py-2 px-1 text-center whitespace-nowrap">
+                        <button className="btn-ghost p-1" onClick={() => { setSelected(e); setModal('view') }} title="Lihat Detail"><Eye className="w-3.5 h-3.5" /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════
+          MODAL: BAYAR UTANG TERINTEGRASI (GRN & ASET TETAP)
+          ══════════════════════════════════════════════════════════════ */}
+      {modal === 'pay_debt' && payingDebtItem && (
+        <Modal
+          open={true}
+          onClose={() => setModal(null)}
+          title={`Pelunasan Tagihan Utang: ${payingDebtItem.refNumber}`}
+          size="md"
+        >
+          <form onSubmit={handleExecutePayDebt} className="space-y-4 text-xs">
+            {/* Header Ringkasan Tagihan */}
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-rose-900 text-xs">{payingDebtItem.title}</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-200 text-rose-900 font-mono">
+                  {payingDebtItem.debtType === 'GRN' ? 'FAKTUR PBF' : 'PENGADAAN ASET'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-slate-700 pt-1 border-t border-rose-200/60">
+                <div>
+                  <span className="text-slate-500">Pihak / Supplier:</span>
+                  <p className="font-semibold text-slate-900">{payingDebtItem.partyName}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500">Akun Utang (DR):</span>
+                  <p className="font-mono font-bold text-rose-700">{payingDebtItem.debtAccountCode} — {payingDebtItem.debtAccountName}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500">Total Nilai Tagihan:</span>
+                  <p className="font-mono font-bold text-slate-900">{fmtIDR(payingDebtItem.totalAmount)}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500">Sisa Utang Belum Lunas:</span>
+                  <p className="font-mono font-bold text-red-600 text-sm">{fmtIDR(payingDebtItem.unpaid)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Input Nominal yang Dibayar: SAMA PERSIS */}
+            <div>
+              <label className="form-label text-xs font-bold text-slate-900">Nominal yang Dibayarkan (Rp) *</label>
+              <input
+                type="number"
+                step="any"
+                className="form-input text-xs font-mono font-bold text-slate-900 text-base py-2"
+                value={payForm.payAmount}
+                onChange={e => setPayForm(f => ({ ...f, payAmount: e.target.value }))}
+                required
+                max={payingDebtItem.unpaid + 1}
+              />
+              <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                Terformat: <strong className="text-slate-800">{fmtIDR(parseExactNominal(payForm.payAmount))}</strong> (Sama persis tanpa pemotongan)
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label text-xs font-bold">Sumber Kas / Rekening Bank (CR) *</label>
+                <select
+                  className="form-select text-xs font-medium"
+                  value={payForm.paymentMethod}
+                  onChange={e => setPayForm(f => ({ ...f, paymentMethod: e.target.value }))}
+                  required
+                >
+                  <option value="TRANSFER">Transfer Bank BCA (1-11-003)</option>
+                  <option value="KAS_BESAR">Kas Besar Klinik (1-11-002)</option>
+                  <option value="KAS">Kas Kecil Kasir (1-11-001)</option>
+                  <option value="KARTU_KREDIT">Kartu Kredit Operasional (2-11-005)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="form-label text-xs font-bold">Tanggal Pembayaran *</label>
+                <input
+                  type="date"
+                  className="form-input text-xs"
+                  value={payForm.payDate}
+                  onChange={e => setPayForm(f => ({ ...f, payDate: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="form-label text-xs font-bold">Keterangan / Berita Pembayaran</label>
+              <textarea
+                className="form-textarea text-xs"
+                rows={2}
+                value={payForm.notes}
+                onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))}
+                required
+              />
+            </div>
+
+            {/* Jurnal Otomatis PSAK Info */}
+            <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-900 text-[11px] space-y-1">
+              <div className="font-bold flex items-center gap-1">
+                <Check className="w-3.5 h-3.5 text-emerald-700" />
+                Jurnal Pelunasan Otomatis ke Buku Besar:
+              </div>
+              <div className="font-mono text-emerald-800 pl-4">
+                • DR: {payingDebtItem.debtAccountCode} ({payingDebtItem.debtAccountName}) = {fmtIDR(parseExactNominal(payForm.payAmount))}<br />
+                • CR: {payForm.paymentMethod === 'TRANSFER' ? '1-11-003' : payForm.paymentMethod === 'KAS_BESAR' ? '1-11-002' : '1-11-001'} (Kas/Bank) = {fmtIDR(parseExactNominal(payForm.payAmount))}
+              </div>
+              <p className="text-[10px] text-emerald-700 italic pt-0.5">
+                *Status tagihan otomatis berubah menjadi LUNAS setelah transaksi ini diposting.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                onClick={() => setModal(null)}
+                disabled={isProcessingPay}
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="btn-primary text-xs bg-rose-600 hover:bg-rose-700 border-rose-600 flex items-center gap-1.5 px-4"
+                disabled={isProcessingPay}
+              >
+                <Wallet className="w-4 h-4" />
+                <span>{isProcessingPay ? 'Memproses Pelunasan...' : 'Bayar Sekarang & Catat ke Buku Besar'}</span>
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* MODAL: CATAT PENGELUARAN BARU */}
       <Modal open={modal === 'add'} onClose={() => setModal(null)} title="Catat Pengeluaran Baru" size="lg">
         <ExpenseForm
           vendors={vendors}
           storeBatches={effectiveBatches}
           storeExpenses={effectiveExpenses}
-          onSave={handleSaveDraft}
+          onSave={async (data) => {
+            try {
+              await saveExpense(data)
+              await refreshAll()
+              toast.success(`Pengeluaran ${data.expenseNumber} berhasil disimpan.`)
+              setModal(null)
+            } catch (err) {
+              toast.error(err.message)
+            }
+          }}
           onClose={() => setModal(null)}
           generateExpenseNumber={generateExpenseNumber}
           activeBranchId={activeBranchId}
@@ -765,30 +1085,24 @@ export default function ExpensePage() {
         />
       </Modal>
 
+      {/* MODAL: VIEW DETAIL PENGELUARAN */}
       <Modal open={modal === 'view'} onClose={() => setModal(null)} title={`Detail Pengeluaran — ${selected?.expenseNumber}`} size="md"
-        footer={<>
-          {selected?.status === 'DRAFT' && <button className="btn-success" onClick={() => { handlePost(selected); setModal(null) }}><CheckCircle className="w-4 h-4" />Otorisasi & Posting</button>}
-          <button className="btn-secondary" onClick={() => setModal(null)}>Tutup</button>
-        </>}>
+        footer={<button className="btn-secondary text-xs" onClick={() => setModal(null)}>Tutup</button>}>
         {selected && (
-          <div className="space-y-3 text-sm">
+          <div className="space-y-2.5 text-xs">
             {[
               ['No. Pengeluaran', selected.expenseNumber],
               ['Tanggal Transaksi', fmtDate(selected.expenseDate)],
               ['Kategori Beban', selected.category],
               ['Keterangan', selected.description],
-              ['Vendor / Supplier', selected.vendorName || '—'],
-              ['Faktur / GRN Terkait', Array.isArray(selected.selectedGrnRefs) && selected.selectedGrnRefs.length > 0 ? selected.selectedGrnRefs.join(', ') : '—'],
+              ['Vendor / Pihak', selected.vendorName || '—'],
               ['Metode Pembayaran', paymentMethodLabel(selected.paymentMethod)],
-              ['Nilai Bruto', fmtIDR(selected.grossAmount)],
-              ['PPN Masukan', fmtIDR(selected.ppnAmount || 0)],
-              ['PPh Dipotong', fmtIDR(selected.pphAmount || 0)],
-              ['Net Dibayar', fmtIDR(selected.netAmount || selected.grossAmount)],
-              ['Status Jurnal', selected.status === 'POSTED' ? 'POSTED (Terjurnal)' : 'DRAFT']
+              ['Nominal Pengeluaran', fmtIDR(selected.grossAmount || selected.netAmount)],
+              ['Status Jurnal', selected.status === 'POSTED' ? 'POSTED (Tercatat di Buku Besar)' : 'DRAFT']
             ].map(([k, v]) => (
-              <div key={k} className="flex justify-between border-b border-slate-100 pb-2">
+              <div key={k} className="flex justify-between border-b border-slate-100 pb-1.5">
                 <span className="text-slate-500">{k}</span>
-                <span className="font-medium font-mono text-slate-800">{v}</span>
+                <span className="font-semibold font-mono text-slate-800">{v}</span>
               </div>
             ))}
           </div>
@@ -797,5 +1111,3 @@ export default function ExpensePage() {
     </div>
   )
 }
-
-

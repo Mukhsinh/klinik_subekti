@@ -471,13 +471,14 @@ export default function AssetInventoryPage() {
                 <th className="text-right">Akum. Penyusutan</th>
                 <th className="text-right">Nilai Buku</th>
                 <th>Kondisi</th>
+                <th className="text-center">Status Pembayaran</th>
                 <th className="text-center" style={{ width: 90 }}>Aksi</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-14 text-slate-400">
+                  <td colSpan={12} className="text-center py-14 text-slate-400">
                     <Building2 className="w-12 h-12 mx-auto mb-3 opacity-20" />
                     <p className="text-base font-medium mb-1">
                       {search ? 'Aset tidak ditemukan' : 'Belum ada aset tetap'}
@@ -492,6 +493,7 @@ export default function AssetInventoryPage() {
                   const depreciationPercentage = asset.acquisitionCost > 0
                     ? ((asset.accumulatedDepreciation || 0) / asset.acquisitionCost) * 100
                     : 0
+                  const isPaid = asset.paymentStatus === 'PAID' || (Number(asset.paidAmount) >= Number(asset.acquisitionCost) && Number(asset.acquisitionCost) > 0)
 
                   return (
                     <tr key={asset.id} className="hover:bg-slate-50">
@@ -521,6 +523,29 @@ export default function AssetInventoryPage() {
                         <span className={`badge ${CONDITION_COLORS[asset.condition]}`}>
                           {CONDITION_LABELS[asset.condition]}
                         </span>
+                      </td>
+                      <td className="text-center">
+                        {isPaid ? (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              LUNAS
+                            </span>
+                            {asset.paymentRef && (
+                              <span className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                {asset.paymentRef}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              UTANG BELUM LUNAS
+                            </span>
+                            <span className="text-[10px] text-slate-500 mt-0.5">
+                              Bayar di /expenses
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="text-center">
                         <div className="flex items-center justify-center gap-1">

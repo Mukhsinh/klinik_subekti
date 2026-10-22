@@ -436,11 +436,564 @@ export const EXPENSE_CATEGORY_MAPPING_KEY = {
   'Beban Lain-Lain': 'expense_other'
 }
 
+// ══════════════════════════════════════════════════════════════
+// 5. STRUKTUR DETAIL JURNAL OTOMATIS SISTEM (AUTO JOURNAL TEMPLATES)
+// ══════════════════════════════════════════════════════════════
+export const DEFAULT_AUTO_JOURNAL_TEMPLATES = {
+  AJ_BILLING_CASH: {
+    id: 'AJ_BILLING_CASH',
+    name: 'Kasir Billing Pasien Umum (Tunai, QRIS, Transfer)',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    trigger: 'Kasir menyelesaikan pembayaran billing pasien umum status LUNAS (metode Tunai / QRIS / Transfer)',
+    description: 'Mencatat kas masuk atas pendapatan layanan konsultasi, tindakan medis, laboratorium, obat & BHP, serta diskon pasien.',
+    debits: [
+      { code: '1-11-002', name: 'Kas Kasir / Penerimaan', note: 'Total uang kasir diterima (Grand Total)' },
+      { code: '4-14-001', name: 'Potongan / Diskon Penjualan', note: 'Alokasi diskon pasien (jika diberikan)' }
+    ],
+    credits: [
+      { code: '4-11-001', name: 'Pendapatan Konsultasi Dokter', note: 'Jasa pemeriksaan & konsultasi dokter' },
+      { code: '4-11-003', name: 'Pendapatan Tindakan Medis & BHP', note: 'Tindakan medis keperawatan & bhp' },
+      { code: '4-12-001', name: 'Pendapatan Laboratorium Medis', note: 'Pemeriksaan sampel lab & diagnostik' },
+      { code: '4-13-001', name: 'Pendapatan Penjualan Obat Etikal', note: 'DPP penjualan obat paten resep dokter' },
+      { code: '4-13-002', name: 'Pendapatan Penjualan Obat Bebas / OTC', note: 'DPP penjualan obat bebas & generik' },
+      { code: '4-13-003', name: 'Pendapatan Penjualan BHP Pasien', note: 'DPP penjualan bahan medis habis pakai' },
+      { code: '2-14-001', name: 'Utang PPN Keluaran', note: 'Pajak PPN 11% yang dipungut dari pasien (bila ada)' }
+    ]
+  },
+  AJ_BILLING_BPJS: {
+    id: 'AJ_BILLING_BPJS',
+    name: 'Pelayanan Pasien Jaminan BPJS Kesehatan & Asuransi',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    trigger: 'Billing kasir dengan metode pembayaran klaim BPJS Kesehatan atau Asuransi rekanan',
+    description: 'Mencatat porsi iuran tunai pasien dan porsi piutang klaim yang akan ditagihkan ke BPJS / Asuransi rekanan.',
+    debits: [
+      { code: '1-11-002', name: 'Kas Kasir / Penerimaan', note: 'Porsi iuran bayar tunai pasien (co-payment)' },
+      { code: '1-12-001', name: 'Piutang Klaim BPJS Kesehatan', note: 'Porsi tagihan klaim BPJS Kesehatan' },
+      { code: '1-12-002', name: 'Piutang Klaim Asuransi Swasta', note: 'Porsi tagihan klaim Asuransi rekanan' }
+    ],
+    credits: [
+      { code: '4-11-001', name: 'Pendapatan Konsultasi Dokter', note: 'Pengakuan omzet konsultasi dokter BPJS' },
+      { code: '4-11-003', name: 'Pendapatan Tindakan Medis & BHP', note: 'Pengakuan omzet tindakan medis jaminan' },
+      { code: '4-13-001', name: 'Pendapatan Obat Etikal & Generik', note: 'Pengakuan omzet obat resep jaminan BPJS' }
+    ]
+  },
+  AJ_BILLING_DOCTOR_FEE: {
+    id: 'AJ_BILLING_DOCTOR_FEE',
+    name: 'Pengakuan Hak Jasa Medis Dokter & PPh 21',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    trigger: 'Posting billing dengan keterlibatan dokter yang berhak atas bagi hasil jasa medis',
+    description: 'Mencatat beban operasional bagi hasil jasa dokter, pemotongan pajak PPh 21, dan pengakuan utang fee bersih dokter.',
+    debits: [
+      { code: '6-12-001', name: 'Beban Bagi Hasil Jasa Medis Dokter', note: 'Total hak kotor (gross) jasa dokter' }
+    ],
+    credits: [
+      { code: '2-13-001', name: 'Utang Pemotongan PPh 21 Dokter', note: 'Pajak penghasilan dokter yang dipotong klinik' },
+      { code: '2-12-003', name: 'Utang Jasa Medis Dokter Bersih', note: 'Kewajiban bersih yang wajib dibayarkan ke dokter' }
+    ]
+  },
+  AJ_BILLING_COGS: {
+    id: 'AJ_BILLING_COGS',
+    name: 'HPP Penjualan Obat & Pengurangan Persediaan (COGS FIFO)',
+    module: 'HPP',
+    moduleLabel: 'HPP & Persediaan',
+    trigger: 'Kasir menyelesaikan resep obat / BHP yang otomatis mendepresi batch stok dengan metode FIFO',
+    description: 'Mencatat Beban Pokok Penjualan (HPP) modal beli obat/BHP dan mengurangi nilai buku aset persediaan apotek.',
+    debits: [
+      { code: '5-11-001', name: 'HPP Penjualan Obat Paten / Etikal', note: 'Nilai pokok persediaan obat paten terjual' },
+      { code: '5-11-002', name: 'HPP Penjualan Obat Generik / OTC', note: 'Nilai pokok persediaan obat bebas terjual' },
+      { code: '5-11-003', name: 'HPP Bahan Habis Pakai (BHP)', note: 'Nilai pokok BHP medis yang digunakan di kasir' }
+    ],
+    credits: [
+      { code: '1-13-001', name: 'Persediaan Obat Paten / Etikal', note: 'Pengurangan nilai persediaan obat paten' },
+      { code: '1-13-002', name: 'Persediaan Obat Generik / OTC', note: 'Pengurangan nilai persediaan obat bebas' },
+      { code: '1-13-003', name: 'Persediaan BHP Medis', note: 'Pengurangan nilai persediaan BHP apotek' }
+    ]
+  },
+  AJ_GRN_PURCHASE: {
+    id: 'AJ_GRN_PURCHASE',
+    name: 'Penerimaan Faktur Pembelian Obat dari Supplier PBF (GRN)',
+    module: 'HPP',
+    moduleLabel: 'HPP & Persediaan',
+    trigger: 'Penerimaan barang dan faktur distributor PBF diposting di modul Goods Receipt (GRN)',
+    description: 'Mencatat penambahan nilai aset persediaan obat di gudang farmasi, PPN masukan, dan timbulnya kewajiban utang usaha tempo.',
+    debits: [
+      { code: '1-13-001', name: 'Persediaan Obat Paten / Etikal', note: 'Nilai pembelian obat paten masuk gudang' },
+      { code: '1-13-002', name: 'Persediaan Obat Generik / OTC', note: 'Nilai pembelian obat bebas masuk gudang' },
+      { code: '1-13-003', name: 'Persediaan BHP Medis', note: 'Nilai pembelian bahan medis masuk gudang' },
+      { code: '1-14-001', name: 'PPN Masukan Dibayar Dimuka', note: 'Pajak masukan 11% faktur pajak PBF (bila PKP)' }
+    ],
+    credits: [
+      { code: '2-11-001', name: 'Utang Usaha PBF / Supplier Obat', note: 'Utang dagang pembelian tempo ke distributor farmasi' },
+      { code: '1-11-001', name: 'Kas Utama / Bank BCA', note: 'Jika pembelian dilakukan secara tunai / COD' }
+    ]
+  },
+  AJ_STOCK_OUTFLOW: {
+    id: 'AJ_STOCK_OUTFLOW',
+    name: 'Pengeluaran Stok Non-Billing (Internal, Expired, Donasi, Sampel)',
+    module: 'STOCK_OUTFLOW',
+    moduleLabel: 'Pengeluaran Stok',
+    trigger: 'Posting berita acara pengeluaran stok di modul /stock-outflow',
+    description: 'Mencatat beban operasional pemakaian internal, kerugian obat rusak/kadaluarsa, donasi sosial, atau promosi sampel.',
+    debits: [
+      { code: '6-18-001', name: 'Beban Pemakaian Internal / Kerugian Expired', note: 'Beban pemakaian internal atau kerugian expired' },
+      { code: '6-17-001', name: 'Beban Sampel & Promosi Obat', note: 'Beban pemberian sampel / edukasi' },
+      { code: '6-91-002', name: 'Beban Bantuan Sosial & Donasi Medis', note: 'Beban bakti sosial / donasi kemanusiaan' }
+    ],
+    credits: [
+      { code: '1-13-001', name: 'Persediaan Obat Paten / Etikal', note: 'Pengurangan kuantitas persediaan obat paten' },
+      { code: '1-13-002', name: 'Persediaan Obat Generik / OTC', note: 'Pengurangan kuantitas persediaan obat generik' },
+      { code: '1-13-003', name: 'Persediaan BHP Medis', note: 'Pengurangan kuantitas persediaan bahan medis' }
+    ]
+  },
+  AJ_EXPENSE_AP_SETTLEMENT: {
+    id: 'AJ_EXPENSE_AP_SETTLEMENT',
+    name: 'Pelunasan Utang Usaha Faktur Supplier PBF',
+    module: 'EXPENSES',
+    moduleLabel: 'Beban Operasional',
+    trigger: 'Bagian keuangan melakukan pembayaran faktur utang PBF di modul /expenses',
+    description: 'Mencatat pelunasan kewajiban utang dagang farmasi dan pengeluaran kas atau saldo rekening bank operasional.',
+    debits: [
+      { code: '2-11-001', name: 'Utang Usaha PBF / Supplier Obat', note: 'Pelunasan saldo faktur utang distributor farmasi' }
+    ],
+    credits: [
+      { code: '1-11-003', name: 'Bank BCA Operasional', note: 'Pengurangan saldo bank transfer pembayaran' },
+      { code: '1-11-001', name: 'Kas Utama Kasir', note: 'Pengurangan saldo kas jika dibayar tunai' }
+    ]
+  },
+  AJ_EXPENSE_OPERATIONAL: {
+    id: 'AJ_EXPENSE_OPERATIONAL',
+    name: 'Pembayaran Beban Operasional Umum (Listrik, Air, Sewa, Gaji)',
+    module: 'EXPENSES',
+    moduleLabel: 'Beban Operasional',
+    trigger: 'Pencatatan pengeluaran biaya operasional rutin di modul /expenses',
+    description: 'Mencatat beban operasional klinik dan pengeluaran uang kas / bank.',
+    debits: [
+      { code: '6-13-003', name: 'Beban Listrik (PLN)', note: 'Beban utilitas pembayaran listrik klinik' },
+      { code: '6-13-004', name: 'Beban Air (PDAM)', note: 'Beban utilitas pembayaran air bersih' },
+      { code: '6-13-005', name: 'Beban Telepon & Internet', note: 'Beban internet fiber & komunikasi' },
+      { code: '6-14-001', name: 'Beban Sewa Gedung', note: 'Beban sewa tempat usaha klinik' },
+      { code: '6-11-001', name: 'Beban Gaji Paramedis & Staf', note: 'Payroll gaji pokok tenaga kesehatan & staf' }
+    ],
+    credits: [
+      { code: '1-11-001', name: 'Kas Utama Kasir', note: 'Pengeluaran uang tunai kas kecil' },
+      { code: '1-11-003', name: 'Bank BCA Operasional', note: 'Pengeluaran via transfer bank' }
+    ]
+  },
+  AJ_ASSET_ACQUISITION: {
+    id: 'AJ_ASSET_ACQUISITION',
+    name: 'Perolehan Aset Tetap Medis / Non-Medis Baru',
+    module: 'ASSETS',
+    moduleLabel: 'Aset Tetap',
+    trigger: 'Registrasi perolehan aset tetap baru di modul /assets',
+    description: 'Mencatat penambahan nilai perolehan aset tetap peralatan medis/gedung/kendaraan dan pengeluaran kas atau utang aset.',
+    debits: [
+      { code: '1-21-001', name: 'Aset Tetap Peralatan Medis & Lab', note: 'Nilai perolehan alat medis baru' },
+      { code: '1-21-003', name: 'Aset Tetap Peralatan IT & Komputer', note: 'Nilai perolehan komputer & server' },
+      { code: '1-21-004', name: 'Aset Tetap Kendaraan Operasional', note: 'Nilai perolehan kendaraan klinik' }
+    ],
+    credits: [
+      { code: '1-11-003', name: 'Bank BCA Operasional', note: 'Pembayaran transfer pembelian tunai' },
+      { code: '2-21-001', name: 'Utang Pembelian Aset Jangka Panjang', note: 'Kewajiban jika dibeli secara tempo / kredit' }
+    ]
+  },
+  AJ_ASSET_DEPRECIATION: {
+    id: 'AJ_ASSET_DEPRECIATION',
+    name: 'Penyusutan Bulanan Aset Tetap (Depresiasi Garis Lurus)',
+    module: 'ASSETS',
+    moduleLabel: 'Aset Tetap',
+    trigger: 'Eksekusi kalkulasi penyusutan aset tetap bulanan di modul /assets',
+    description: 'Mencatat pengakuan beban depresiasi peralatan medis/bangunan dan menambah akumulasi penyusutan.',
+    debits: [
+      { code: '6-15-001', name: 'Beban Penyusutan Peralatan Medis', note: 'Alokasi beban depresiasi peralatan medis' },
+      { code: '6-15-002', name: 'Beban Penyusutan Bangunan Gedung', note: 'Alokasi beban depresiasi gedung tempat usaha' }
+    ],
+    credits: [
+      { code: '1-22-001', name: 'Akumulasi Penyusutan Peralatan Medis', note: 'Kontra-aset pengurang nilai buku alat' },
+      { code: '1-22-002', name: 'Akumulasi Penyusutan Bangunan Gedung', note: 'Kontra-aset pengurang nilai buku gedung' }
+    ]
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 6. PEMETAAN AKUN NERACA (BALANCE SHEET MAPPINGS)
+// ══════════════════════════════════════════════════════════════
+export const DEFAULT_BALANCE_SHEET_MAPPINGS = {
+  bs_cash_register: {
+    key: 'bs_cash_register',
+    group: 'ASET LANCAR',
+    label: 'Kas Kasir & Kas Kecil (Petty Cash)',
+    defaultCode: '1-11-001',
+    naturalBalance: 'DEBIT',
+    description: 'Uang tunai fisik di laci kasir dan kas kecil operasional harian'
+  },
+  bs_cash_petty: {
+    key: 'bs_cash_petty',
+    group: 'ASET LANCAR',
+    label: 'Kas Operasional Klinik',
+    defaultCode: '1-11-002',
+    naturalBalance: 'DEBIT',
+    description: 'Saldo kas brankas untuk operasional dan cadangan kas klinik'
+  },
+  bs_bank_bca: {
+    key: 'bs_bank_bca',
+    group: 'ASET LANCAR',
+    label: 'Rekening Bank BCA Operasional',
+    defaultCode: '1-11-003',
+    naturalBalance: 'DEBIT',
+    description: 'Rekening giro/tabungan BCA untuk penampungan transfer dan operasional utama'
+  },
+  bs_bank_mandiri: {
+    key: 'bs_bank_mandiri',
+    group: 'ASET LANCAR',
+    label: 'Rekening Bank Mandiri & QRIS',
+    defaultCode: '1-11-004',
+    naturalBalance: 'DEBIT',
+    description: 'Rekening penampungan pembayaran QRIS, EDC, dan transfer pasien'
+  },
+  bs_ar_patient: {
+    key: 'bs_ar_patient',
+    group: 'ASET LANCAR',
+    label: 'Piutang Pasien Umum',
+    defaultCode: '1-12-001',
+    naturalBalance: 'DEBIT',
+    description: 'Tagihan tertunda atau pembayaran tempo pasien umum'
+  },
+  bs_ar_bpjs: {
+    key: 'bs_ar_bpjs',
+    group: 'ASET LANCAR',
+    label: 'Piutang Klaim BPJS Kesehatan',
+    defaultCode: '1-12-002',
+    naturalBalance: 'DEBIT',
+    description: 'Klaim pelayanan pasien peserta BPJS yang belum cair dari kantor BPJS'
+  },
+  bs_ar_insurance: {
+    key: 'bs_ar_insurance',
+    group: 'ASET LANCAR',
+    label: 'Piutang Asuransi Rekanan Swasta',
+    defaultCode: '1-12-003',
+    naturalBalance: 'DEBIT',
+    description: 'Tagihan klaim jaminan kesehatan asuransi perusahaan swasta'
+  },
+  bs_inv_ethical: {
+    key: 'bs_inv_ethical',
+    group: 'ASET LANCAR',
+    label: 'Persediaan Obat Paten / Etikal',
+    defaultCode: '1-13-001',
+    naturalBalance: 'DEBIT',
+    description: 'Nilai persediaan obat paten / resep dokter di instalasi farmasi'
+  },
+  bs_inv_otc: {
+    key: 'bs_inv_otc',
+    group: 'ASET LANCAR',
+    label: 'Persediaan Obat Bebas / OTC / Generik',
+    defaultCode: '1-13-002',
+    naturalBalance: 'DEBIT',
+    description: 'Nilai persediaan obat bebas, suplemen, dan obat generik'
+  },
+  bs_inv_bhp: {
+    key: 'bs_inv_bhp',
+    group: 'ASET LANCAR',
+    label: 'Persediaan Bahan Medis Habis Pakai (BHP)',
+    defaultCode: '1-13-003',
+    naturalBalance: 'DEBIT',
+    description: 'Nilai persediaan spuit, jarum, kassa, infus, dan alat habis pakai'
+  },
+  bs_prepaid_expenses: {
+    key: 'bs_prepaid_expenses',
+    group: 'ASET LANCAR',
+    label: 'Beban Dibayar Dimuka & Sewa Dimuka',
+    defaultCode: '1-14-001',
+    naturalBalance: 'DEBIT',
+    description: 'Uang muka sewa gedung dan asuransi operasional yang belum terakru'
+  },
+  bs_prepaid_vat: {
+    key: 'bs_prepaid_vat',
+    group: 'ASET LANCAR',
+    label: 'PPN Masukan Dibayar Dimuka',
+    defaultCode: '1-14-002',
+    naturalBalance: 'DEBIT',
+    description: 'Pajak masukan atas pembelian faktur PBF yang dapat dikreditkan'
+  },
+  bs_fa_medical: {
+    key: 'bs_fa_medical',
+    group: 'ASET TIDAK LANCAR',
+    label: 'Aset Tetap Peralatan Medis & Laboratorium',
+    defaultCode: '1-21-001',
+    naturalBalance: 'DEBIT',
+    description: 'Harga perolehan alat USG, EKG, dental unit, mikroskop lab, dan autoklaf'
+  },
+  bs_fa_building: {
+    key: 'bs_fa_building',
+    group: 'ASET TIDAK LANCAR',
+    label: 'Gedung & Bangunan Klinik',
+    defaultCode: '1-21-002',
+    naturalBalance: 'DEBIT',
+    description: 'Harga perolehan bangunan fisik ruko/gedung klinik'
+  },
+  bs_fa_vehicle: {
+    key: 'bs_fa_vehicle',
+    group: 'ASET TIDAK LANCAR',
+    label: 'Kendaraan Ambulans & Operasional',
+    defaultCode: '1-21-003',
+    naturalBalance: 'DEBIT',
+    description: 'Harga perolehan mobil ambulans dan motor kurir farmasi'
+  },
+  bs_fa_it: {
+    key: 'bs_fa_it',
+    group: 'ASET TIDAK LANCAR',
+    label: 'Peralatan IT, Komputer & Server',
+    defaultCode: '1-21-004',
+    naturalBalance: 'DEBIT',
+    description: 'Harga perolehan komputer kasir, server rekam medis, dan printer barcode'
+  },
+  bs_acc_depr: {
+    key: 'bs_acc_depr',
+    group: 'ASET TIDAK LANCAR',
+    label: 'Akumulasi Penyusutan Aset Tetap (Kontra Aset)',
+    defaultCode: '1-22-001',
+    naturalBalance: 'CREDIT',
+    description: 'Total akumulasi penyusutan yang mengurangi nilai buku aset tetap'
+  },
+  bs_ap_pbf: {
+    key: 'bs_ap_pbf',
+    group: 'LIABILITAS JANGKA PENDEK',
+    label: 'Utang Usaha ke Distributor PBF / Supplier Obat',
+    defaultCode: '2-11-001',
+    naturalBalance: 'CREDIT',
+    description: 'Kewajiban pembayaran faktur tempo pembelian obat ke pedagang besar farmasi'
+  },
+  bs_ap_doctor: {
+    key: 'bs_ap_doctor',
+    group: 'LIABILITAS JANGKA PENDEK',
+    label: 'Utang Biaya Jasa Medis Dokter',
+    defaultCode: '2-12-001',
+    naturalBalance: 'CREDIT',
+    description: 'Akrual hak bagi hasil jasa medis dokter yang belum dibayarkan'
+  },
+  bs_ap_salary: {
+    key: 'bs_ap_salary',
+    group: 'LIABILITAS JANGKA PENDEK',
+    label: 'Utang Gaji & Honor Paramedis / Staf',
+    defaultCode: '2-12-002',
+    naturalBalance: 'CREDIT',
+    description: 'Akrual kewajiban gaji perawat, bidan, dan staf administrasi'
+  },
+  bs_tax_ppn: {
+    key: 'bs_tax_ppn',
+    group: 'LIABILITAS JANGKA PENDEK',
+    label: 'Utang Pajak PPN Keluaran',
+    defaultCode: '2-13-001',
+    naturalBalance: 'CREDIT',
+    description: 'Pajak PPN 11% yang telah dipungut kasir dan harus disetor ke kas negara'
+  },
+  bs_tax_pph21: {
+    key: 'bs_tax_pph21',
+    group: 'LIABILITAS JANGKA PENDEK',
+    label: 'Utang Pajak PPh 21 Dokter & Karyawan',
+    defaultCode: '2-13-002',
+    naturalBalance: 'CREDIT',
+    description: 'Pemotongan PPh pasal 21 dokter dan gaji karyawan yang wajib disetor'
+  },
+  bs_loan_bank: {
+    key: 'bs_loan_bank',
+    group: 'LIABILITAS JANGKA PANJANG',
+    label: 'Utang Bank Investasi Jangka Panjang',
+    defaultCode: '2-21-001',
+    naturalBalance: 'CREDIT',
+    description: 'Pinjaman modal kerja atau kredit investasi perbankan jangka panjang'
+  },
+  bs_eq_capital: {
+    key: 'bs_eq_capital',
+    group: 'EKUITAS',
+    label: 'Modal Disetor Pemilik Klinik',
+    defaultCode: '3-11-001',
+    naturalBalance: 'CREDIT',
+    description: 'Setoran modal awal para pendiri atau pemilik klinik'
+  },
+  bs_eq_retained: {
+    key: 'bs_eq_retained',
+    group: 'EKUITAS',
+    label: 'Laba Ditahan Tahun Sebelumnya',
+    defaultCode: '3-12-001',
+    naturalBalance: 'CREDIT',
+    description: 'Akumulasi laba bersih klinik yang tidak dibagikan dari tahun buku sebelumnya'
+  },
+  bs_eq_current: {
+    key: 'bs_eq_current',
+    group: 'EKUITAS',
+    label: 'Laba / (Rugi) Periode Berjalan',
+    defaultCode: '3-12-002',
+    naturalBalance: 'CREDIT',
+    description: 'Hasil kinerja laba atau rugi bersih tahun buku yang sedang berjalan'
+  },
+  bs_eq_prive: {
+    key: 'bs_eq_prive',
+    group: 'EKUITAS',
+    label: 'Prive / Pengambilan Pribadi Pemilik',
+    defaultCode: '3-13-001',
+    naturalBalance: 'DEBIT',
+    description: 'Penarikan dana atau pembagian deviden pribadi oleh pemilik klinik'
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// 7. PEMETAAN LAPORAN ARUS KAS (CASH FLOW MAPPINGS)
+// ══════════════════════════════════════════════════════════════
+export const DEFAULT_CASH_FLOW_MAPPINGS = {
+  cf_inflow_patient: {
+    key: 'cf_inflow_patient',
+    section: 'OPERASI',
+    sectionLabel: 'Aktivitas Operasi',
+    flowType: 'INFLOW',
+    label: 'Penerimaan Kas dari Pasien Billing Kasir',
+    defaultCode: '1-11-002',
+    description: 'Aliran kas masuk dari transaksi pelayanan pasien di kasir'
+  },
+  cf_inflow_bpjs: {
+    key: 'cf_inflow_bpjs',
+    section: 'OPERASI',
+    sectionLabel: 'Aktivitas Operasi',
+    flowType: 'INFLOW',
+    label: 'Penerimaan Pencairan Klaim BPJS Kesehatan',
+    defaultCode: '1-12-001',
+    description: 'Penerimaan dana pencairan piutang klaim dari BPJS Kesehatan'
+  },
+  cf_inflow_insurance: {
+    key: 'cf_inflow_insurance',
+    section: 'OPERASI',
+    sectionLabel: 'Aktivitas Operasi',
+    flowType: 'INFLOW',
+    label: 'Penerimaan Pembayaran Klaim Asuransi Swasta',
+    defaultCode: '1-12-002',
+    description: 'Penerimaan pencairan piutang klaim dari asuransi rekanan'
+  },
+  cf_outflow_pbf: {
+    key: 'cf_outflow_pbf',
+    section: 'OPERASI',
+    sectionLabel: 'Aktivitas Operasi',
+    flowType: 'OUTFLOW',
+    label: 'Pembayaran Kas Faktur Supplier PBF / Obat',
+    defaultCode: '2-11-001',
+    description: 'Pengeluaran kas untuk pelunasan utang dagang distributor obat'
+  },
+  cf_outflow_doctor_fee: {
+    key: 'cf_outflow_doctor_fee',
+    section: 'OPERASI',
+    sectionLabel: 'Aktivitas Operasi',
+    flowType: 'OUTFLOW',
+    label: 'Pembayaran Kas Bagi Hasil Jasa Medis Dokter',
+    defaultCode: '6-12-001',
+    description: 'Pengeluaran kas untuk fee jasa medis dokter umum dan spesialis'
+  },
+  cf_outflow_salary: {
+    key: 'cf_outflow_salary',
+    section: 'OPERASI',
+    sectionLabel: 'Aktivitas Operasi',
+    flowType: 'OUTFLOW',
+    label: 'Pembayaran Kas Gaji Paramedis & Staf',
+    defaultCode: '6-11-002',
+    description: 'Pengeluaran kas untuk gaji perawat, bidan, dan staf administrasi'
+  },
+  cf_outflow_utilities: {
+    key: 'cf_outflow_utilities',
+    section: 'OPERASI',
+    sectionLabel: 'Aktivitas Operasi',
+    flowType: 'OUTFLOW',
+    label: 'Pembayaran Biaya Operasional, Listrik & Air',
+    defaultCode: '6-13-003',
+    description: 'Pengeluaran kas untuk pembayaran tagihan PLN, PDAM, dan internet'
+  },
+  cf_outflow_rent: {
+    key: 'cf_outflow_rent',
+    section: 'OPERASI',
+    sectionLabel: 'Aktivitas Operasi',
+    flowType: 'OUTFLOW',
+    label: 'Pembayaran Sewa Tempat & Gedung Klinik',
+    defaultCode: '6-14-001',
+    description: 'Pengeluaran kas untuk sewa gedung klinik dan tempat parkir'
+  },
+  cf_outflow_tax: {
+    key: 'cf_outflow_tax',
+    section: 'OPERASI',
+    sectionLabel: 'Aktivitas Operasi',
+    flowType: 'OUTFLOW',
+    label: 'Pembayaran Kas Setoran Pajak (PPN & PPh)',
+    defaultCode: '2-13-001',
+    description: 'Pengeluaran kas penyetoran pajak PPN dan PPh ke kas negara'
+  },
+  cf_outflow_fa_medical: {
+    key: 'cf_outflow_fa_medical',
+    section: 'INVESTASI',
+    sectionLabel: 'Aktivitas Investasi',
+    flowType: 'OUTFLOW',
+    label: 'Pengeluaran Kas Pembelian Alat Medis & Diagnostik',
+    defaultCode: '1-21-001',
+    description: 'Aliran kas keluar investasi pengadaan peralatan medis klinik'
+  },
+  cf_outflow_fa_bldg: {
+    key: 'cf_outflow_fa_bldg',
+    section: 'INVESTASI',
+    sectionLabel: 'Aktivitas Investasi',
+    flowType: 'OUTFLOW',
+    label: 'Pengeluaran Kas Renovasi & Perluasan Gedung',
+    defaultCode: '1-21-002',
+    description: 'Aliran kas keluar investasi pengembangan ruang poli & gedung'
+  },
+  cf_inflow_fa_sale: {
+    key: 'cf_inflow_fa_sale',
+    section: 'INVESTASI',
+    sectionLabel: 'Aktivitas Investasi',
+    flowType: 'INFLOW',
+    label: 'Penerimaan Kas Penjualan Aset Medis Bekas',
+    defaultCode: '8-91-001',
+    description: 'Aliran kas masuk pelepasan atau penjualan alat medis lama'
+  },
+  cf_inflow_capital: {
+    key: 'cf_inflow_capital',
+    section: 'PENDANAAN',
+    sectionLabel: 'Aktivitas Pendanaan',
+    flowType: 'INFLOW',
+    label: 'Penyetoran Tambahan Modal oleh Pemilik / Investor',
+    defaultCode: '3-11-001',
+    description: 'Aliran kas masuk setoran modal dari pemilik klinik'
+  },
+  cf_outflow_prive: {
+    key: 'cf_outflow_prive',
+    section: 'PENDANAAN',
+    sectionLabel: 'Aktivitas Pendanaan',
+    flowType: 'OUTFLOW',
+    label: 'Penarikan Kas Prive / Deviden oleh Pemilik',
+    defaultCode: '3-13-001',
+    description: 'Aliran kas keluar penarikan prive pribadi oleh pemilik klinik'
+  },
+  cf_inflow_bank_loan: {
+    key: 'cf_inflow_bank_loan',
+    section: 'PENDANAAN',
+    sectionLabel: 'Aktivitas Pendanaan',
+    flowType: 'INFLOW',
+    label: 'Penerimaan Kas Pinjaman Bank / Kredit Investasi',
+    defaultCode: '2-21-001',
+    description: 'Penerimaan pencairan pinjaman bank untuk pembiayaan klinik'
+  },
+  cf_outflow_bank_loan: {
+    key: 'cf_outflow_bank_loan',
+    section: 'PENDANAAN',
+    sectionLabel: 'Aktivitas Pendanaan',
+    flowType: 'OUTFLOW',
+    label: 'Pembayaran Angsuran Pokok Pinjaman Bank',
+    defaultCode: '2-21-001',
+    description: 'Pengeluaran kas untuk mencicil pokok utang pinjaman perbankan'
+  }
+}
+
 /**
- * Helper untuk mengekstrak objek raw account_mappings dari appSettings
+ * Helper untuk mengekstrak objek raw dari appSettings
  */
-function extractRawMappings(appSettings) {
-  let saved = appSettings?.account_mappings || {}
+function extractRawSettings(appSettings, key) {
+  let saved = appSettings?.[key] || {}
   if (typeof saved === 'string') {
     try {
       saved = JSON.parse(saved)
@@ -449,6 +1002,153 @@ function extractRawMappings(appSettings) {
     }
   }
   return (saved && typeof saved === 'object') ? saved : {}
+}
+
+/**
+ * Helper untuk mengekstrak objek raw account_mappings dari appSettings
+ */
+function extractRawMappings(appSettings) {
+  return extractRawSettings(appSettings, 'account_mappings')
+}
+
+/**
+ * Mendapatkan struktur template jurnal otomatis yang digabung dengan setting dari database
+ */
+export function getEffectiveAutoJournalTemplates(appSettings = {}) {
+  const saved = extractRawSettings(appSettings, 'auto_journal_templates')
+  const result = {}
+
+  Object.keys(DEFAULT_AUTO_JOURNAL_TEMPLATES).forEach(k => {
+    const def = DEFAULT_AUTO_JOURNAL_TEMPLATES[k]
+    const custom = saved[k]
+    if (custom && typeof custom === 'object') {
+      result[k] = { ...def, ...custom, isCustom: false, isModified: true }
+    } else {
+      result[k] = { ...def, isCustom: false, isModified: false }
+    }
+  })
+
+  // Sertakan jika ada template kustom baru dari user
+  Object.keys(saved).forEach(k => {
+    if (!DEFAULT_AUTO_JOURNAL_TEMPLATES[k]) {
+      result[k] = { ...saved[k], isCustom: true, isModified: false }
+    }
+  })
+
+  return result
+}
+
+/**
+ * Mendapatkan mapping neraca aktif yang digabung dengan setting dari database
+ */
+export function getEffectiveBalanceSheetMappings(appSettings = {}) {
+  const saved = extractRawSettings(appSettings, 'balance_sheet_mappings')
+  const result = {}
+
+  Object.keys(DEFAULT_BALANCE_SHEET_MAPPINGS).forEach(k => {
+    const def = DEFAULT_BALANCE_SHEET_MAPPINGS[k]
+    const s = saved[k]
+    if (typeof s === 'object' && s !== null) {
+      result[k] = {
+        ...def,
+        ...s,
+        accountCode: s.accountCode || def.defaultCode,
+        isCustom: false,
+        isModified: (s.accountCode || def.defaultCode) !== def.defaultCode
+      }
+    } else if (typeof s === 'string' && s.trim()) {
+      result[k] = {
+        ...def,
+        accountCode: s.trim(),
+        isCustom: false,
+        isModified: s.trim() !== def.defaultCode
+      }
+    } else {
+      result[k] = {
+        ...def,
+        accountCode: def.defaultCode,
+        isCustom: false,
+        isModified: false
+      }
+    }
+  })
+
+  // Kustom dari pengguna
+  Object.keys(saved).forEach(k => {
+    if (!DEFAULT_BALANCE_SHEET_MAPPINGS[k]) {
+      const c = saved[k]
+      result[k] = {
+        key: k,
+        group: c.group || 'ASET LANCAR',
+        label: c.label || k,
+        defaultCode: c.accountCode || '',
+        accountCode: c.accountCode || '',
+        naturalBalance: c.naturalBalance || 'DEBIT',
+        description: c.description || '',
+        isCustom: true,
+        isModified: false
+      }
+    }
+  })
+
+  return result
+}
+
+/**
+ * Mendapatkan mapping arus kas aktif yang digabung dengan setting dari database
+ */
+export function getEffectiveCashFlowMappings(appSettings = {}) {
+  const saved = extractRawSettings(appSettings, 'cash_flow_mappings')
+  const result = {}
+
+  Object.keys(DEFAULT_CASH_FLOW_MAPPINGS).forEach(k => {
+    const def = DEFAULT_CASH_FLOW_MAPPINGS[k]
+    const s = saved[k]
+    if (typeof s === 'object' && s !== null) {
+      result[k] = {
+        ...def,
+        ...s,
+        accountCode: s.accountCode || def.defaultCode,
+        isCustom: false,
+        isModified: (s.accountCode || def.defaultCode) !== def.defaultCode
+      }
+    } else if (typeof s === 'string' && s.trim()) {
+      result[k] = {
+        ...def,
+        accountCode: s.trim(),
+        isCustom: false,
+        isModified: s.trim() !== def.defaultCode
+      }
+    } else {
+      result[k] = {
+        ...def,
+        accountCode: def.defaultCode,
+        isCustom: false,
+        isModified: false
+      }
+    }
+  })
+
+  // Kustom dari pengguna
+  Object.keys(saved).forEach(k => {
+    if (!DEFAULT_CASH_FLOW_MAPPINGS[k]) {
+      const c = saved[k]
+      result[k] = {
+        key: k,
+        section: c.section || 'OPERASI',
+        sectionLabel: c.sectionLabel || 'Aktivitas Operasi',
+        flowType: c.flowType || 'INFLOW',
+        label: c.label || k,
+        defaultCode: c.accountCode || '',
+        accountCode: c.accountCode || '',
+        description: c.description || '',
+        isCustom: true,
+        isModified: false
+      }
+    }
+  })
+
+  return result
 }
 
 /**

@@ -1013,10 +1013,18 @@ export function useStore() {
 
   const addAsset = useCallback(async (data) => {
     const assetId = data.id || uuidv4()
+    // Menentukan akun utang pengadaan aset yang sesuai
+    const debtAccountCode = (data.category === 'PERALATAN_MEDIS' || (data.assetName || '').toLowerCase().includes('medis') || (data.assetName || '').toLowerCase().includes('alat'))
+      ? '2-11-002' // Utang Pembelian Alat Kesehatan
+      : '2-11-004' // Utang Pengadaan Lain-lain
+
     const asset = {
       ...data,
       id: assetId,
       status: 'ACTIVE',
+      paymentStatus: 'UNPAID',
+      paidAmount: 0,
+      paymentRef: null,
       accumulatedDepreciation: 0,
       bookValue: data.acquisitionCost,
       createdAt: new Date().toISOString(),
@@ -1032,7 +1040,7 @@ export function useStore() {
       branchId: s.activeBranchId,
       entryNumber,
       transactionDate: asset.acquisitionDate,
-      description: `Perolehan aset tetap: ${asset.assetName} - ${asset.assetCode}`,
+      description: `Perolehan aset tetap: ${asset.assetName} - ${asset.assetCode} (Utang Pengadaan)`,
       entryType: 'ACQUISITION',
       status: 'POSTED',
       totalDebit: asset.acquisitionCost,
@@ -1056,8 +1064,8 @@ export function useStore() {
       {
         id: uuidv4(),
         journalEntryId: journalId,
-        accountCode: '1-11-003', // Bank BCA Operasional
-        description: `Pembelian aset tetap ${asset.assetName}`,
+        accountCode: debtAccountCode,
+        description: `Utang Pengadaan Aset: ${asset.assetName} (${asset.assetCode})`,
         debit: 0,
         credit: asset.acquisitionCost,
       }
