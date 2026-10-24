@@ -31,6 +31,7 @@ import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
 const OUTFLOW_TYPES = [
+  { value: 'PATIENT_MEDICINE', label: 'Pengeluaran Obat Pasien (Apotek/Farmasi)' },
   { value: 'INTERNAL_USE', label: 'Pemakaian Internal / Operasional' },
   { value: 'DONATION', label: 'Donasi' },
   { value: 'SAMPLE', label: 'Sampel Gratis' },
@@ -48,6 +49,7 @@ export default function StockOutflowPage() {
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
+  const [activeViewTab, setActiveViewTab] = useState('ALL') // 'ALL', 'PATIENT_MEDICINE', 'INTERNAL', 'BILLING'
 
   // Form states - Outflow Manual
   const [outflowDate, setOutflowDate] = useState(todayISO())
@@ -399,13 +401,16 @@ export default function StockOutflowPage() {
           updated.itemName = pItem.itemName || pItem.item_name
           updated.unit = pItem.baseUnit || pItem.base_unit || 'Unit'
           const purchaseCost = Number(pItem.purchasePrice || pItem.purchase_price || pItem.hpp || 0)
-          const baseSale = Number(pItem.salePrice || pItem.sale_price || Math.round(purchaseCost * 1.25))
-
-          if (field === 'itemId') {
-            updated.sellPrice = baseSale
-          }
           const itemBatches = activeBatches.filter(b => (b.itemId === targetItemId || b.item_id === targetItemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
           const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, reqQty, purchaseCost)
+
+          // Direct selling price from pharmacy_items (sellingPrice or selling_price) or markup
+          const foundSell = Number(pItem.sellingPrice || pItem.selling_price || pItem.salePrice || pItem.sale_price || 0)
+          const baseSale = foundSell > 0 ? foundSell : (avgUnitCost > 0 ? Math.round(avgUnitCost * 1.25) : (purchaseCost > 0 ? Math.round(purchaseCost * 1.25) : 5000))
+
+          if (field === 'itemId' || !updated.sellPrice || Number(updated.sellPrice) === 0) {
+            updated.sellPrice = baseSale
+          }
           updated.quantity = reqQty
           updated.unitCost = avgUnitCost
           updated.totalCost = totalValuation
@@ -535,6 +540,9 @@ export default function StockOutflowPage() {
           quantity: Number(item.quantity),
           unitCost: avgUnitCost,
           totalCost: totalValuation,
+          sellingPrice: Number(item.sellPrice || 0),
+          subtotalSale: Number(item.totalPrice || (Number(item.quantity) * Number(item.sellPrice || 0))),
+          unit: item.unit || 'Unit',
           notes: `Obat Pasien: ${patientDisplay} (${billingNum})`
         })
       }
@@ -547,15 +555,24 @@ export default function StockOutflowPage() {
         await insertStockLedger(ledgerEntries)
       }
 
-      // 3. Create stock outflow entry for pharmacy audit history
+      // 3. Create stock outflow entry for pharmacy audit history (saved to Supabase database)
+      const totalSellingVal = newBillingItems.reduce((sum, it) => sum + (it.totalPrice || 0), 0)
+      const docName = patientBillingOptions.find(o => o.value === selectedBillingId)?.docName || selectedBilling.doctorName || selectedBilling.doctor_name || '-'
+
       await insertStockOutflow({
         id: outflowId,
         branchId: effectiveBranchId,
         outflowNumber: outNum,
         outflowDate: todayISO(),
-        outflowType: 'INTERNAL_USE',
+        outflowType: 'PATIENT_MEDICINE',
         description: `Pengeluaran Obat Pasien: ${patientDisplay} (No. Billing: ${billingNum})`,
         totalValue: totalHpp,
+        totalSelling: totalSellingVal,
+        patientId: selectedBilling.patientId || selectedBilling.patient_id || null,
+        patientName: patientDisplay,
+        prescriptionNo: billingNum,
+        billingId: selectedBilling.id,
+        doctorName: docName,
         status: 'POSTED',
         journalEntryId: null,
         createdBy: 'Farmasi/Apotek',
@@ -600,8 +617,9 @@ export default function StockOutflowPage() {
       // 5. Refresh full store state across all components in real time!
       await refreshAll()
 
-      toast.success(`Pengeluaran obat untuk ${patientDisplay} berhasil! Data otomatis terupdate di billing pasien.`)
-      setModal('billing')
+      toast.success(`Pengeluaran obat untuk ${patientDisplay} berhasil disimpan ke database! Terhubung langsung dengan billing kasir.`)
+      setModal(null)
+      setActiveViewTab('PATIENT_MEDICINE')
       resetPatientMedForm()
     } catch (err) {
       console.error('[handleSavePatientMedicine] Error:', err)
@@ -807,31 +825,59 @@ export default function StockOutflowPage() {
     }
   }
 
+  const itemsByOutflow = useMemo(() => {
+    const map = {}
+    ;(outflowItems || []).forEach(it => {
+      const oId = it.outflowId || it.outflow_id
+      if (!map[oId]) map[oId] = []
+      map[oId].push(it)
+    })
+    return map
+  }, [outflowItems])
+
+  const patientMedOutflows = useMemo(() => {
+    return (outflows || []).filter(o => o.outflowType === 'PATIENT_MEDICINE' || (o.description || '').toLowerCase().includes('obat pasien'))
+  }, [outflows])
+
+  const internalOutflows = useMemo(() => {
+    return (outflows || []).filter(o => o.outflowType !== 'PATIENT_MEDICINE' && !(o.description || '').toLowerCase().includes('obat pasien'))
+  }, [outflows])
+
   const filtered = useMemo(() => {
     const outflowsArray = Array.isArray(outflows) ? outflows : []
     let result = outflowsArray
+
+    if (activeViewTab === 'PATIENT_MEDICINE') {
+      result = patientMedOutflows
+    } else if (activeViewTab === 'INTERNAL') {
+      result = internalOutflows
+    }
 
     if (statusFilter !== 'ALL') {
       result = result.filter(o => o.status === statusFilter)
     }
 
     if (search) {
+      const q = search.toLowerCase()
       result = result.filter(o =>
-        o.outflowNumber?.toLowerCase().includes(search.toLowerCase()) ||
-        o.description?.toLowerCase().includes(search.toLowerCase())
+        (o.outflowNumber || '').toLowerCase().includes(q) ||
+        (o.description || '').toLowerCase().includes(q) ||
+        (o.patientName || '').toLowerCase().includes(q) ||
+        (o.prescriptionNo || '').toLowerCase().includes(q) ||
+        (o.doctorName || '').toLowerCase().includes(q)
       )
     }
 
     return result.sort((a, b) => {
-      const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0)
-      const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0)
+      const dateA = a.outflowDate ? new Date(a.outflowDate) : (a.createdAt ? new Date(a.createdAt) : new Date(0))
+      const dateB = b.outflowDate ? new Date(b.outflowDate) : (b.createdAt ? new Date(b.createdAt) : new Date(0))
       return dateB - dateA
     })
-  }, [outflows, statusFilter, search])
+  }, [outflows, activeViewTab, patientMedOutflows, internalOutflows, statusFilter, search])
 
   const selectedItems = useMemo(() => {
     if (!selected?.id) return []
-    return (outflowItems || []).filter(i => String(i.outflowId) === String(selected.id))
+    return (outflowItems || []).filter(i => String(i.outflowId || i.outflow_id) === String(selected.id))
   }, [outflowItems, selected])
 
   const totalQtyOut = useMemo(() => {
@@ -934,36 +980,79 @@ export default function StockOutflowPage() {
       {/* Tabs */}
       <div className="card">
         <div className="border-b border-slate-200">
-          <div className="flex gap-1 px-4">
+          <div className="flex flex-wrap gap-1 px-4">
             <button
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors font-sans ${modal !== 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}
-              onClick={() => setModal(null)}
+              className={`px-4 py-3 text-sm font-bold border-b-2 transition-all font-sans flex items-center gap-2 ${
+                activeViewTab === 'ALL'
+                  ? 'border-primary-600 text-primary-700 bg-primary-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+              onClick={() => setActiveViewTab('ALL')}
             >
-              <Package className="w-4 h-4 inline mr-2" />
-              Pengeluaran Manual ({fmtNum(filtered.length)})
+              <Package className="w-4 h-4" />
+              <span>Semua Pengeluaran</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-mono font-bold">
+                {fmtNum((outflows || []).length)}
+              </span>
             </button>
+
             <button
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors font-sans ${modal === 'billing' ? 'border-primary-600 text-primary-700' : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}
-              onClick={() => setModal('billing')}
+              className={`px-4 py-3 text-sm font-bold border-b-2 transition-all font-sans flex items-center gap-2 ${
+                activeViewTab === 'PATIENT_MEDICINE'
+                  ? 'border-emerald-600 text-emerald-700 bg-emerald-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+              onClick={() => setActiveViewTab('PATIENT_MEDICINE')}
             >
-              <TrendingDown className="w-4 h-4 inline mr-2" />
-              Riwayat dari Billing ({fmtNum(billingOutflows.length)})
+              <Pill className="w-4 h-4 text-emerald-600" />
+              <span>Pengeluaran Obat Pasien (Apotek)</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono font-bold">
+                {fmtNum(patientMedOutflows.length)}
+              </span>
+            </button>
+
+            <button
+              className={`px-4 py-3 text-sm font-bold border-b-2 transition-all font-sans flex items-center gap-2 ${
+                activeViewTab === 'INTERNAL'
+                  ? 'border-blue-600 text-blue-700 bg-blue-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+              onClick={() => setActiveViewTab('INTERNAL')}
+            >
+              <Layers className="w-4 h-4 text-blue-600" />
+              <span>Pemakaian Internal & Donasi</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-mono font-bold">
+                {fmtNum(internalOutflows.length)}
+              </span>
+            </button>
+
+            <button
+              className={`px-4 py-3 text-sm font-bold border-b-2 transition-all font-sans flex items-center gap-2 ${
+                activeViewTab === 'BILLING'
+                  ? 'border-amber-600 text-amber-700 bg-amber-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+              onClick={() => setActiveViewTab('BILLING')}
+            >
+              <TrendingDown className="w-4 h-4 text-amber-600" />
+              <span>Sinkronisasi Billing Kasir</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-mono font-bold">
+                {fmtNum(billingOutflows.length)}
+              </span>
             </button>
           </div>
         </div>
 
-        {/* Manual Outflows Tab */}
-        {modal !== 'billing' && (
+        {/* Outflows Master Table */}
+        {activeViewTab !== 'BILLING' && (
           <>
             <div className="card-body border-b border-slate-100">
               <div className="flex flex-wrap gap-3 items-center">
                 <SearchInput
                   value={search}
                   onChange={setSearch}
-                  placeholder="Cari nomor atau deskripsi..."
-                  className="w-64"
+                  placeholder="Cari no. pengeluaran, nama pasien, dokter, atau resep..."
+                  className="w-80"
                 />
                 <select
                   className="form-select w-40"
@@ -975,52 +1064,135 @@ export default function StockOutflowPage() {
                   <option value="POSTED">Posted</option>
                   <option value="CANCELLED">Cancelled</option>
                 </select>
-                <span className="ml-auto text-sm text-slate-400 font-sans">{fmtNum(filtered.length)} pengeluaran</span>
+                <span className="ml-auto text-sm text-slate-500 font-sans font-medium">
+                  Menampilkan <strong>{fmtNum(filtered.length)}</strong> pengeluaran
+                </span>
               </div>
             </div>
-            <div className="w-full">
+            <div className="w-full overflow-x-auto">
               <table className="w-full text-left border-collapse table-auto">
                 <thead>
-                  <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                    <th className="py-2.5 px-2.5" style={{ width: '140px' }}>No. Pengeluaran</th>
-                    <th className="py-2.5 px-2.5" style={{ width: '100px' }}>Tanggal</th>
-                    <th className="py-2.5 px-2.5" style={{ width: '150px' }}>Tipe</th>
-                    <th className="py-2.5 px-2.5" style={{ minWidth: '180px' }}>Deskripsi</th>
-                    <th className="py-2.5 px-2.5 text-right" style={{ width: '120px' }}>Total Nilai</th>
-                    <th className="py-2.5 px-2.5" style={{ width: '90px' }}>Status</th>
-                    <th style={{ width: '40px' }} className="py-2.5 px-1 text-center"></th>
+                  <tr className="bg-slate-100 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                    <th className="py-2.5 px-3 whitespace-nowrap" style={{ width: '130px' }}>No. Pengeluaran</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap" style={{ width: '90px' }}>Tanggal</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap" style={{ width: '120px' }}>Tipe</th>
+                    <th className="py-2.5 px-3" style={{ minWidth: '180px' }}>Pasien / Keterangan</th>
+                    <th className="py-2.5 px-3" style={{ minWidth: '220px' }}>Daftar Obat & BHP</th>
+                    <th className="py-2.5 px-3 text-right whitespace-nowrap" style={{ width: '120px' }}>Total Harga Jual</th>
+                    <th className="py-2.5 px-3 text-right whitespace-nowrap" style={{ width: '110px' }}>Total HPP Modal</th>
+                    <th className="py-2.5 px-3 text-center whitespace-nowrap" style={{ width: '110px' }}>Status Kasir</th>
+                    <th style={{ width: '50px' }} className="py-2.5 px-2 text-center">Aksi</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 bg-white text-[11px]">
+                <tbody className="divide-y divide-slate-100 bg-white text-xs">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-12 text-slate-400">
-                        Belum ada pengeluaran stok manual di database
+                      <td colSpan={9} className="text-center py-12 text-slate-400 font-sans">
+                        Tidak ada data pengeluaran stok yang sesuai filter.
                       </td>
                     </tr>
                   ) : (
-                    filtered.map(o => (
-                      <tr key={o.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-2.5 font-mono text-[11px] text-primary-700 font-bold whitespace-nowrap">{o.outflowNumber}</td>
-                        <td className="py-2 px-2.5 text-[11px] whitespace-nowrap">{fmtDate(o.outflowDate)}</td>
-                        <td className="py-2 px-2.5 whitespace-nowrap">
-                          <span className="badge badge-purple text-[10px] px-2 py-0.5">
-                            {OUTFLOW_TYPES.find(t => t.value === o.outflowType)?.label || o.outflowType}
-                          </span>
-                        </td>
-                        <td className="py-2 px-2.5 text-[11px] text-slate-700">{o.description}</td>
-                        <td className="py-2 px-2.5 text-right font-sans text-[11px] font-extrabold text-slate-800 whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
-                        <td className="py-2 px-2.5 whitespace-nowrap"><StatusBadge status={o.status} /></td>
-                        <td className="py-2 px-1 text-center whitespace-nowrap">
-                          <button
-                            className="btn-ghost p-1"
-                            onClick={() => { setSelected(o); setModal('view') }}
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    filtered.map(o => {
+                      const isMed = o.outflowType === 'PATIENT_MEDICINE' || (o.description || '').toLowerCase().includes('obat pasien')
+                      const curItems = itemsByOutflow[o.id] || []
+                      const billingRecord = (billings || []).find(b => b.id === (o.billingId || o.billing_id) || (o.prescriptionNo && (b.billingNumber === o.prescriptionNo || b.billing_number === o.prescriptionNo)))
+                      const isPaid = billingRecord ? (billingRecord.status === 'PAID') : (o.status === 'POSTED')
+                      
+                      const computedSelling = Number(o.totalSelling || o.total_selling || curItems.reduce((s, it) => s + Number(it.subtotalSale || it.subtotal_sale || (Number(it.quantity) * Number(it.sellingPrice || it.selling_price || 0))), 0) || 0)
+
+                      return (
+                        <tr key={o.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-2.5 px-3 font-mono text-[11px] text-primary-700 font-bold whitespace-nowrap">
+                            {o.outflowNumber}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
+                            {fmtDate(o.outflowDate || o.createdAt)}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            {isMed ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <Pill className="w-3 h-3 text-emerald-600" /> Obat Pasien
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                <Package className="w-3 h-3 text-blue-600" /> {OUTFLOW_TYPES.find(t => t.value === o.outflowType)?.label || o.outflowType}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            {isMed ? (
+                              <div>
+                                <div className="font-bold text-slate-900 text-xs">
+                                  {o.patientName || (o.description?.match(/Pasien:\s*([^(]+)/)?.[1]?.trim()) || 'Pasien Umum'}
+                                </div>
+                                <div className="text-[10px] font-mono text-emerald-700">
+                                  No. {o.prescriptionNo || (o.description?.match(/No\. Billing:\s*([^)]+)/)?.[1]?.trim()) || '—'}
+                                </div>
+                                {o.doctorName && o.doctorName !== '-' && (
+                                  <div className="text-[10px] text-slate-500">
+                                    Dokter: {o.doctorName}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-slate-700 text-xs font-medium">
+                                {o.description || 'Pemakaian Internal Klinik'}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            {curItems.length > 0 ? (
+                              <div className="space-y-1">
+                                {curItems.map((it, idx) => (
+                                  <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                                    <span className="text-slate-800 font-medium">
+                                      • {it.itemName || it.item_name}
+                                    </span>
+                                    <span className="text-[11px] font-mono font-bold text-slate-600 shrink-0">
+                                      {fmtNum(it.quantity)} {it.unit || 'Unit'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-slate-500 text-xs italic">
+                                {o.description}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-sans text-xs font-extrabold text-emerald-700 whitespace-nowrap">
+                            {isMed ? fmtIDR(computedSelling) : '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-sans text-xs font-bold text-slate-800 whitespace-nowrap">
+                            {fmtIDR(o.totalValue || 0)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {isMed ? (
+                              isPaid ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+                                  ✓ LUNAS
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300 shadow-xs">
+                                  ⏳ BELUM LUNAS
+                                </span>
+                              )
+                            ) : (
+                              <StatusBadge status={o.status} />
+                            )}
+                          </td>
+                          <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                            <button
+                              className="btn-ghost p-1.5 hover:bg-slate-100 text-slate-600 hover:text-primary-700 rounded-lg transition"
+                              onClick={() => { setSelected(o); setModal('view') }}
+                              title="Lihat rincian lengkap pengeluaran obat ini"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
@@ -1029,46 +1201,46 @@ export default function StockOutflowPage() {
         )}
 
         {/* Billing Outflows Tab */}
-        {modal === 'billing' && (
-          <div className="w-full">
+        {activeViewTab === 'BILLING' && (
+          <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse table-auto">
               <thead>
-                <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                  <th className="py-2.5 px-2.5" style={{ width: '90px' }}>Tanggal</th>
-                  <th className="py-2.5 px-2.5" style={{ width: '130px' }}>No. Billing</th>
-                  <th className="py-2.5 px-2.5" style={{ minWidth: '130px' }}>Nama Pasien</th>
-                  <th className="py-2.5 px-2.5" style={{ minWidth: '160px' }}>Item Obat</th>
-                  <th className="py-2.5 px-2.5 text-right" style={{ width: '50px' }}>Qty</th>
-                  <th className="py-2.5 px-2.5 text-right" style={{ width: '100px' }}>Harga Pokok</th>
-                  <th className="py-2.5 px-2.5 text-right" style={{ width: '110px' }}>Total Nilai</th>
-                  <th className="py-2.5 px-2.5 text-center" style={{ width: '120px' }}>Status Pembayaran</th>
+                <tr className="bg-slate-100 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                  <th className="py-2.5 px-3" style={{ width: '90px' }}>Tanggal</th>
+                  <th className="py-2.5 px-3" style={{ width: '130px' }}>No. Billing</th>
+                  <th className="py-2.5 px-3" style={{ minWidth: '130px' }}>Nama Pasien</th>
+                  <th className="py-2.5 px-3" style={{ minWidth: '160px' }}>Item Obat / Farmasi</th>
+                  <th className="py-2.5 px-3 text-right" style={{ width: '60px' }}>Qty</th>
+                  <th className="py-2.5 px-3 text-right" style={{ width: '110px' }}>Harga Pokok (FIFO)</th>
+                  <th className="py-2.5 px-3 text-right" style={{ width: '120px' }}>Total HPP</th>
+                  <th className="py-2.5 px-3 text-center" style={{ width: '120px' }}>Status Pembayaran</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 bg-white text-[11px]">
+              <tbody className="divide-y divide-slate-100 bg-white text-xs">
                 {billingOutflows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-12 text-slate-400">
-                      Belum ada pengeluaran dari billing
+                    <td colSpan={8} className="text-center py-12 text-slate-400 font-sans">
+                      Belum ada pengeluaran obat dari billing kasir.
                     </td>
                   </tr>
                 ) : (
                   billingOutflows.map(o => (
-                    <tr key={o.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-2.5 text-[11px] whitespace-nowrap">{fmtDate(o.date)}</td>
-                      <td className="py-2 px-2.5 font-mono text-[11px] text-primary-700 font-bold whitespace-nowrap">{o.referenceNumber}</td>
-                      <td className="py-2 px-2.5 text-[11px] font-medium text-slate-800">{o.patientName}</td>
-                      <td className="py-2 px-2.5 text-[11px] text-slate-700">{o.itemName}</td>
-                      <td className="py-2 px-2.5 text-right font-sans text-[11px] font-bold text-slate-800 whitespace-nowrap">{fmtNum(o.quantity)}</td>
-                      <td className="py-2 px-2.5 text-right font-sans text-[11px] font-medium text-slate-700 whitespace-nowrap">{fmtIDR(o.unitCost)}</td>
-                      <td className="py-2 px-2.5 text-right font-sans text-[11px] font-extrabold text-slate-800 whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
-                      <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                    <tr key={o.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">{fmtDate(o.date)}</td>
+                      <td className="py-2.5 px-3 font-mono text-[11px] text-primary-700 font-bold whitespace-nowrap">{o.referenceNumber}</td>
+                      <td className="py-2.5 px-3 font-medium text-slate-800">{o.patientName}</td>
+                      <td className="py-2.5 px-3 text-slate-700 font-medium">{o.itemName}</td>
+                      <td className="py-2.5 px-3 text-right font-sans font-bold text-slate-800 whitespace-nowrap">{fmtNum(o.quantity)}</td>
+                      <td className="py-2.5 px-3 text-right font-sans font-medium text-slate-700 whitespace-nowrap">{fmtIDR(o.unitCost)}</td>
+                      <td className="py-2.5 px-3 text-right font-sans font-extrabold text-slate-800 whitespace-nowrap">{fmtIDR(o.totalValue)}</td>
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         {o.isPaid ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
                             ✓ LUNAS
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-red-100 text-red-800 border border-red-300 shadow-sm">
-                            ⚠ BELUM LUNAS
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300 shadow-xs">
+                            ⏳ BELUM LUNAS
                           </span>
                         )}
                       </td>
@@ -1078,9 +1250,9 @@ export default function StockOutflowPage() {
               </tbody>
               {billingOutflows.length > 0 && (
                 <tfoot>
-                  <tr className="bg-slate-50 text-[11px] font-semibold">
-                    <td colSpan={6} className="py-2.5 px-2.5 text-right pr-4">TOTAL NILAI HPP</td>
-                    <td className="py-2.5 px-2.5 text-right font-mono text-primary-700 font-bold">
+                  <tr className="bg-slate-50 text-xs font-semibold">
+                    <td colSpan={6} className="py-2.5 px-3 text-right font-bold text-slate-700 pr-4">TOTAL NILAI HPP BILLING</td>
+                    <td className="py-2.5 px-3 text-right font-mono text-primary-700 font-bold">
                       {fmtIDR(billingOutflows.reduce((sum, o) => sum + o.totalValue, 0))}
                     </td>
                     <td></td>
@@ -1252,68 +1424,158 @@ export default function StockOutflowPage() {
         title={`Detail Pengeluaran — ${selected?.outflowNumber}`}
         size="lg"
       >
-        {selected && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-              <div>
-                <span className="text-slate-500">Tanggal:</span>
-                <strong className="ml-2">{fmtDate(selected.outflowDate)}</strong>
+        {selected && (() => {
+          const isMed = selected.outflowType === 'PATIENT_MEDICINE' || (selected.description || '').toLowerCase().includes('obat pasien')
+          const billingRecord = (billings || []).find(b => b.id === (selected.billingId || selected.billing_id) || (selected.prescriptionNo && (b.billingNumber === selected.prescriptionNo || b.billing_number === selected.prescriptionNo)))
+          const isPaid = billingRecord ? (billingRecord.status === 'PAID') : (selected.status === 'POSTED')
+
+          const totalSelling = selectedItems.reduce((sum, it) => sum + Number(it.subtotalSale || it.subtotal_sale || (Number(it.quantity) * Number(it.sellingPrice || it.selling_price || 0))), 0) || Number(selected.totalSelling || 0)
+          const totalHpp = Number(selected.totalValue || selectedItems.reduce((s, it) => s + Number(it.totalCost || it.total_cost || 0), 0) || 0)
+          const grossProfit = totalSelling - totalHpp
+
+          return (
+            <div className="space-y-4">
+              {isMed && (
+                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold">
+                      <UserCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-extrabold text-emerald-950 font-sans">
+                        {selected.patientName || (selected.description?.match(/Pasien:\s*([^(]+)/)?.[1]?.trim()) || 'Pasien Umum'}
+                      </p>
+                      <p className="text-xs text-emerald-700 font-mono">
+                        No. Billing / Resep: <strong>{selected.prescriptionNo || (selected.description?.match(/No\. Billing:\s*([^)]+)/)?.[1]?.trim()) || '—'}</strong>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isPaid ? (
+                      <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-600 text-white shadow-xs">
+                        ✓ LUNAS DI KASIR
+                      </span>
+                    ) : (
+                      <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-500 text-white shadow-xs">
+                        ⏳ BELUM LUNAS DI KASIR
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-slate-500 block">No. Pengeluaran:</span>
+                  <strong className="font-mono text-primary-700 font-bold">{selected.outflowNumber}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Tanggal:</span>
+                  <strong className="text-slate-800">{fmtDate(selected.outflowDate || selected.createdAt)}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Tipe Pengeluaran:</span>
+                  <span className="font-semibold text-slate-800">
+                    {OUTFLOW_TYPES.find(t => t.value === selected.outflowType)?.label || selected.outflowType}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Dokter Pemeriksa:</span>
+                  <strong className="text-slate-800">{selected.doctorName || '-'}</strong>
+                </div>
+                <div className="col-span-2 md:col-span-4 pt-1 border-t border-slate-200">
+                  <span className="text-slate-500">Keterangan:</span>
+                  <p className="text-slate-700 mt-0.5">{selected.description}</p>
+                </div>
               </div>
-              <div>
-                <span className="text-slate-500">Tipe:</span>
-                <span className="ml-2">
-                  {OUTFLOW_TYPES.find(t => t.value === selected.outflowType)?.label || selected.outflowType}
-                </span>
-              </div>
-              <div className="col-span-2">
-                <span className="text-slate-500">Deskripsi:</span>
-                <p className="ml-2 mt-1 text-slate-700">{selected.description}</p>
-              </div>
-              <div>
-                <span className="text-slate-500">Total Nilai:</span>
-                <span className="ml-2 font-bold font-mono">{fmtIDR(selected.totalValue)}</span>
-              </div>
-              <div>
-                <span className="text-slate-500">Status:</span>
-                <StatusBadge status={selected.status} />
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-left border-collapse table-auto text-xs">
+                  <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 uppercase">
+                    <tr>
+                      <th className="py-2 px-3">Item Obat & BHP</th>
+                      <th className="py-2 px-3 text-center" style={{ width: '80px' }}>Qty</th>
+                      {isMed && <th className="py-2 px-3 text-right" style={{ width: '110px' }}>Harga Jual</th>}
+                      {isMed && <th className="py-2 px-3 text-right" style={{ width: '120px' }}>Subtotal Jual</th>}
+                      <th className="py-2 px-3 text-right" style={{ width: '100px' }}>HPP Unit</th>
+                      <th className="py-2 px-3 text-right" style={{ width: '110px' }}>Total HPP</th>
+                      {isMed && <th className="py-2 px-3 text-right" style={{ width: '100px' }}>Margin</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {selectedItems.map(item => {
+                      const itemSell = Number(item.sellingPrice || item.selling_price || 0)
+                      const itemQty = Number(item.quantity || 1)
+                      const itemTotalSell = Number(item.subtotalSale || item.subtotal_sale || (itemQty * itemSell))
+                      const itemCost = Number(item.unitCost || item.unit_cost || 0)
+                      const itemTotalCost = Number(item.totalCost || item.total_cost || (itemQty * itemCost))
+                      const itemMargin = itemTotalSell - itemTotalCost
+
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50">
+                          <td className="py-2 px-3 font-medium text-slate-800">
+                            {item.itemName || item.item_name}
+                          </td>
+                          <td className="py-2 px-3 text-center font-bold text-slate-800 whitespace-nowrap">
+                            {fmtNum(itemQty)} {item.unit || 'Unit'}
+                          </td>
+                          {isMed && (
+                            <td className="py-2 px-3 text-right font-medium text-slate-700 whitespace-nowrap">
+                              {fmtIDR(itemSell)}
+                            </td>
+                          )}
+                          {isMed && (
+                            <td className="py-2 px-3 text-right font-extrabold text-emerald-700 whitespace-nowrap">
+                              {fmtIDR(itemTotalSell)}
+                            </td>
+                          )}
+                          <td className="py-2 px-3 text-right font-medium text-slate-600 whitespace-nowrap">
+                            {fmtIDR(itemCost)}
+                          </td>
+                          <td className="py-2 px-3 text-right font-bold text-slate-800 whitespace-nowrap">
+                            {fmtIDR(itemTotalCost)}
+                          </td>
+                          {isMed && (
+                            <td className="py-2 px-3 text-right font-bold text-blue-700 whitespace-nowrap">
+                              {fmtIDR(itemMargin)}
+                            </td>
+                          )}
+                        </tr>
+                      )
+                    })}
+                    {selectedItems.length === 0 && (
+                      <tr>
+                        <td colSpan={isMed ? 7 : 4} className="text-center py-6 text-slate-400">
+                          Tidak ada rincian item individual di database.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
+                    <tr>
+                      <td colSpan={2} className="py-2 px-3 text-right text-slate-700">TOTAL:</td>
+                      {isMed && (
+                        <>
+                          <td className="py-2 px-3 text-right font-mono text-emerald-800" colSpan={2}>
+                            {fmtIDR(totalSelling)}
+                          </td>
+                        </>
+                      )}
+                      <td className="py-2 px-3 text-right font-mono text-slate-800" colSpan={isMed ? 2 : 2}>
+                        {fmtIDR(totalHpp)}
+                      </td>
+                      {isMed && (
+                        <td className="py-2 px-3 text-right font-mono text-blue-700">
+                          {fmtIDR(grossProfit)}
+                        </td>
+                      )}
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             </div>
-
-            <table className="table-base border border-slate-200 rounded-xl overflow-hidden">
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th className="text-right">Qty</th>
-                  <th className="text-right">Harga Pokok</th>
-                  <th className="text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedItems.map(item => (
-                  <tr key={item.id}>
-                    <td className="text-sm font-medium text-slate-800">{item.itemName}</td>
-                    <td className="text-right font-sans font-bold text-slate-800 text-sm">{fmtNum(item.quantity)}</td>
-                    <td className="text-right font-sans font-medium text-slate-700 text-sm">{fmtIDR(item.unitCost)}</td>
-                    <td className="text-right font-sans font-extrabold text-slate-900 text-sm">{fmtIDR(item.totalCost)}</td>
-                  </tr>
-                ))}
-                {selectedItems.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="text-center py-6 text-slate-400">
-                      Tidak ada item untuk pengeluaran ini
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-50 font-semibold">
-                  <td colSpan={3} className="text-right font-sans font-bold text-slate-700 pr-4">Total</td>
-                  <td className="text-right font-sans font-extrabold text-primary-700 text-base">{fmtIDR(selected.totalValue)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
+          )
+        })()}
       </Modal>
 
       {/* ═══ Patient Medicine Outflow Modal ═══════════════════════ */}

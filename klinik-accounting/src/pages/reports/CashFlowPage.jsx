@@ -5,13 +5,7 @@ import { useAuth } from '../../store/useAuth'
 import { fmtIDR, fmtDate, monthStart, monthEnd } from '../../utils/format'
 import { exportCashFlowPDF } from '../../utils/exportPDF'
 import { exportCashFlowExcel } from '../../utils/exportExcel'
-
-// Simplified indirect method cash flow
-const OPERATING_CASH_CODES = [
-  '1-11-001', '1-11-002', '1-11-003', '1-11-004', '1-11-005', // Cash accounts
-]
-const INVESTING_CODES = ['1-21-001', '1-21-002', '1-21-003', '1-21-004', '1-21-005', '1-21-006', '1-21-007']
-const FINANCING_CODES = ['2-21-001', '2-21-002', '3-11-001', '3-11-002', '3-13-001']
+import { getEffectiveCashFlowMappings } from '../../utils/accountMapping'
 
 export default function CashFlowPage() {
   const { coa, journalEntries, journalItems, branches, activeBranchId, openingBalances } = useStore()
@@ -20,6 +14,33 @@ export default function CashFlowPage() {
   const [dateFrom, setDateFrom] = useState(`${currentYear}-01-01`)
   const [dateTo, setDateTo] = useState(`${currentYear}-12-31`)
   const [branchFilter, setBranchFilter] = useState('ALL')
+
+  // Dynamic cash flow mappings from database settings
+  const effectiveCashFlow = useMemo(() => getEffectiveCashFlowMappings(appSettings), [appSettings])
+
+  // Kas & Setara Kas (1-11-xxx atau grup Kas)
+  const operatingCashCodes = useMemo(() => {
+    const fromCOA = coa
+      .filter(a => a.accountType === 'ASSET' && (a.accountCode.startsWith('1-11') || (a.accountSubgroup || '').toLowerCase().includes('kas')))
+      .map(a => a.accountCode)
+    return fromCOA.length > 0 ? fromCOA : ['1-11-001', '1-11-002', '1-11-003', '1-11-004', '1-11-005']
+  }, [coa])
+
+  // Akun Aktivitas Investasi dari mapping aktif
+  const investingCodes = useMemo(() => {
+    const list = Object.values(effectiveCashFlow)
+      .filter(m => m.section === 'INVESTASI')
+      .map(m => m.accountCode)
+    return list.length > 0 ? [...new Set(list)] : ['1-21-001', '1-21-002', '1-21-003', '1-21-004', '1-21-005', '1-21-006', '1-21-007']
+  }, [effectiveCashFlow])
+
+  // Akun Aktivitas Pendanaan dari mapping aktif
+  const financingCodes = useMemo(() => {
+    const list = Object.values(effectiveCashFlow)
+      .filter(m => m.section === 'PENDANAAN')
+      .map(m => m.accountCode)
+    return list.length > 0 ? [...new Set(list)] : ['2-21-001', '2-21-002', '3-11-001', '3-11-002', '3-13-001']
+  }, [effectiveCashFlow])
 
   const postedItems = useMemo(() => {
     const ids = new Set(
@@ -70,13 +91,13 @@ export default function CashFlowPage() {
     .reduce((s, i) => s + parseFloat(i.credit || 0) - parseFloat(i.debit || 0), 0)
 
   const operatingCF = netProfit + totalDepreciation - receivableChange - inventoryChange + payableChange + taxPayableChange
-  const investingCF = -getNetFlow(INVESTING_CODES)
-  const financingCF = getNetFlow(FINANCING_CODES)
+  const investingCF = -getNetFlow(investingCodes)
+  const financingCF = getNetFlow(financingCodes)
   const netCashFlow = operatingCF + investingCF + financingCF
 
   // Get opening cash balance (sum of all cash accounts' opening balances + prior cash movements)
   const fiscalYear = new Date(dateFrom).getFullYear()
-  const rawOpeningCash = OPERATING_CASH_CODES.reduce((sum, code) => {
+  const rawOpeningCash = operatingCashCodes.reduce((sum, code) => {
     const ob = openingBalances.find(
       o => o.accountCode === code &&
         o.fiscalYear === fiscalYear &&
@@ -92,9 +113,9 @@ export default function CashFlowPage() {
         .map(j => j.id)
     )
     return journalItems
-      .filter(i => priorIds.has(i.journalEntryId) && OPERATING_CASH_CODES.includes(i.accountCode))
+      .filter(i => priorIds.has(i.journalEntryId) && operatingCashCodes.includes(i.accountCode))
       .reduce((s, i) => s + (parseFloat(i.debit || 0) - parseFloat(i.credit || 0)), 0)
-  }, [journalEntries, journalItems, dateFrom, fiscalYear, branchFilter])
+  }, [journalEntries, journalItems, dateFrom, fiscalYear, branchFilter, operatingCashCodes])
 
   const openingCashBalance = rawOpeningCash + priorCashMovements
   const endingCashBalance = openingCashBalance + netCashFlow

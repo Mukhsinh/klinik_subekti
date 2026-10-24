@@ -424,14 +424,25 @@ export default function BillingPage() {
       const eNum = generateEntryNumber('BILLING')
       const journalItems = []
 
+      const cashAcc = getAccountCode('billing_cash', appSettings, '1-11-002')
+      const transferAcc = getAccountCode('billing_transfer', appSettings, '1-11-005')
+      const qrisAcc = getAccountCode('billing_qris', appSettings, '1-11-004')
+      const bpjsAcc = getAccountCode('billing_piutang_bpjs', appSettings, '1-12-001')
+      const insAcc = getAccountCode('billing_piutang_asuransi', appSettings, '1-12-002')
+      const ppnAcc = getAccountCode('billing_ppn_output', appSettings, '2-14-001')
+      const pph21Acc = getAccountCode('billing_pph21_payable', appSettings, '2-13-001')
+      const docFeePayableAcc = getAccountCode('billing_doctor_fee_payable', appSettings, '2-12-003')
+
+      const paymentAssetAcc = payMethod === 'TRANSFER' ? transferAcc : payMethod === 'QRIS' ? qrisAcc : cashAcc
+
       if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Kas Tunai — ${billingNumber}`, debit: grandTotal, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: paymentAssetAcc, description: `Kas/Bank Penerimaan Kasir — ${billingNumber}`, debit: grandTotal, credit: 0 })
       } else if (payMethod === 'BPJS') {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Bayar Pasien BPJS — ${billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-12-001', description: `Piutang BPJS — ${billingNumber}`, debit: insurancePortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: cashAcc, description: `Bayar Pasien BPJS — ${billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: bpjsAcc, description: `Piutang BPJS — ${billingNumber}`, debit: insurancePortion, credit: 0 })
       } else {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-11-002', description: `Bayar Pasien Asuransi — ${billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '1-12-002', description: `Piutang Asuransi — ${billingNumber}`, debit: insurancePortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: cashAcc, description: `Bayar Pasien Asuransi — ${billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: insAcc, description: `Piutang Asuransi — ${billingNumber}`, debit: insurancePortion, credit: 0 })
       }
 
       // Group revenue by account code from service tariff
@@ -482,7 +493,7 @@ export default function BillingPage() {
         }
       })
 
-      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-14-001', description: `Utang PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
+      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: ppnAcc, description: `Utang PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
       if (discountAmt > 0) {
         // Discount reduces the first revenue account
         const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
@@ -491,8 +502,8 @@ export default function BillingPage() {
       if (grossDoctorFee > 0 && selectedDoctor) {
         const docFeeAcc = getAccountCode('billing_doctor_fee', appSettings, '6-12-001')
         journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: docFeeAcc, description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-13-001', description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: '2-12-003', description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: pph21Acc, description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: docFeePayableAcc, description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
       }
 
       // Append consolidated HPP / COGS journal entries
@@ -758,14 +769,26 @@ export default function BillingPage() {
 
       const eNum = generateEntryNumber('BILLING')
       const journalItems = []
+
+      const cashAcc = getAccountCode('billing_cash', appSettings, '1-11-002')
+      const transferAcc = getAccountCode('billing_transfer', appSettings, '1-11-005')
+      const qrisAcc = getAccountCode('billing_qris', appSettings, '1-11-004')
+      const bpjsAcc = getAccountCode('billing_piutang_bpjs', appSettings, '1-12-001')
+      const insAcc = getAccountCode('billing_piutang_asuransi', appSettings, '1-12-002')
+      const ppnAcc = getAccountCode('billing_ppn_output', appSettings, '2-14-001')
+      const pph21Acc = getAccountCode('billing_pph21_payable', appSettings, '2-13-001')
+      const docFeePayableAcc = getAccountCode('billing_doctor_fee_payable', appSettings, '2-12-003')
+
+      const paymentAssetAcc = payMethod === 'TRANSFER' ? transferAcc : payMethod === 'QRIS' ? qrisAcc : cashAcc
+
       if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Kas Tunai — ${editingBilling.billingNumber}`, debit: grandTotal, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: paymentAssetAcc, description: `Kas/Bank Penerimaan Kasir — ${editingBilling.billingNumber}`, debit: grandTotal, credit: 0 })
       } else if (payMethod === 'BPJS') {
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Bayar Pasien BPJS — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-12-001', description: `Piutang BPJS — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: cashAcc, description: `Bayar Pasien BPJS — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: bpjsAcc, description: `Piutang BPJS — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
       } else {
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-11-002', description: `Bayar Pasien Asuransi — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '1-12-002', description: `Piutang Asuransi — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: cashAcc, description: `Bayar Pasien Asuransi — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: insAcc, description: `Piutang Asuransi — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
       }
 
       const revenueByAccount = {}
@@ -812,7 +835,7 @@ export default function BillingPage() {
         }
       })
 
-      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '2-14-001', description: `Utang PPN 11% — ${editingBilling.billingNumber}`, debit: 0, credit: ppnAmount })
+      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: ppnAcc, description: `Utang PPN 11% — ${editingBilling.billingNumber}`, debit: 0, credit: ppnAmount })
       if (discountAmt > 0) {
         const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
         journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: firstRevAccount, description: `Diskon Billing — ${editingBilling.billingNumber}`, debit: discountAmt, credit: 0 })
@@ -820,8 +843,8 @@ export default function BillingPage() {
       if (grossDoctorFee > 0 && selectedDoctor) {
         const docFeeAcc = getAccountCode('billing_doctor_fee', appSettings, '6-12-001')
         journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: docFeeAcc, description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '2-13-001', description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: '2-12-003', description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: pph21Acc, description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount })
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: docFeePayableAcc, description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor })
       }
 
       Object.entries(hppDebits).forEach(([coaCode, val]) => {

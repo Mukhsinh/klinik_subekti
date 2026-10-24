@@ -88,6 +88,78 @@ export const DEFAULT_ACCOUNT_MAPPINGS = {
     description: 'Akun beban operasional pembagian fee jasa dokter spesialis',
     targetType: 'EXPENSE'
   },
+  billing_cash: {
+    key: 'billing_cash',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Kas Masuk Kasir (Tunai)',
+    defaultCode: '1-11-002',
+    description: 'Penerimaan pembayaran kasir pasien secara tunai fisik',
+    targetType: 'ASSET'
+  },
+  billing_transfer: {
+    key: 'billing_transfer',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Penerimaan Kasir via Transfer Bank',
+    defaultCode: '1-11-005',
+    description: 'Penerimaan kasir pasien melalui transfer rekening bank (BCA/Mandiri/BRI)',
+    targetType: 'ASSET'
+  },
+  billing_qris: {
+    key: 'billing_qris',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Penerimaan Kasir via QRIS Digital',
+    defaultCode: '1-11-004',
+    description: 'Penerimaan kasir pasien melalui pembayaran nontunai QRIS',
+    targetType: 'ASSET'
+  },
+  billing_piutang_bpjs: {
+    key: 'billing_piutang_bpjs',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Piutang Klaim Jaminan BPJS',
+    defaultCode: '1-12-001',
+    description: 'Porsi tagihan klaim BPJS Kesehatan yang belum cair',
+    targetType: 'ASSET'
+  },
+  billing_piutang_asuransi: {
+    key: 'billing_piutang_asuransi',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Piutang Klaim Asuransi Swasta',
+    defaultCode: '1-12-002',
+    description: 'Porsi tagihan klaim asuransi rekanan perusahaan yang belum dibayar',
+    targetType: 'ASSET'
+  },
+  billing_ppn_output: {
+    key: 'billing_ppn_output',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Utang PPN Keluaran Kasir (11%)',
+    defaultCode: '2-14-001',
+    description: 'Pajak PPN 11% yang dipungut dari penjualan obat pasien',
+    targetType: 'LIABILITY'
+  },
+  billing_pph21_payable: {
+    key: 'billing_pph21_payable',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Utang PPh 21 Dokter',
+    defaultCode: '2-13-001',
+    description: 'Potongan PPh 21 atas jasa dokter yang wajib disetorkan ke kas negara',
+    targetType: 'LIABILITY'
+  },
+  billing_doctor_fee_payable: {
+    key: 'billing_doctor_fee_payable',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Utang Jasa Medis Dokter (Bersih)',
+    defaultCode: '2-12-003',
+    description: 'Kewajiban klinik membayarkan hak jasa medis bersih kepada dokter pemeriksa',
+    targetType: 'LIABILITY'
+  },
 
   // ── 2. MODUL HPP & PERSEDIAAN OBAT ──
   cogs_ethical: {
@@ -1331,7 +1403,7 @@ export function auditTransactionSync({
       const net = acc.naturalBalance === 'CREDIT' ? (c - d) : (d - c)
       journalDoctorFee += net
     }
-    // Kerugian Persediaan / Stock Outflow
+    // Beban Persediaan / Stock Outflow
     else if (acc.accountCode.startsWith('6-18-')) {
       const net = acc.naturalBalance === 'CREDIT' ? (c - d) : (d - c)
       journalOutflowExpense += net

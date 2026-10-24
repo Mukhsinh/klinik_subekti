@@ -828,6 +828,9 @@ export async function insertStockOutflowItems(items) {
     r.quantity = parseInt(r.quantity || 0)
     r.unit_cost = Number(r.unit_cost || 0)
     r.total_cost = Number(r.total_cost || 0)
+    r.selling_price = Number(r.selling_price || 0)
+    r.subtotal_sale = Number(r.subtotal_sale || (r.quantity * (r.selling_price || 0)))
+    if (!r.unit) r.unit = 'Unit'
     return r
   })
   const { data, error } = await supabase

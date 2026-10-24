@@ -3,7 +3,9 @@ import {
   Plus, Pencil, PowerOff, Download, Upload, RefreshCw, Trash2,
   Settings, CheckCircle2, AlertTriangle, Layers, RotateCcw, Save, Search,
   BookOpen, TrendingUp, Scale, ArrowRightLeft, ShieldCheck, HelpCircle,
-  Check, X
+  Check, X, Stethoscope, Pill, PackageCheck, UserCheck, Zap, Building2,
+  Wallet, ArrowDownLeft, ArrowUpRight, FileSpreadsheet, ExternalLink,
+  ChevronRight, ArrowRight, Filter, Info, Sparkles
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { useAuth } from '../../store/useAuth'
@@ -259,17 +261,130 @@ export default function COAPage() {
       }),
     [coa, search, typeFilter])
 
-  // Filtered Rugi Laba mapping items
-  const filteredRugiLaba = useMemo(() => {
-    return Object.values(effectiveMappings).filter(m => {
-      const matchMod = mappingFilter === 'ALL' || m.module === mappingFilter
+  // ── WORKFLOW CATEGORIZER UNTUK TAB 3 (MAPPING RUGI LABA & KASIR) ──
+  const getWorkflowCategory = (item) => {
+    const k = item.key || ''
+    if (
+      k.startsWith('billing_consultation') ||
+      k.startsWith('billing_action') ||
+      k.startsWith('billing_lab') ||
+      k.startsWith('rev_consultation') ||
+      k.startsWith('rev_action') ||
+      k.startsWith('rev_lab')
+    ) {
+      return 'MEDIS'
+    }
+    if (
+      k.startsWith('billing_pharmacy') ||
+      k.startsWith('billing_cash') ||
+      k.startsWith('billing_transfer') ||
+      k.startsWith('billing_qris') ||
+      k.startsWith('billing_piutang') ||
+      k.startsWith('billing_ppn') ||
+      k.startsWith('rev_pharmacy') ||
+      k.startsWith('rev_obat')
+    ) {
+      return 'FARMASI'
+    }
+    if (k.startsWith('cogs_') || k.startsWith('inv_') || item.module === 'HPP') {
+      return 'HPP'
+    }
+    if (
+      k.startsWith('billing_doctor_fee') ||
+      k.startsWith('billing_pph21') ||
+      k.startsWith('exp_honor') ||
+      k.startsWith('exp_gaji') ||
+      k === 'expense_doctor_salary' ||
+      k === 'expense_nurse_salary' ||
+      k === 'expense_admin_salary' ||
+      k === 'expense_allowance' ||
+      k === 'expense_overtime'
+    ) {
+      return 'DOKTER'
+    }
+    return 'OPERASIONAL'
+  }
+
+  const RUGI_LABA_SECTIONS = [
+    {
+      id: 'MEDIS',
+      title: 'Pendapatan Layanan Medis & Tindakan Klinik',
+      icon: Stethoscope,
+      accentColor: 'emerald',
+      bgColor: 'bg-emerald-50/70 border-emerald-200',
+      tagColor: 'bg-emerald-600 text-white',
+      badgeClass: 'bg-emerald-100 text-emerald-800',
+      description: 'Pemetaan pendapatan jasa pemeriksaan dokter umum, spesialis, tindakan medis & keperawatan, dan laboratorium medis.'
+    },
+    {
+      id: 'FARMASI',
+      title: 'Penjualan Farmasi Kasir & Metode Pembayaran Kas/Bank',
+      icon: Pill,
+      accentColor: 'blue',
+      bgColor: 'bg-blue-50/70 border-blue-200',
+      tagColor: 'bg-blue-600 text-white',
+      badgeClass: 'bg-blue-100 text-blue-800',
+      description: 'Pemetaan penjualan obat paten, obat OTC, BHP, rekening kas/bank penerimaan kasir (Tunai, Bank, QRIS), piutang BPJS/Asuransi, dan PPN.'
+    },
+    {
+      id: 'HPP',
+      title: 'Harga Pokok Penjualan (HPP FIFO) & Persediaan Farmasi',
+      icon: PackageCheck,
+      accentColor: 'amber',
+      bgColor: 'bg-amber-50/70 border-amber-200',
+      tagColor: 'bg-amber-600 text-white',
+      badgeClass: 'bg-amber-100 text-amber-800',
+      description: 'Pemetaan akun Beban Pokok Penjualan (HPP FIFO) dan pengurangan nilai buku aset persediaan obat di neraca saat transaksi diselesaikan.'
+    },
+    {
+      id: 'DOKTER',
+      title: 'Jasa Medis Dokter & Beban SDM Paramedis',
+      icon: UserCheck,
+      accentColor: 'indigo',
+      bgColor: 'bg-indigo-50/70 border-indigo-200',
+      tagColor: 'bg-indigo-600 text-white',
+      badgeClass: 'bg-indigo-100 text-indigo-800',
+      description: 'Pemetaan beban bagi hasil dokter umum & spesialis, pemotongan utang pajak PPh 21, utang fee bersih dokter, dan gaji paramedis.'
+    },
+    {
+      id: 'OPERASIONAL',
+      title: 'Beban Operasional Fasilitas Klinik & Pengeluaran Stok',
+      icon: Zap,
+      accentColor: 'purple',
+      bgColor: 'bg-purple-50/70 border-purple-200',
+      tagColor: 'bg-purple-600 text-white',
+      badgeClass: 'bg-purple-100 text-purple-800',
+      description: 'Pemetaan biaya operasional fasilitas (listrik PLN, air PDAM, internet, sewa gedung, ATK, pemeliharaan alat medis) dan pengeluaran obat stok.'
+    }
+  ]
+
+  // Filtered & Grouped Rugi Laba mapping items
+  const groupedRugiLaba = useMemo(() => {
+    const groups = {}
+    RUGI_LABA_SECTIONS.forEach(sec => {
+      groups[sec.id] = []
+    })
+
+    Object.values(effectiveMappings).forEach(m => {
+      const cat = getWorkflowCategory(m)
+      const matchCat = mappingFilter === 'ALL' || mappingFilter === cat || mappingFilter === m.module
       const matchQ = !mappingSearch ||
         m.label.toLowerCase().includes(mappingSearch.toLowerCase()) ||
         m.accountCode.toLowerCase().includes(mappingSearch.toLowerCase()) ||
-        (m.description || '').toLowerCase().includes(mappingSearch.toLowerCase())
-      return matchMod && matchQ
+        (m.description || '').toLowerCase().includes(mappingSearch.toLowerCase()) ||
+        (m.key || '').toLowerCase().includes(mappingSearch.toLowerCase())
+
+      if (matchCat && matchQ) {
+        if (!groups[cat]) groups[cat] = []
+        groups[cat].push(m)
+      }
     })
+    return groups
   }, [effectiveMappings, mappingFilter, mappingSearch])
+
+  const totalFilteredRugiLaba = useMemo(() => {
+    return Object.values(groupedRugiLaba).reduce((sum, arr) => sum + arr.length, 0)
+  }, [groupedRugiLaba])
 
   // Filtered Jurnal Otomatis templates
   const filteredAutoJournals = useMemo(() => {
@@ -285,29 +400,139 @@ export default function COAPage() {
     })
   }, [effectiveAutoJournals, ajFilter, ajSearch])
 
-  // Filtered Mapping Neraca items
-  const filteredNeraca = useMemo(() => {
-    return Object.values(effectiveBalanceSheet).filter(bs => {
-      const matchGrp = bsFilter === 'ALL' || bs.group === bsFilter
+  // Neraca Sections & Grouped Data
+  const NERACA_SECTIONS = [
+    {
+      id: 'ASET LANCAR',
+      title: '1. Aset Lancar (Current Assets)',
+      icon: Wallet,
+      accentColor: 'emerald',
+      bgColor: 'bg-emerald-50/70 border-emerald-200',
+      badgeClass: 'bg-emerald-100 text-emerald-800',
+      description: 'Kas tunai kasir, saldo rekening bank operasional, piutang klaim BPJS & asuransi, serta persediaan obat dan BHP apotek.'
+    },
+    {
+      id: 'ASET TIDAK LANCAR',
+      title: '2. Aset Tidak Lancar / Tetap & Akumulasi Depresiasi',
+      icon: Building2,
+      accentColor: 'blue',
+      bgColor: 'bg-blue-50/70 border-blue-200',
+      badgeClass: 'bg-blue-100 text-blue-800',
+      description: 'Peralatan & instrumen medis klinik, kendaraan operasional, bangunan tempat praktik, serta akumulasi penyusutan aset tetap.'
+    },
+    {
+      id: 'LIABILITAS',
+      title: '3. Liabilitas Jangka Pendek & Kewajiban Pajak',
+      icon: Scale,
+      accentColor: 'amber',
+      bgColor: 'bg-amber-50/70 border-amber-200',
+      badgeClass: 'bg-amber-100 text-amber-800',
+      description: 'Utang usaha tempo distributor obat (PBF), utang jasa medis dokter, utang pemotongan PPh 21, dan utang PPN kasir.'
+    },
+    {
+      id: 'EKUITAS',
+      title: '4. Ekuitas Modal Pemilik & Saldo Laba',
+      icon: Layers,
+      accentColor: 'purple',
+      bgColor: 'bg-purple-50/70 border-purple-200',
+      badgeClass: 'bg-purple-100 text-purple-800',
+      description: 'Setoran modal pemilik/pendiri klinik, saldo laba ditahan akumulatif, dan laba/rugi bersih periode berjalan.'
+    }
+  ]
+
+  const groupedNeraca = useMemo(() => {
+    const groups = {
+      'ASET LANCAR': [],
+      'ASET TIDAK LANCAR': [],
+      'LIABILITAS': [],
+      'EKUITAS': []
+    }
+
+    Object.values(effectiveBalanceSheet).forEach(bs => {
+      let secId = 'ASET LANCAR'
+      if (bs.group === 'ASET TIDAK LANCAR' || bs.group?.includes('TIDAK LANCAR') || bs.group?.includes('TETAP')) {
+        secId = 'ASET TIDAK LANCAR'
+      } else if (bs.group?.includes('LIABILITAS')) {
+        secId = 'LIABILITAS'
+      } else if (bs.group?.includes('EKUITAS')) {
+        secId = 'EKUITAS'
+      }
+
+      const matchGrp = bsFilter === 'ALL' || bsFilter === secId || bs.group === bsFilter
       const matchQ = !bsSearch ||
         bs.label.toLowerCase().includes(bsSearch.toLowerCase()) ||
         bs.accountCode.toLowerCase().includes(bsSearch.toLowerCase()) ||
         (bs.description || '').toLowerCase().includes(bsSearch.toLowerCase())
-      return matchGrp && matchQ
+
+      if (matchGrp && matchQ) {
+        if (!groups[secId]) groups[secId] = []
+        groups[secId].push(bs)
+      }
     })
+    return groups
   }, [effectiveBalanceSheet, bsFilter, bsSearch])
 
-  // Filtered Mapping Arus Kas items
-  const filteredArusKas = useMemo(() => {
-    return Object.values(effectiveCashFlow).filter(cf => {
-      const matchSec = cfFilter === 'ALL' || cf.section === cfFilter
+  const totalFilteredNeraca = useMemo(() => {
+    return Object.values(groupedNeraca).reduce((sum, arr) => sum + arr.length, 0)
+  }, [groupedNeraca])
+
+  // Cash Flow Sections & Grouped Data
+  const CASH_FLOW_SECTIONS = [
+    {
+      id: 'OPERASI',
+      title: '1. Aktivitas Operasi (Operating Cash Flow)',
+      icon: ArrowRightLeft,
+      accentColor: 'emerald',
+      bgColor: 'bg-emerald-50/70 border-emerald-200',
+      badgeClass: 'bg-emerald-100 text-emerald-800',
+      description: 'Aliran kas dari transaksi kasir pasien, klaim BPJS/Asuransi, pembayaran obat ke PBF, jasa dokter, dan operasional fasilitas.'
+    },
+    {
+      id: 'INVESTASI',
+      title: '2. Aktivitas Investasi (Investing Cash Flow)',
+      icon: Building2,
+      accentColor: 'blue',
+      bgColor: 'bg-blue-50/70 border-blue-200',
+      badgeClass: 'bg-blue-100 text-blue-800',
+      description: 'Aliran kas untuk pembelian perlengkapan & instrumen medis baru, renovasi fasilitas, dan penjualan aset lama.'
+    },
+    {
+      id: 'PENDANAAN',
+      title: '3. Aktivitas Pendanaan (Financing Cash Flow)',
+      icon: Wallet,
+      accentColor: 'purple',
+      bgColor: 'bg-purple-50/70 border-purple-200',
+      badgeClass: 'bg-purple-100 text-purple-800',
+      description: 'Aliran kas dari setoran tambahan modal pemilik, pencairan kredit bank, penarikan prive pribadi, dan cicilan bank.'
+    }
+  ]
+
+  const groupedArusKas = useMemo(() => {
+    const groups = {
+      'OPERASI': [],
+      'INVESTASI': [],
+      'PENDANAAN': []
+    }
+
+    Object.values(effectiveCashFlow).forEach(cf => {
+      const secId = cf.section || 'OPERASI'
+      const matchSec = cfFilter === 'ALL' || cfFilter === secId
       const matchQ = !cfSearch ||
         cf.label.toLowerCase().includes(cfSearch.toLowerCase()) ||
         cf.accountCode.toLowerCase().includes(cfSearch.toLowerCase()) ||
         (cf.description || '').toLowerCase().includes(cfSearch.toLowerCase())
-      return matchSec && matchQ
+
+      if (matchSec && matchQ) {
+        if (!groups[secId]) groups[secId] = []
+        groups[secId].push(cf)
+      }
     })
+    return groups
   }, [effectiveCashFlow, cfFilter, cfSearch])
+
+  const totalFilteredArusKas = useMemo(() => {
+    return Object.values(groupedArusKas).reduce((sum, arr) => sum + arr.length, 0)
+  }, [groupedArusKas])
 
   // Handlers for Account (COA)
   const handleSaveAccount = (data) => {
@@ -418,6 +643,45 @@ export default function COAPage() {
     XLSX.utils.book_append_sheet(wb, ws, 'COA')
     XLSX.writeFile(wb, 'Kode_COA_Klinik.xlsx')
     toast.success('File Excel berhasil diunduh.')
+  }
+
+  // ── SINKRONISASI MASTER COA DARI FILE UPDATE ──
+  const handleReloadMasterUpdate = async () => {
+    if (!window.confirm('Muat ulang seluruh 184 akun standar dari file master "chart_of_accounts_rows_UPDATE"? Tindakan ini akan menyinkronkan data COA ke database Supabase.')) return
+    setIsSaving(true)
+    try {
+      const res = await fetch('/chart_of_accounts_rows_UPDATE.csv')
+      if (!res.ok) throw new Error('File master tidak ditemukan di /chart_of_accounts_rows_UPDATE.csv')
+      const text = await res.text()
+      const lines = text.split('\n').filter(l => l.trim())
+      const parsed = []
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].split(',')
+        if (parts.length >= 7) {
+          parsed.push({
+            accountCode: parts[0].trim(),
+            accountName: parts[1].trim(),
+            accountType: parts[2].trim().toUpperCase(),
+            accountGroup: parts[3].trim(),
+            accountSubgroup: parts[4].trim() || null,
+            naturalBalance: parts[5].trim().toUpperCase(),
+            isHeader: parts[6].trim().toLowerCase() === 'true',
+            isActive: true,
+            sortOrder: i * 10
+          })
+        }
+      }
+      if (parsed.length > 0) {
+        await batchAddAccounts(parsed)
+        await refreshAll()
+        toast.success(`Berhasil memuat ${parsed.length} akun master dari chart_of_accounts_rows_UPDATE`)
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Gagal memuat file master: ' + err.message)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   // ── HANDLER SIMPAN / UPDATE KE DATABASE SUPABASE ──
@@ -688,19 +952,37 @@ export default function COAPage() {
         <div className="flex flex-wrap items-center gap-2">
           {activeTab === 'accounts' ? (
             <>
-              <button className="btn-royal-blue text-xs flex items-center gap-1.5 py-1.5 px-3" onClick={exportXLSX}><Download className="w-3.5 h-3.5" />Unduh Excel</button>
-              <button className="btn-emerald text-xs flex items-center gap-1.5 py-1.5 px-3" onClick={() => fileInputRef.current?.click()}><Upload className="w-3.5 h-3.5" />Impor Excel</button>
+              <button
+                className="btn-emerald text-xs flex items-center gap-1.5 py-1.5 px-3 shadow-xs"
+                onClick={handleReloadMasterUpdate}
+                title="Muat ulang seluruh 184 akun standar dari master file chart_of_accounts_rows_UPDATE"
+                disabled={isSaving}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Muat Master UPDATE</span>
+              </button>
+              <button className="btn-royal-blue text-xs flex items-center gap-1.5 py-1.5 px-3 shadow-xs" onClick={exportXLSX}>
+                <Download className="w-3.5 h-3.5" />
+                <span>Unduh Excel</span>
+              </button>
+              <button className="btn-secondary text-xs flex items-center gap-1.5 py-1.5 px-3 shadow-xs" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="w-3.5 h-3.5" />
+                <span>Impor File</span>
+              </button>
               <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
-              <button className="btn-danger-red text-xs flex items-center gap-1.5 py-1.5 px-3" onClick={() => { setSelected(null); setModal('add') }}><Plus className="w-3.5 h-3.5" />Tambah Akun</button>
+              <button className="btn-danger-red text-xs flex items-center gap-1.5 py-1.5 px-3 shadow-xs" onClick={() => { setSelected(null); setModal('add') }}>
+                <Plus className="w-3.5 h-3.5" />
+                <span>Tambah Akun</span>
+              </button>
             </>
           ) : (
             <>
-              <button className="btn-secondary text-xs flex items-center gap-1.5 py-1.5 px-3" onClick={handleSyncNow} disabled={isSaving}>
+              <button className="btn-secondary text-xs flex items-center gap-1.5 py-1.5 px-3 shadow-xs" onClick={handleSyncNow} disabled={isSaving}>
                 <RefreshCw className={`w-3.5 h-3.5 ${isSaving ? 'animate-spin text-primary-600' : ''}`} />
                 <span>Sinkronkan Database</span>
               </button>
               {activeTab === 'income_statement' && (
-                <button className="btn-primary text-xs flex items-center gap-1.5 py-1.5 px-3" onClick={handleOpenAddRugiLaba}>
+                <button className="btn-primary text-xs flex items-center gap-1.5 py-1.5 px-3 shadow-xs" onClick={handleOpenAddRugiLaba}>
                   <Plus className="w-3.5 h-3.5" />
                   <span>Tambah Pos Rugi Laba</span>
                 </button>
@@ -1082,51 +1364,86 @@ export default function COAPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════
-          TAB 3: MAPPING RUGI LABA (Sebelumnya: Pengaturan Mapping Rekening Transaksi)
+          TAB 3: MAPPING RUGI LABA & KASIR (Intuitive Workflow Sections)
           ══════════════════════════════════════════════════════════════ */}
       {activeTab === 'income_statement' && (
         <div className="space-y-4 animate-fadeIn">
+          {/* Header & Quick Summary */}
           <div className="card p-4 bg-white border border-slate-200 rounded-xl shadow-xs space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-amber-600" />
-                  Mapping Rugi Laba (Income Statement Mapping)
+                  Mapping Rugi Laba & Kasir (Income Statement & Cashier Accounts)
                 </h2>
                 <p className="text-xs text-slate-500 mt-1 max-w-4xl leading-relaxed">
-                  Atur pemetaan akun COA untuk setiap jenis pos pendapatan usaha, HPP persediaan FIFO, pengeluaran stok internal, dan biaya operasional klinik. Konfigurasi ini tersimpan langsung di database Supabase dan otomatis menjadi acuan Laporan Laba Rugi (/income-statement).
+                  Atur akun COA untuk setiap jenis transaksi layanan medis, penerimaan kasir (Tunai, QRIS, Bank, Klaim BPJS/Asuransi), HPP FIFO, jasa medis dokter, dan beban fasilitas operasional. Perubahan pemetaan otomatis tersimpan ke Supabase dan langsung menjadi acuan seluruh transaksi kasir, inventaris, dan Laporan Laba Rugi (<span className="font-mono text-primary-700">/income-statement</span>).
                 </p>
               </div>
               <button
                 type="button"
                 onClick={handleOpenAddRugiLaba}
-                className="btn-primary text-xs flex items-center gap-1.5 py-1.5 px-3 self-start md:self-auto shrink-0"
+                className="btn-primary text-xs flex items-center gap-1.5 py-1.5 px-3 self-start md:self-auto shrink-0 shadow-xs"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Tambah Pos Transaksi</span>
               </button>
             </div>
 
+            {/* Quick Metrics Bar per Workflow */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 pt-2 border-t border-slate-100">
+              {RUGI_LABA_SECTIONS.map(sec => {
+                const count = (groupedRugiLaba[sec.id] || []).length
+                const IconComp = sec.icon
+                return (
+                  <button
+                    key={sec.id}
+                    onClick={() => setMappingFilter(mappingFilter === sec.id ? 'ALL' : sec.id)}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      mappingFilter === sec.id
+                        ? 'bg-amber-50/80 border-amber-300 ring-2 ring-amber-400/30'
+                        : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <IconComp className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                        <span className="text-[11px] font-bold text-slate-800 truncate">{sec.id}</span>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold bg-white px-1.5 py-0.2 rounded border border-slate-200 text-slate-700">
+                        {count}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 line-clamp-1">{sec.title}</p>
+                  </button>
+                )
+              })}
+            </div>
+
             {/* Filters by Module & Search */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
               <div className="flex flex-wrap gap-1.5">
-                {[
-                  { id: 'ALL', label: 'Semua Modul' },
-                  { id: 'BILLING', label: 'Billing Kasir' },
-                  { id: 'HPP', label: 'HPP & Persediaan' },
-                  { id: 'STOCK_OUTFLOW', label: 'Pengeluaran Stok' },
-                  { id: 'EXPENSES', label: 'Beban Operasional' },
-                  { id: 'OTHER', label: 'Kustom / Lainnya' },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setMappingFilter(tab.id)}
-                    className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${mappingFilter === tab.id
+                <button
+                  onClick={() => setMappingFilter('ALL')}
+                  className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
+                    mappingFilter === 'ALL'
                       ? 'bg-amber-600 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
+                  }`}
+                >
+                  Semua Alur ({totalFilteredRugiLaba})
+                </button>
+                {RUGI_LABA_SECTIONS.map(sec => (
+                  <button
+                    key={sec.id}
+                    onClick={() => setMappingFilter(sec.id)}
+                    className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
+                      mappingFilter === sec.id
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
                   >
-                    {tab.label}
+                    {sec.title.split('&')[0].trim()}
                   </button>
                 ))}
               </div>
@@ -1144,119 +1461,156 @@ export default function COAPage() {
                 </div>
               </div>
             </div>
-
-            {/* Table Mapping Rugi Laba */}
-            <div className="overflow-x-auto w-full border border-slate-200 rounded-lg">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="px-3 py-2.5 whitespace-nowrap">Modul</th>
-                    <th className="px-3 py-2.5 whitespace-nowrap">Pos Transaksi</th>
-                    <th className="px-3 py-2.5">Deskripsi Peruntukan</th>
-                    <th className="px-3 py-2.5 whitespace-nowrap">Kode Rekening</th>
-                    <th className="px-3 py-2.5">Nama Akun di COA</th>
-                    <th className="px-3 py-2.5 text-center whitespace-nowrap">Status</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredRugiLaba.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                        Tidak ada mapping pos rugi laba yang cocok dengan pencarian / filter.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredRugiLaba.map(item => {
-                      const mappedAcc = coa.find(a => a.accountCode === item.accountCode)
-                      const isCustom = item.isCustom
-                      const isModified = item.isModified
-
-                      return (
-                        <tr key={item.key} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-3 py-2.5 font-medium text-slate-700 whitespace-nowrap">
-                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${item.module === 'BILLING' ? 'bg-emerald-100 text-emerald-800' :
-                              item.module === 'HPP' ? 'bg-amber-100 text-amber-800' :
-                                item.module === 'STOCK_OUTFLOW' ? 'bg-blue-100 text-blue-800' :
-                                  item.module === 'EXPENSES' ? 'bg-purple-100 text-purple-800' :
-                                    'bg-slate-100 text-slate-700'
-                              }`}>
-                              {item.moduleLabel}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 font-semibold text-slate-900 whitespace-nowrap">
-                            {item.label}
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-500 max-w-xs leading-relaxed">
-                            {item.description || '—'}
-                          </td>
-                          <td className="px-3 py-2.5 font-mono font-bold text-primary-700 whitespace-nowrap">
-                            {item.accountCode}
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
-                            {mappedAcc ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-medium">{mappedAcc.accountName}</span>
-                                <span className="text-[10px] text-slate-400 font-mono">({mappedAcc.accountType} · {mappedAcc.naturalBalance})</span>
-                              </div>
-                            ) : (
-                              <span className="text-rose-600 font-semibold flex items-center gap-1">
-                                <AlertTriangle className="w-3.5 h-3.5" /> Akun Tidak Ditemukan di COA
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                            {isCustom ? (
-                              <span className="text-[10px] bg-blue-100 text-blue-800 border border-blue-300 px-1.5 py-0.5 rounded font-bold">
-                                Kustom
-                              </span>
-                            ) : isModified ? (
-                              <span className="text-[10px] bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold">
-                                Disesuaikan
-                              </span>
-                            ) : (
-                              <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium">
-                                Standar
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => handleOpenEditRugiLaba(item)}
-                                className="px-2.5 py-1 text-xs font-semibold rounded bg-primary-50 text-primary-700 hover:bg-primary-100 border border-primary-200 flex items-center gap-1"
-                                title="Edit mapping rekening ini"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                                <span>Edit</span>
-                              </button>
-                              {(isCustom || isModified) && (
-                                <button
-                                  onClick={() => handleDeleteOrResetRugiLaba(item)}
-                                  className={`px-2 py-1 text-xs font-medium rounded border ${isCustom
-                                    ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200'
-                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-300'
-                                    }`}
-                                  title={isCustom ? 'Hapus mapping kustom ini' : 'Reset ke kode rekening default sistem'}
-                                >
-                                  {isCustom ? <Trash2 className="w-3 h-3" /> : <RotateCcw className="w-3 h-3" />}
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
+
+          {/* Grouped Workflow Sections */}
+          {totalFilteredRugiLaba === 0 ? (
+            <div className="p-12 text-center bg-white rounded-xl border border-slate-200 text-slate-400">
+              <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-2 opacity-80" />
+              <p className="text-sm font-semibold text-slate-700">Tidak ada mapping pos rugi laba yang cocok</p>
+              <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci pencarian atau ubah filter alur di atas.</p>
+            </div>
+          ) : (
+            RUGI_LABA_SECTIONS.map(sec => {
+              const items = groupedRugiLaba[sec.id] || []
+              if (items.length === 0) return null
+              const IconComp = sec.icon
+
+              return (
+                <div key={sec.id} className="card bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+                  {/* Section Header Banner */}
+                  <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                        <IconComp className="w-4 h-4 text-amber-700" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-slate-900">{sec.title}</h3>
+                          <span className="text-[10px] font-mono font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                            {items.length} Pos
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">{sec.description}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Table per Section */}
+                  <div className="overflow-x-auto w-full">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-100/70 text-slate-700 font-semibold border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-2.5 w-1/3">Pos Transaksi & Alur Sistem</th>
+                          <th className="px-4 py-2.5 w-1/3">Rekening Akun Terpetakan di COA</th>
+                          <th className="px-4 py-2.5 text-center whitespace-nowrap">Status Database</th>
+                          <th className="px-4 py-2.5 text-right whitespace-nowrap">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {items.map(item => {
+                          const mappedAcc = coa.find(a => a.accountCode === item.accountCode)
+                          const isCustom = item.isCustom
+                          const isModified = item.isModified
+
+                          return (
+                            <tr key={item.key} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="px-4 py-3 align-top">
+                                <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                  <span>{item.label}</span>
+                                  {isCustom ? (
+                                    <span className="text-[9px] bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-bold">Kustom</span>
+                                  ) : isModified ? (
+                                    <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-bold">Disesuaikan</span>
+                                  ) : null}
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                                  {item.description || 'Digunakan pada modul ' + item.moduleLabel}
+                                </p>
+                                <span className="inline-block mt-1 text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
+                                  Key: {item.key}
+                                </span>
+                              </td>
+
+                              <td className="px-4 py-3 align-top">
+                                {mappedAcc ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-mono font-bold text-primary-700 text-xs bg-primary-50 px-2 py-0.5 rounded border border-primary-200">
+                                        {item.accountCode}
+                                      </span>
+                                      <span className="font-semibold text-slate-800">{mappedAcc.accountName}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                      <span className="badge badge-gray">{mappedAcc.accountType}</span>
+                                      <span>•</span>
+                                      <span>Grup: {mappedAcc.accountGroup || '—'}</span>
+                                      <span>•</span>
+                                      <span className="font-mono">Saldo: {mappedAcc.naturalBalance}</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-rose-600 font-semibold flex items-center gap-1">
+                                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                                    <span>Kode akun {item.accountCode} belum terdaftar di COA</span>
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3 align-middle text-center whitespace-nowrap">
+                                {mappedAcc ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    Terhubung Aktif
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                                    Perlu Perbaikan
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3 align-middle text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenEditRugiLaba(item)}
+                                    className="px-2.5 py-1 text-xs font-semibold rounded bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 flex items-center gap-1 shadow-xs"
+                                    title="Ubah rekening akun COA untuk pos transaksi ini"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                    <span>Ubah Akun</span>
+                                  </button>
+                                  {(isCustom || isModified) && (
+                                    <button
+                                      onClick={() => handleDeleteOrResetRugiLaba(item)}
+                                      className={`px-2 py-1 text-xs font-medium rounded border ${
+                                        isCustom
+                                          ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-200'
+                                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-300'
+                                      }`}
+                                      title={isCustom ? 'Hapus mapping kustom ini' : 'Reset ke kode rekening default sistem'}
+                                    >
+                                      {isCustom ? <Trash2 className="w-3 h-3" /> : <RotateCcw className="w-3 h-3" />}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })
+          )}
         </div>
       )}
 
       {/* ══════════════════════════════════════════════════════════════
-          TAB 4: MAPPING NERACA (Balance Sheet Mappings + Edit)
+          TAB 4: MAPPING NERACA (Categorized Balance Sheet Mappings)
           ══════════════════════════════════════════════════════════════ */}
       {activeTab === 'balance_sheet' && (
         <div className="space-y-4 animate-fadeIn">
@@ -1264,35 +1618,69 @@ export default function COAPage() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <Scale className="w-5 h-5 text-blue-600" />
-                  Mapping Neraca (Balance Sheet Account Mapping)
+                  <Scale className="w-5 h-5 text-sky-600" />
+                  Mapping Neraca (Balance Sheet Classification Mapping)
                 </h2>
                 <p className="text-xs text-slate-500 mt-1 max-w-4xl leading-relaxed">
-                  Pemetaan akun neraca untuk klasifikasi Aset Lancar, Aset Tidak Lancar / Tetap, Liabilitas Jangka Pendek & Panjang, dan Ekuitas Modal Pemilik. Disimpan langsung ke database Supabase dan menjadi dasar kalkulasi Laporan Neraca (/balance-sheet).
+                  Pemetaan akun neraca ke dalam 4 klasifikasi standar akuntansi: <strong>Aset Lancar</strong>, <strong>Aset Tetap & Depresiasi</strong>, <strong>Liabilitas Jangka Pendek & Panjang</strong>, dan <strong>Ekuitas Modal Pemilik</strong>. Konfigurasi ini disimpan ke database Supabase dan secara otomatis menjadi acuan Laporan Neraca (<span className="font-mono text-primary-700">/balance-sheet</span>).
                 </p>
               </div>
+            </div>
+
+            {/* Quick Metrics per Group */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+              {NERACA_SECTIONS.map(sec => {
+                const count = (groupedNeraca[sec.id] || []).length
+                const IconComp = sec.icon
+                return (
+                  <button
+                    key={sec.id}
+                    onClick={() => setBsFilter(bsFilter === sec.id ? 'ALL' : sec.id)}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      bsFilter === sec.id
+                        ? 'bg-sky-50/80 border-sky-300 ring-2 ring-sky-400/30'
+                        : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <IconComp className="w-3.5 h-3.5 text-sky-700 shrink-0" />
+                        <span className="text-[11px] font-bold text-slate-800 truncate">{sec.id}</span>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold bg-white px-1.5 py-0.2 rounded border border-slate-200 text-slate-700">
+                        {count}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 line-clamp-1">{sec.title}</p>
+                  </button>
+                )
+              })}
             </div>
 
             {/* Filter Group Neraca & Search */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
               <div className="flex flex-wrap gap-1.5">
-                {[
-                  { id: 'ALL', label: 'Semua Klasifikasi' },
-                  { id: 'ASET LANCAR', label: 'Aset Lancar' },
-                  { id: 'ASET TIDAK LANCAR', label: 'Aset Tidak Lancar' },
-                  { id: 'LIABILITAS JANGKA PENDEK', label: 'Liabilitas Pendek' },
-                  { id: 'LIABILITAS JANGKA PANJANG', label: 'Liabilitas Panjang' },
-                  { id: 'EKUITAS', label: 'Ekuitas' },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setBsFilter(tab.id)}
-                    className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${bsFilter === tab.id
-                      ? 'bg-blue-600 text-white shadow-xs'
+                <button
+                  onClick={() => setBsFilter('ALL')}
+                  className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
+                    bsFilter === 'ALL'
+                      ? 'bg-sky-600 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
+                  }`}
+                >
+                  Semua Klasifikasi ({totalFilteredNeraca})
+                </button>
+                {NERACA_SECTIONS.map(sec => (
+                  <button
+                    key={sec.id}
+                    onClick={() => setBsFilter(sec.id)}
+                    className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
+                      bsFilter === sec.id
+                        ? 'bg-sky-600 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
                   >
-                    {tab.label}
+                    {sec.id}
                   </button>
                 ))}
               </div>
@@ -1310,103 +1698,152 @@ export default function COAPage() {
                 </div>
               </div>
             </div>
-
-            {/* Table Mapping Neraca */}
-            <div className="overflow-x-auto w-full border border-slate-200 rounded-lg">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="px-3 py-2.5 whitespace-nowrap">Klasifikasi Neraca</th>
-                    <th className="px-3 py-2.5 whitespace-nowrap">Pos Akun Neraca</th>
-                    <th className="px-3 py-2.5">Deskripsi Peruntukan</th>
-                    <th className="px-3 py-2.5 whitespace-nowrap">Kode Rekening</th>
-                    <th className="px-3 py-2.5">Nama Akun di COA</th>
-                    <th className="px-3 py-2.5 text-center whitespace-nowrap">Saldo Normal</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredNeraca.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                        Tidak ada mapping pos neraca yang cocok dengan filter / pencarian.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredNeraca.map(item => {
-                      const mappedAcc = coa.find(a => a.accountCode === item.accountCode)
-                      const isModified = item.isModified
-
-                      return (
-                        <tr key={item.key} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-3 py-2.5 font-medium whitespace-nowrap">
-                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${item.group.includes('ASET') ? 'bg-emerald-100 text-emerald-800' :
-                              item.group.includes('LIABILITAS') ? 'bg-amber-100 text-amber-800' :
-                                'bg-purple-100 text-purple-800'
-                              }`}>
-                              {item.group}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 font-semibold text-slate-900 whitespace-nowrap">
-                            {item.label}
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-500 max-w-xs leading-relaxed">
-                            {item.description || '—'}
-                          </td>
-                          <td className="px-3 py-2.5 font-mono font-bold text-primary-700 whitespace-nowrap">
-                            {item.accountCode}
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
-                            {mappedAcc ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-medium">{mappedAcc.accountName}</span>
-                                <span className="text-[10px] text-slate-400 font-mono">({mappedAcc.accountType})</span>
-                              </div>
-                            ) : (
-                              <span className="text-rose-600 font-semibold flex items-center gap-1">
-                                <AlertTriangle className="w-3.5 h-3.5" /> Akun Tidak Ditemukan di COA
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                            <span className={`badge text-[10px] font-mono ${item.naturalBalance === 'DEBIT' ? 'badge-blue' : 'badge-green'}`}>
-                              {item.naturalBalance}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => handleOpenEditNeraca(item)}
-                                className="px-2.5 py-1 text-xs font-semibold rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 flex items-center gap-1"
-                                title="Edit mapping pos neraca ini"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                                <span>Edit</span>
-                              </button>
-                              {isModified && (
-                                <button
-                                  onClick={() => handleResetNeraca(item)}
-                                  className="px-2 py-1 text-xs font-medium rounded border bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-300"
-                                  title="Reset ke akun default sistem"
-                                >
-                                  <RotateCcw className="w-3 h-3" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
+
+          {/* Grouped Neraca Display */}
+          {totalFilteredNeraca === 0 ? (
+            <div className="p-12 text-center bg-white rounded-xl border border-slate-200 text-slate-400">
+              <AlertTriangle className="w-8 h-8 text-sky-500 mx-auto mb-2 opacity-80" />
+              <p className="text-sm font-semibold text-slate-700">Tidak ada mapping pos neraca yang cocok</p>
+              <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci pencarian atau ubah filter klasifikasi.</p>
+            </div>
+          ) : (
+            NERACA_SECTIONS.map(sec => {
+              const items = groupedNeraca[sec.id] || []
+              if (items.length === 0) return null
+              const IconComp = sec.icon
+
+              return (
+                <div key={sec.id} className="card bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+                  <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-sky-100 flex items-center justify-center shrink-0">
+                        <IconComp className="w-4 h-4 text-sky-700" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-slate-900">{sec.title}</h3>
+                          <span className="text-[10px] font-mono font-bold bg-sky-100 text-sky-800 px-2 py-0.5 rounded-full">
+                            {items.length} Pos
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">{sec.description}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto w-full">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-100/70 text-slate-700 font-semibold border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-2.5 w-1/3">Pos Akun Neraca</th>
+                          <th className="px-4 py-2.5 w-1/3">Rekening Akun Terpetakan di COA</th>
+                          <th className="px-4 py-2.5 text-center whitespace-nowrap">Saldo Normal</th>
+                          <th className="px-4 py-2.5 text-center whitespace-nowrap">Status Database</th>
+                          <th className="px-4 py-2.5 text-right whitespace-nowrap">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {items.map(item => {
+                          const mappedAcc = coa.find(a => a.accountCode === item.accountCode)
+                          const isModified = item.isModified
+
+                          return (
+                            <tr key={item.key} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="px-4 py-3 align-top">
+                                <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                  <span>{item.label}</span>
+                                  {isModified && (
+                                    <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-bold">Disesuaikan</span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                                  {item.description || 'Pos klasifikasi ' + item.group}
+                                </p>
+                                <span className="inline-block mt-1 text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
+                                  Key: {item.key}
+                                </span>
+                              </td>
+
+                              <td className="px-4 py-3 align-top">
+                                {mappedAcc ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-mono font-bold text-sky-700 text-xs bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                                        {item.accountCode}
+                                      </span>
+                                      <span className="font-semibold text-slate-800">{mappedAcc.accountName}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                      <span className="badge badge-gray">{mappedAcc.accountType}</span>
+                                      <span>•</span>
+                                      <span>Grup: {mappedAcc.accountGroup || '—'}</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-rose-600 font-semibold flex items-center gap-1">
+                                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                                    <span>Kode akun {item.accountCode} belum terdaftar di COA</span>
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3 align-middle text-center whitespace-nowrap">
+                                <span className={`badge text-[10px] font-mono ${item.naturalBalance === 'DEBIT' ? 'badge-blue' : 'badge-green'}`}>
+                                  {item.naturalBalance}
+                                </span>
+                              </td>
+
+                              <td className="px-4 py-3 align-middle text-center whitespace-nowrap">
+                                {mappedAcc ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    Terhubung Aktif
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                                    Perlu Perbaikan
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3 align-middle text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenEditNeraca(item)}
+                                    className="px-2.5 py-1 text-xs font-semibold rounded bg-sky-50 text-sky-800 hover:bg-sky-100 border border-sky-200 flex items-center gap-1 shadow-xs"
+                                    title="Edit mapping pos neraca ini"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                    <span>Ubah Akun</span>
+                                  </button>
+                                  {isModified && (
+                                    <button
+                                      onClick={() => handleResetNeraca(item)}
+                                      className="px-2 py-1 text-xs font-medium rounded border bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-300"
+                                      title="Reset ke akun default sistem"
+                                    >
+                                      <RotateCcw className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })
+          )}
         </div>
       )}
 
       {/* ══════════════════════════════════════════════════════════════
-          TAB 5: MAPPING ARUS KAS (Cash Flow Mappings + Edit)
+          TAB 5: MAPPING ARUS KAS (PSAK Standard Cash Flow Activities)
           ══════════════════════════════════════════════════════════════ */}
       {activeTab === 'cash_flow' && (
         <div className="space-y-4 animate-fadeIn">
@@ -1418,29 +1855,65 @@ export default function COAPage() {
                   Mapping Arus Kas (Cash Flow Statement Mapping)
                 </h2>
                 <p className="text-xs text-slate-500 mt-1 max-w-4xl leading-relaxed">
-                  Pemetaan akun rekening kas & bank untuk Laporan Arus Kas yang diklasifikasikan ke dalam 3 aktivitas utama: <strong>Aktivitas Operasi</strong>, <strong>Aktivitas Investasi</strong>, dan <strong>Aktivitas Pendanaan</strong>. Disimpan langsung ke database Supabase dan terintegrasi dengan /cash-flow.
+                  Pemetaan akun rekening kas & bank untuk Laporan Arus Kas yang diklasifikasikan ke dalam 3 aktivitas utama standar PSAK: <strong>Aktivitas Operasi</strong>, <strong>Aktivitas Investasi</strong>, dan <strong>Aktivitas Pendanaan</strong>. Perubahan tersimpan ke database Supabase dan langsung menjadi acuan Laporan Arus Kas (<span className="font-mono text-primary-700">/cash-flow</span>).
                 </p>
               </div>
+            </div>
+
+            {/* Quick Metrics per Activity */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+              {CASH_FLOW_SECTIONS.map(sec => {
+                const count = (groupedArusKas[sec.id] || []).length
+                const IconComp = sec.icon
+                return (
+                  <button
+                    key={sec.id}
+                    onClick={() => setCfFilter(cfFilter === sec.id ? 'ALL' : sec.id)}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      cfFilter === sec.id
+                        ? 'bg-purple-50/80 border-purple-300 ring-2 ring-purple-400/30'
+                        : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <IconComp className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                        <span className="text-[11px] font-bold text-slate-800 truncate">{sec.id}</span>
+                      </div>
+                      <span className="text-[10px] font-mono font-bold bg-white px-1.5 py-0.2 rounded border border-slate-200 text-slate-700">
+                        {count}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 line-clamp-1">{sec.title}</p>
+                  </button>
+                )
+              })}
             </div>
 
             {/* Filter Section Arus Kas & Search */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
               <div className="flex flex-wrap gap-1.5">
-                {[
-                  { id: 'ALL', label: 'Semua Aktivitas' },
-                  { id: 'OPERASI', label: 'Aktivitas Operasi' },
-                  { id: 'INVESTASI', label: 'Aktivitas Investasi' },
-                  { id: 'PENDANAAN', label: 'Aktivitas Pendanaan' },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setCfFilter(tab.id)}
-                    className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${cfFilter === tab.id
+                <button
+                  onClick={() => setCfFilter('ALL')}
+                  className={`text-xs px-3 py-1.5 rounded-full font-semibold transition-colors ${
+                    cfFilter === 'ALL'
                       ? 'bg-purple-600 text-white shadow-xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
+                  }`}
+                >
+                  Semua Aktivitas ({totalFilteredArusKas})
+                </button>
+                {CASH_FLOW_SECTIONS.map(sec => (
+                  <button
+                    key={sec.id}
+                    onClick={() => setCfFilter(sec.id)}
+                    className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
+                      cfFilter === sec.id
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
                   >
-                    {tab.label}
+                    {sec.title.split('(')[0].trim()}
                   </button>
                 ))}
               </div>
@@ -1458,98 +1931,151 @@ export default function COAPage() {
                 </div>
               </div>
             </div>
-
-            {/* Table Mapping Arus Kas */}
-            <div className="overflow-x-auto w-full border border-slate-200 rounded-lg">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="px-3 py-2.5 whitespace-nowrap">Aktivitas Arus Kas</th>
-                    <th className="px-3 py-2.5 text-center whitespace-nowrap">Arah Aliran</th>
-                    <th className="px-3 py-2.5 whitespace-nowrap">Pos Arus Kas</th>
-                    <th className="px-3 py-2.5">Deskripsi Peruntukan</th>
-                    <th className="px-3 py-2.5 whitespace-nowrap">Kode Rekening</th>
-                    <th className="px-3 py-2.5">Nama Akun di COA</th>
-                    <th className="px-3 py-2.5 text-right whitespace-nowrap">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredArusKas.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                        Tidak ada mapping pos arus kas yang cocok dengan filter / pencarian.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredArusKas.map(item => {
-                      const mappedAcc = coa.find(a => a.accountCode === item.accountCode)
-                      const isModified = item.isModified
-
-                      return (
-                        <tr key={item.key} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-3 py-2.5 font-medium whitespace-nowrap">
-                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${item.section === 'OPERASI' ? 'bg-emerald-100 text-emerald-800' :
-                              item.section === 'INVESTASI' ? 'bg-blue-100 text-blue-800' :
-                                'bg-purple-100 text-purple-800'
-                              }`}>
-                              {item.sectionLabel}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold font-mono ${item.flowType === 'INFLOW' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-                              {item.flowType === 'INFLOW' ? '↓ KAS MASUK' : '↑ KAS KELUAR'}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 font-semibold text-slate-900 whitespace-nowrap">
-                            {item.label}
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-500 max-w-xs leading-relaxed">
-                            {item.description || '—'}
-                          </td>
-                          <td className="px-3 py-2.5 font-mono font-bold text-primary-700 whitespace-nowrap">
-                            {item.accountCode}
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-800 whitespace-nowrap">
-                            {mappedAcc ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-medium">{mappedAcc.accountName}</span>
-                                <span className="text-[10px] text-slate-400 font-mono">({mappedAcc.accountType})</span>
-                              </div>
-                            ) : (
-                              <span className="text-rose-600 font-semibold flex items-center gap-1">
-                                <AlertTriangle className="w-3.5 h-3.5" /> Akun Tidak Ditemukan di COA
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => handleOpenEditArusKas(item)}
-                                className="px-2.5 py-1 text-xs font-semibold rounded bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 flex items-center gap-1"
-                                title="Edit mapping pos arus kas ini"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                                <span>Edit</span>
-                              </button>
-                              {isModified && (
-                                <button
-                                  onClick={() => handleResetArusKas(item)}
-                                  className="px-2 py-1 text-xs font-medium rounded border bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-300"
-                                  title="Reset ke akun default sistem"
-                                >
-                                  <RotateCcw className="w-3 h-3" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
+
+          {/* Grouped Cash Flow Display */}
+          {totalFilteredArusKas === 0 ? (
+            <div className="p-12 text-center bg-white rounded-xl border border-slate-200 text-slate-400">
+              <AlertTriangle className="w-8 h-8 text-purple-500 mx-auto mb-2 opacity-80" />
+              <p className="text-sm font-semibold text-slate-700">Tidak ada mapping pos arus kas yang cocok</p>
+              <p className="text-xs text-slate-400 mt-1">Coba sesuaikan kata kunci pencarian atau ubah filter aktivitas.</p>
+            </div>
+          ) : (
+            CASH_FLOW_SECTIONS.map(sec => {
+              const items = groupedArusKas[sec.id] || []
+              if (items.length === 0) return null
+              const IconComp = sec.icon
+
+              return (
+                <div key={sec.id} className="card bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+                  <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
+                        <IconComp className="w-4 h-4 text-purple-700" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-slate-900">{sec.title}</h3>
+                          <span className="text-[10px] font-mono font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">
+                            {items.length} Pos
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">{sec.description}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto w-full">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-100/70 text-slate-700 font-semibold border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-2.5 text-center whitespace-nowrap">Arah Aliran</th>
+                          <th className="px-4 py-2.5 w-1/3">Pos Arus Kas & Peruntukan</th>
+                          <th className="px-4 py-2.5 w-1/3">Rekening Akun Terpetakan di COA</th>
+                          <th className="px-4 py-2.5 text-center whitespace-nowrap">Status Database</th>
+                          <th className="px-4 py-2.5 text-right whitespace-nowrap">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {items.map(item => {
+                          const mappedAcc = coa.find(a => a.accountCode === item.accountCode)
+                          const isModified = item.isModified
+
+                          return (
+                            <tr key={item.key} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="px-4 py-3 align-middle text-center whitespace-nowrap">
+                                <span className={`inline-block px-2.5 py-1 rounded text-[10px] font-bold font-mono ${
+                                  item.flowType === 'INFLOW'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}>
+                                  {item.flowType === 'INFLOW' ? '↓ KAS MASUK' : '↑ KAS KELUAR'}
+                                </span>
+                              </td>
+
+                              <td className="px-4 py-3 align-top">
+                                <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                                  <span>{item.label}</span>
+                                  {isModified && (
+                                    <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-bold">Disesuaikan</span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                                  {item.description || 'Aliran arus kas ' + sec.title}
+                                </p>
+                                <span className="inline-block mt-1 text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
+                                  Key: {item.key}
+                                </span>
+                              </td>
+
+                              <td className="px-4 py-3 align-top">
+                                {mappedAcc ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-mono font-bold text-purple-700 text-xs bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                                        {item.accountCode}
+                                      </span>
+                                      <span className="font-semibold text-slate-800">{mappedAcc.accountName}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                      <span className="badge badge-gray">{mappedAcc.accountType}</span>
+                                      <span>•</span>
+                                      <span>Grup: {mappedAcc.accountGroup || '—'}</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-rose-600 font-semibold flex items-center gap-1">
+                                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                                    <span>Kode akun {item.accountCode} belum terdaftar di COA</span>
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3 align-middle text-center whitespace-nowrap">
+                                {mappedAcc ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    Terhubung Aktif
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                                    Perlu Perbaikan
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="px-4 py-3 align-middle text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenEditArusKas(item)}
+                                    className="px-2.5 py-1 text-xs font-semibold rounded bg-purple-50 text-purple-800 hover:bg-purple-100 border border-purple-200 flex items-center gap-1 shadow-xs"
+                                    title="Edit mapping pos arus kas ini"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                    <span>Ubah Akun</span>
+                                  </button>
+                                  {isModified && (
+                                    <button
+                                      onClick={() => handleResetArusKas(item)}
+                                      className="px-2 py-1 text-xs font-medium rounded border bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-300"
+                                      title="Reset ke akun default sistem"
+                                    >
+                                      <RotateCcw className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })
+          )}
         </div>
       )}
 
@@ -1872,6 +2398,27 @@ export default function COAPage() {
               <p className="text-[11px] text-slate-400 mt-1">
                 Pilih akun COA yang akan didebet/dikredit saat transaksi rugi laba ini berlangsung.
               </p>
+              {(() => {
+                const selectedAcc = coa.find(a => a.accountCode === mappingForm.accountCode)
+                if (!selectedAcc) return null
+                return (
+                  <div className="mt-2.5 p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-lg flex items-start gap-2.5 animate-fadeIn">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="text-xs space-y-0.5">
+                      <div className="font-bold text-emerald-950 font-mono">
+                        {selectedAcc.accountCode} — <span className="font-sans font-semibold">{selectedAcc.accountName}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-emerald-800">
+                        <span className="font-semibold">{accountTypeLabel(selectedAcc.accountType)}</span>
+                        <span>•</span>
+                        <span>Grup: {selectedAcc.accountGroup || '—'}</span>
+                        <span>•</span>
+                        <span className="font-mono bg-white/90 px-1 py-0.2 rounded border border-emerald-300">Saldo: {selectedAcc.naturalBalance}</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             <div>
@@ -1968,6 +2515,27 @@ export default function COAPage() {
               <p className="text-[11px] text-slate-400 mt-1">
                 Pilih akun COA yang mencerminkan saldo pos neraca ini.
               </p>
+              {(() => {
+                const selectedAcc = coa.find(a => a.accountCode === bsForm.accountCode)
+                if (!selectedAcc) return null
+                return (
+                  <div className="mt-2.5 p-2.5 bg-sky-50/80 border border-sky-200 rounded-lg flex items-start gap-2.5 animate-fadeIn">
+                    <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                    <div className="text-xs space-y-0.5">
+                      <div className="font-bold text-sky-950 font-mono">
+                        {selectedAcc.accountCode} — <span className="font-sans font-semibold">{selectedAcc.accountName}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-sky-800">
+                        <span className="font-semibold">{accountTypeLabel(selectedAcc.accountType)}</span>
+                        <span>•</span>
+                        <span>Grup: {selectedAcc.accountGroup || '—'}</span>
+                        <span>•</span>
+                        <span className="font-mono bg-white/90 px-1 py-0.2 rounded border border-sky-300">Saldo: {selectedAcc.naturalBalance}</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             <div>
@@ -2063,6 +2631,27 @@ export default function COAPage() {
               <p className="text-[11px] text-slate-400 mt-1">
                 Pilih akun COA yang memicu atau mencatat aliran kas ini.
               </p>
+              {(() => {
+                const selectedAcc = coa.find(a => a.accountCode === cfForm.accountCode)
+                if (!selectedAcc) return null
+                return (
+                  <div className="mt-2.5 p-2.5 bg-purple-50/80 border border-purple-200 rounded-lg flex items-start gap-2.5 animate-fadeIn">
+                    <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                    <div className="text-xs space-y-0.5">
+                      <div className="font-bold text-purple-950 font-mono">
+                        {selectedAcc.accountCode} — <span className="font-sans font-semibold">{selectedAcc.accountName}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-purple-800">
+                        <span className="font-semibold">{accountTypeLabel(selectedAcc.accountType)}</span>
+                        <span>•</span>
+                        <span>Grup: {selectedAcc.accountGroup || '—'}</span>
+                        <span>•</span>
+                        <span className="font-mono bg-white/90 px-1 py-0.2 rounded border border-purple-300">Saldo: {selectedAcc.naturalBalance}</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             <div>

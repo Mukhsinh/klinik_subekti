@@ -199,7 +199,7 @@ INSERT INTO chart_of_accounts (account_code, account_name, account_type, account
 ('6-17-001', 'Iklan dan Promosi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', false, '6-17-000', 'Biaya marketing dan advertising', true, 892),
 ('6-17-002', 'Event dan Sponsor', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', false, '6-17-000', 'Sponsorship dan acara', true, 893),
 ('6-17-003', 'Materi Promosi', 'EXPENSE', 'BEBAN OPERASIONAL', 'Pemasaran', 'DEBIT', false, '6-17-000', 'Brosur dan merchandising', true, 894),
-('6-18-000', 'Beban Kerugian Persediaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', true, '6-00-000', NULL, true, 901),
+('6-18-000', 'Beban Persediaan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Beban Persediaan', 'DEBIT', true, '6-00-000', NULL, true, 901),
 ('6-18-001', 'Kerugian Barang Rusak/Kadaluarsa', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', false, '6-18-000', 'Obat dan BHP expired', true, 902),
 ('6-18-002', 'Selisih Stok Opname', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', false, '6-18-000', 'Selisih hasil stock opname', true, 903),
 ('6-18-003', 'Kerugian Kehilangan', 'EXPENSE', 'BEBAN OPERASIONAL', 'Kerugian', 'DEBIT', false, '6-18-000', 'Barang hilang', true, 904),

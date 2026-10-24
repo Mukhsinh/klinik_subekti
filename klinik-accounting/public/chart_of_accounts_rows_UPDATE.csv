@@ -1,0 +1,185 @@
+account_code;account_name;account_type;account_group;account_subgroup;natural_balance;is_header;parent_code;description;is_active;sort_order
+1-00-000;ASET;ASSET;ASET;;DEBIT;TRUE;;Aset Klinik;TRUE;100
+1-10-000;Aset Lancar;ASSET;ASET LANCAR;;DEBIT;TRUE;1-00-000;Aset Lancar Kas dan Setara Kas;TRUE;110
+1-11-000;Kas dan Bank;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;TRUE;1-10-000;Kas dan Rekening Bank Operasional;TRUE;111
+1-11-001;Kas Kecil;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;FALSE;1-11-000;Uang tunai kas kecil operasional;TRUE;112
+1-11-002;Kas Besar / Kasir;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;FALSE;1-11-000;Penerimaan kas fisik kasir klinik;TRUE;113
+1-11-003;Bank BRI - Operasional;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;FALSE;1-11-000;Rekening giro/operasional Bank BRI;TRUE;114
+1-11-004;Bank Mandiri - Operasional;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;FALSE;1-11-000;Rekening penerimaan Bank Mandiri & QRIS;TRUE;115
+1-11-005;Bank BCA - Operasional;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;FALSE;1-11-000;Rekening utama penampungan transfer Bank BCA;TRUE;116
+1-11-006;Deposito Jangka Pendek;ASSET;ASET LANCAR;Kas dan Bank;DEBIT;FALSE;1-11-000;Deposito likuid jangka pendek (< 1 tahun);TRUE;117
+1-12-000;Piutang Usaha;ASSET;ASET LANCAR;Piutang;DEBIT;TRUE;1-10-000;Piutang Pelayanan Pasien & Klaim;TRUE;120
+1-12-001;Piutang Klaim BPJS Kesehatan;ASSET;ASET LANCAR;Piutang;DEBIT;FALSE;1-12-000;Tagihan klaim jaminan BPJS Kesehatan;TRUE;121
+1-12-002;Piutang Klaim Asuransi Swasta;ASSET;ASET LANCAR;Piutang;DEBIT;FALSE;1-12-000;Tagihan klaim asuransi rekanan swasta;TRUE;122
+1-12-003;Piutang Pasien Umum;ASSET;ASET LANCAR;Piutang;DEBIT;FALSE;1-12-000;Piutang pelayanan pasien umum non-asuransi;TRUE;123
+1-12-004;Piutang Perusahaan Rekanan;ASSET;ASET LANCAR;Piutang;DEBIT;FALSE;1-12-000;Piutang korporasi atau instansi rekanan;TRUE;124
+1-12-005;Penyisihan Piutang Tak Tertagih;ASSET;ASET LANCAR;Piutang;CREDIT;FALSE;1-12-000;Cadangan kontra aset piutang tak tertagih;TRUE;125
+1-13-000;Persediaan;ASSET;ASET LANCAR;Persediaan;DEBIT;TRUE;1-10-000;Persediaan Fisik Farmasi dan Apotek;TRUE;130
+1-13-001;Persediaan Obat Paten;ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;1-13-000;Persediaan obat paten / etikal resep dokter;TRUE;131
+1-13-002;Persediaan Obat Generik;ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;1-13-000;Persediaan obat bebas / generik / OTC;TRUE;132
+1-13-003;Persediaan BHP (Bahan Habis Pakai);ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;1-13-000;Bahan medis habis pakai, spuit, infus, kassa;TRUE;133
+1-13-004;Persediaan Rumah Tangga;ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;1-13-000;Persediaan kebutuhan logistik rumah tangga klinik;TRUE;134
+1-13-005;Persediaan Vaksin;ASSET;ASET LANCAR;Persediaan;DEBIT;FALSE;1-13-000;Persediaan vaksin dan serum medis;TRUE;135
+1-14-000;Aset Lancar Lainnya;ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;TRUE;1-10-000;Uang Muka dan Beban Dibayar Dimuka;TRUE;140
+1-14-001;Uang Muka Pembelian;ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;FALSE;1-14-000;Uang muka pengadaan barang & obat ke supplier;TRUE;141
+1-14-002;PPN Masukan (Pajak Dibayar Dimuka);ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;FALSE;1-14-000;Pajak masukan faktur PBF yang dapat dikreditkan;TRUE;142
+1-14-003;PPh 25 Dibayar Dimuka;ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;FALSE;1-14-000;Angsuran pajak PPh 25 tahun berjalan;TRUE;143
+1-14-004;Beban Sewa Dibayar Dimuka;ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;FALSE;1-14-000;Uang muka sewa gedung sebelum jatuh tempo pembebanan;TRUE;144
+1-14-005;Beban Asuransi Dibayar Dimuka;ASSET;ASET LANCAR;Aset Lancar Lainnya;DEBIT;FALSE;1-14-000;Premi asuransi gedung/alat yang belum terakru;TRUE;145
+1-20-000;Aset Tidak Lancar;ASSET;ASET TIDAK LANCAR;;DEBIT;TRUE;1-00-000;Aset Tetap dan Aset Tidak Lancar;TRUE;150
+1-21-000;Aset Tetap;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;TRUE;1-20-000;Harga Perolehan Aset Tetap Klinik;TRUE;151
+1-21-001;Tanah;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;1-21-000;Tanah lokasi klinik;TRUE;152
+1-21-002;Bangunan / Gedung Klinik;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;1-21-000;Gedung dan ruko tempat usaha klinik;TRUE;153
+1-21-003;Peralatan Medis;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;1-21-000;USG, EKG, dental unit, autoklaf, tensimeter;TRUE;154
+1-21-004;Alat Laboratorium;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;1-21-000;Hematology analyzer, fotometer, mikroskop;TRUE;155
+1-21-005;Mebel & Perlengkapan Kantor;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;1-21-000;Meja dokter, kursi tunggu, lemari obat;TRUE;156
+1-21-006;Kendaraan Operasional / Ambulans;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;1-21-000;Ambulans dan motor operasional;TRUE;157
+1-21-007;Peralatan Komputer, IT & SI;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;1-21-000;Komputer kasir, server, printer thermal barcode;TRUE;158
+1-21-008;Alat Elektronik;ASSET;ASET TIDAK LANCAR;Aset Tetap;DEBIT;FALSE;1-21-000;AC pendingin, kulkas vaksin, genset;TRUE;159
+1-22-000;Akumulasi Penyusutan Aset Tetap;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;TRUE;1-20-000;Kontra Aset Pengurang Nilai Buku;TRUE;160
+1-22-001;Akum. Penyusutan Bangunan;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;1-22-000;Akumulasi penyusutan gedung klinik;TRUE;161
+1-22-002;Akum. Penyusutan Peralatan Medis;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;1-22-000;Akumulasi penyusutan peralatan medis;TRUE;162
+1-22-003;Akum. Penyusutan Alat Laboratorium;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;1-22-000;Akumulasi penyusutan alat lab;TRUE;163
+1-22-004;Akum. Penyusutan Mebel & Perlengkapan;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;1-22-000;Akumulasi penyusutan furnitur kantor;TRUE;164
+1-22-005;Akum. Penyusutan Kendaraan;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;1-22-000;Akumulasi penyusutan mobil ambulans/motor;TRUE;165
+1-22-006;Akum. Penyusutan Komputer & SI;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;1-22-000;Akumulasi penyusutan perangkat IT kasir;TRUE;166
+1-22-007;Akum. Penyusutan Alat Elektronik;ASSET;ASET TIDAK LANCAR;Akumulasi Penyusutan;CREDIT;FALSE;1-22-000;Akumulasi penyusutan AC dan elektronik;TRUE;167
+1-23-000;Aset Tak Berwujud & Lainnya;ASSET;ASET TIDAK LANCAR;Aset Tak Berwujud;DEBIT;TRUE;1-20-000;Software dan Lisensi Klinik;TRUE;170
+1-23-001;Lisensi & Perizinan Operasional;ASSET;ASET TIDAK LANCAR;Aset Tak Berwujud;DEBIT;FALSE;1-23-000;Izin operasional klinik jangka panjang;TRUE;171
+1-23-002;Hak Paten & Merek Dagang;ASSET;ASET TIDAK LANCAR;Aset Tak Berwujud;DEBIT;FALSE;1-23-000;Pendaftaran merek klinik;TRUE;172
+1-23-003;Software / Aplikasi SIM Klinik;ASSET;ASET TIDAK LANCAR;Aset Tak Berwujud;DEBIT;FALSE;1-23-000;Sistem aplikasi rekam medis & akuntansi;TRUE;173
+1-23-004;Akumulasi Amortisasi Aset Tak Berwujud;ASSET;ASET TIDAK LANCAR;Aset Tak Berwujud;CREDIT;FALSE;1-23-000;Kontra amortisasi software & lisensi;TRUE;174
+2-00-000;LIABILITAS;LIABILITY;LIABILITAS;;CREDIT;TRUE;;Liabilitas Klinik;TRUE;200
+2-10-000;Liabilitas Jangka Pendek;LIABILITY;LIABILITAS JANGKA PENDEK;;CREDIT;TRUE;2-00-000;Kewajiban Lancar Jatuh Tempo < 1 Tahun;TRUE;210
+2-11-000;Utang Usaha & Pembelian Barang;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;TRUE;2-10-000;Utang Dagang Distributor PBF & Pengadaan;TRUE;211
+2-11-001;Utang Pembelian Obat & BHP;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;2-11-000;Faktur tempo distributor PBF obat dan BHP;TRUE;212
+2-11-002;Utang Pembelian Barang Rumah Tangga;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;2-11-000;Utang tempo pembelian perlengkapan rumah tangga;TRUE;213
+2-11-003;Utang Pembelian Peralatan Medis;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;2-11-000;Faktur tempo pengadaan alat medis;TRUE;214
+2-11-004;Utang Pembelian Alat Laboratorium;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;2-11-000;Faktur tempo alat lab;TRUE;215
+2-11-005;Utang Pembelian Mebel & Kantor;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;2-11-000;Utang furnitur dan perlengkapan klinik;TRUE;216
+2-11-006;Utang Pembelian Kendaraan Operasional;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;2-11-000;Kewajiban tempo kendaraan;TRUE;217
+2-11-007;Utang Pembelian Alat Elektronik;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;2-11-000;Utang pembelian pendingin AC, kulkas vaksin;TRUE;218
+2-11-008;Utang Pembelian Lainnya;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Usaha;CREDIT;FALSE;2-11-000;Kewajiban pengadaan barang lainnya;TRUE;219
+2-12-000;Utang Biaya & Payroll;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Biaya;CREDIT;TRUE;2-10-000;Akrual Gaji dan Fee Dokter;TRUE;220
+2-12-001;Utang Gaji Paramedis & Staf;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Biaya;CREDIT;FALSE;2-12-000;Gaji terakru perawat, apoteker, dan staf;TRUE;221
+2-12-002;Utang Tunjangan & Lembur;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Biaya;CREDIT;FALSE;2-12-000;Kewajiban upah lembur dan tunjangan;TRUE;222
+2-12-003;Utang Jasa Medis Dokter Umum;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Biaya;CREDIT;FALSE;2-12-000;Bagi hasil jasa medis dokter umum bersih;TRUE;223
+2-12-004;Utang Jasa Medis Dokter Spesialis;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Biaya;CREDIT;FALSE;2-12-000;Bagi hasil jasa medis dokter spesialis bersih;TRUE;224
+2-12-005;Utang BPJS Kesehatan & Ketenagakerjaan;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Biaya;CREDIT;FALSE;2-12-000;Iuran jaminan sosial BPJS karyawan;TRUE;225
+2-13-000;Utang Pajak;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Pajak;CREDIT;TRUE;2-10-000;Kewajiban Setoran Pajak Negara;TRUE;230
+2-13-001;Utang PPh 21 Dokter & Karyawan;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Pajak;CREDIT;FALSE;2-13-000;Pemotongan PPh pasal 21 yang wajib disetor;TRUE;231
+2-13-002;Utang PPh Pasal 23;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Pajak;CREDIT;FALSE;2-13-000;Pajak sewa dan jasa pihak ketiga;TRUE;232
+2-13-003;Utang PPh Pasal 25 / Badan;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Pajak;CREDIT;FALSE;2-13-000;Kewajiban PPh Badan klinik;TRUE;233
+2-14-000;Utang PPN;LIABILITY;LIABILITAS JANGKA PENDEK;Utang PPN;CREDIT;TRUE;2-10-000;PPN Keluaran Kasir;TRUE;240
+2-14-001;Utang PPN Keluaran;LIABILITY;LIABILITAS JANGKA PENDEK;Utang PPN;CREDIT;FALSE;2-14-000;Pajak PPN 11% yang dipungut dari penjualan obat pasien;TRUE;241
+2-15-000;Utang Beban Operasional Lainnya;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Beban Operasional;CREDIT;TRUE;2-10-000;Utang Tagihan Rutin & Jasa Pihak Ketiga;TRUE;250
+2-15-001;Utang Tagihan Listrik (PLN);LIABILITY;LIABILITAS JANGKA PENDEK;Utang Beban Operasional;CREDIT;FALSE;2-15-000;Akrual tagihan listrik bulanan;TRUE;251
+2-15-002;Utang Tagihan Air (PDAM);LIABILITY;LIABILITAS JANGKA PENDEK;Utang Beban Operasional;CREDIT;FALSE;2-15-000;Akrual tagihan air bulanan;TRUE;252
+2-15-003;Utang Telepon & Internet;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Beban Operasional;CREDIT;FALSE;2-15-000;Akrual tagihan provider internet;TRUE;253
+2-15-004;Utang Sewa Gedung;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Beban Operasional;CREDIT;FALSE;2-15-000;Akrual sewa ruko/gedung tempat kerja;TRUE;254
+2-15-005;Utang Jasa Kebersihan & Keamanan;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Beban Operasional;CREDIT;FALSE;2-15-000;Iuran kebersihan dan sekuriti klinik;TRUE;255
+2-15-006;Utang Jasa Pemeriksaan Laboratorium Rujukan;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Beban Operasional;CREDIT;FALSE;2-15-000;Tagihan vendor lab rujukan eksternal;TRUE;256
+2-15-007;Utang Pemeliharaan Gedung & Alat;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Beban Operasional;CREDIT;FALSE;2-15-000;Kewajiban servis alat medis dan perbaikan fisik;TRUE;257
+2-15-008;Pendapatan Diterima Dimuka;LIABILITY;LIABILITAS JANGKA PENDEK;Utang Beban Operasional;CREDIT;FALSE;2-15-000;Uang muka paket tindakan pasien yang belum dilakukan;TRUE;258
+2-20-000;Liabilitas Jangka Panjang;LIABILITY;LIABILITAS JANGKA PANJANG;;CREDIT;TRUE;2-00-000;Pinjaman Jangka Panjang > 1 Tahun;TRUE;260
+2-21-001;Utang Bank Jangka Panjang;LIABILITY;LIABILITAS JANGKA PANJANG;Utang Bank;CREDIT;FALSE;2-20-000;Kredit investasi atau modal kerja perbankan;TRUE;261
+2-21-002;Utang Leasing Alat Medis;LIABILITY;LIABILITAS JANGKA PANJANG;Utang Leasing;CREDIT;FALSE;2-20-000;Kewajiban sewa pembiayaan alat medis;TRUE;262
+3-00-000;EKUITAS;EQUITY;EKUITAS;;CREDIT;TRUE;;Ekuitas Pemilik Klinik;TRUE;300
+3-11-001;Modal Disetor Pemilik Klinik;EQUITY;EKUITAS;Modal;CREDIT;FALSE;3-00-000;Modal awal yang disetorkan pemilik/pendiri;TRUE;310
+3-11-002;Tambahan Modal Disetor;EQUITY;EKUITAS;Modal;CREDIT;FALSE;3-00-000;Injeksi modal tambahan periode berjalan;TRUE;320
+3-12-001;Laba Ditahan Tahun Sebelumnya;EQUITY;EKUITAS;Laba Ditahan;CREDIT;FALSE;3-00-000;Akumulasi laba bersih tahun-tahun lalu yang tidak ditarik;TRUE;330
+3-12-002;Laba / (Rugi) Periode Berjalan;EQUITY;EKUITAS;Laba Ditahan;CREDIT;FALSE;3-00-000;Kinerja laba atau rugi tahun buku yang sedang berjalan;TRUE;340
+3-13-001;Dividen Dibayarkan;EQUITY;EKUITAS;Dividen;DEBIT;FALSE;3-00-000;Pembagian deviden hasil usaha;TRUE;350
+3-14-001;Prive Pemilik Klinik;EQUITY;EKUITAS;Prive;DEBIT;FALSE;3-00-000;Penarikan kas pribadi oleh pemilik;TRUE;360
+4-00-000;PENDAPATAN;REVENUE;PENDAPATAN;;CREDIT;TRUE;;Pendapatan Klinik;TRUE;400
+4-10-000;Pendapatan Pelayanan Medis;REVENUE;PENDAPATAN OPERASIONAL;;CREDIT;TRUE;4-00-000;Pendapatan Kasir dari Pasien;TRUE;410
+4-11-000;Pendapatan Jasa Konsultasi & Tindakan;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;TRUE;4-10-000;Pemeriksaan dan Tindakan Medis Dokter;TRUE;411
+4-11-001;Pendapatan Konsultasi Dokter Umum;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;4-11-000;Konsultasi dan pemeriksaan dokter umum;TRUE;412
+4-11-002;Pendapatan Konsultasi Dokter Spesialis;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;4-11-000;Konsultasi dokter spesialis;TRUE;413
+4-11-003;Pendapatan Tindakan Medis & BHP;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;4-11-000;Tindakan medis minor, luka, nebulizer, injeksi;TRUE;414
+4-11-004;Pendapatan Tindakan Medis Mayor;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;4-11-000;Tindakan medis operatif minor/sedang;TRUE;415
+4-11-005;Pendapatan Tindakan EKG;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;4-11-000;Pemeriksaan rekam jantung EKG;TRUE;416
+4-11-006;Pendapatan Tindakan ECHO;REVENUE;PENDAPATAN OPERASIONAL;Jasa Medis;CREDIT;FALSE;4-11-000;Pemeriksaan echocardiography;TRUE;417
+4-12-000;Pendapatan Laboratorium;REVENUE;PENDAPATAN OPERASIONAL;Laboratorium;CREDIT;TRUE;4-10-000;Diagnostik dan Pemeriksaan Spesimen Lab;TRUE;420
+4-12-001;Pendapatan Pemeriksaan Darah;REVENUE;PENDAPATAN OPERASIONAL;Laboratorium;CREDIT;FALSE;4-12-000;Hematologi, gula darah, kolesterol, asam urat;TRUE;421
+4-12-002;Pendapatan Pemeriksaan Urine;REVENUE;PENDAPATAN OPERASIONAL;Laboratorium;CREDIT;FALSE;4-12-000;Urine lengkap dan tes kehamilan;TRUE;422
+4-12-003;Pendapatan Laboratorium Lainnya;REVENUE;PENDAPATAN OPERASIONAL;Laboratorium;CREDIT;FALSE;4-12-000;Pemeriksaan swab, serologi, dan tes lab lainnya;TRUE;423
+4-13-000;Pendapatan Farmasi & Apotek;REVENUE;PENDAPATAN OPERASIONAL;Farmasi;CREDIT;TRUE;4-10-000;Penjualan Obat Resep dan Bebas;TRUE;430
+4-13-001;Pendapatan Penjualan Obat Etikal (Resep);REVENUE;PENDAPATAN OPERASIONAL;Farmasi;CREDIT;FALSE;4-13-000;DPP penjualan obat paten resep dokter;TRUE;431
+4-13-002;Pendapatan Penjualan Obat OTC / Bebas;REVENUE;PENDAPATAN OPERASIONAL;Farmasi;CREDIT;FALSE;4-13-000;DPP penjualan obat bebas dan generik;TRUE;432
+4-13-003;Pendapatan Penjualan BHP Medis Pasien;REVENUE;PENDAPATAN OPERASIONAL;Farmasi;CREDIT;FALSE;4-13-000;DPP penjualan bahan habis pakai medis pasien;TRUE;433
+4-14-001;Potongan / Diskon Penjualan;REVENUE;PENDAPATAN OPERASIONAL;Potongan;DEBIT;FALSE;4-10-000;Diskon dan promo biaya billing pasien;TRUE;440
+4-90-000;Pendapatan Non-Operasional;REVENUE;PENDAPATAN NON-OPERASIONAL;;CREDIT;TRUE;4-00-000;Pendapatan di Luar Pelayanan Medis;TRUE;450
+4-91-001;Pendapatan Bunga Bank;REVENUE;PENDAPATAN NON-OPERASIONAL;Bunga;CREDIT;FALSE;4-90-000;Bunga jasa giro dan bagi hasil bank;TRUE;451
+4-91-002;Pendapatan Administrasi;REVENUE;PENDAPATAN NON-OPERASIONAL;Administrasi;CREDIT;FALSE;4-90-000;Biaya kartu pendaftaran dan administrasi rekam medis;TRUE;452
+4-91-003;Pendapatan Penjualan Aset & Barang Bekas;REVENUE;PENDAPATAN NON-OPERASIONAL;Penjualan Aset;CREDIT;FALSE;4-90-000;Hasil pelepasan kardus, jerigen, dan alat medis lama;TRUE;453
+4-91-004;Pendapatan Hibah & Bantuan;REVENUE;PENDAPATAN NON-OPERASIONAL;Hibah;CREDIT;FALSE;4-90-000;Bantuan sosial atau hibah institusi;TRUE;454
+4-91-005;Pendapatan Non-Operasional Lain-Lain;REVENUE;PENDAPATAN NON-OPERASIONAL;Lainnya;CREDIT;FALSE;4-90-000;Penerimaan non-medis lainnya;TRUE;455
+5-00-000;HARGA POKOK PENJUALAN;EXPENSE;HARGA POKOK;;DEBIT;TRUE;;Harga Pokok Penjualan Farmasi;TRUE;500
+5-11-000;HPP Farmasi & Persediaan;EXPENSE;HARGA POKOK;HPP;DEBIT;TRUE;5-00-000;Beban Modal Beli Obat & BHP yang Terjual (FIFO);TRUE;510
+5-11-001;HPP Penjualan Obat Paten / Etikal;EXPENSE;HARGA POKOK;HPP;DEBIT;FALSE;5-11-000;Nilai pokok persediaan obat paten yang terjual ke pasien;TRUE;511
+5-11-002;HPP Penjualan Obat Generik / OTC;EXPENSE;HARGA POKOK;HPP;DEBIT;FALSE;5-11-000;Nilai pokok persediaan obat generik yang terjual ke pasien;TRUE;512
+5-11-003;HPP Bahan Habis Pakai (BHP) Medis;EXPENSE;HARGA POKOK;HPP;DEBIT;FALSE;5-11-000;Nilai pokok BHP yang digunakan dalam pelayanan kasir;TRUE;513
+5-11-004;HPP Kebutuhan Rumah Tangga;EXPENSE;HARGA POKOK;HPP;DEBIT;FALSE;5-11-000;Nilai pokok persediaan kebutuhan rumah tangga terpakai;TRUE;514
+5-11-005;HPP Vaksin & Imunisasi;EXPENSE;HARGA POKOK;HPP;DEBIT;FALSE;5-11-000;Nilai pokok vaksin yang disuntikkan ke pasien;TRUE;515
+6-00-000;BEBAN OPERASIONAL;EXPENSE;BEBAN OPERASIONAL;;DEBIT;TRUE;;Beban Operasional Klinik;TRUE;600
+6-11-000;Beban Sumber Daya Manusia & Gaji;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;TRUE;6-00-000;Payroll Gaji Tenaga Medis & Paramedis;TRUE;610
+6-11-001;Beban Gaji Dokter Tetap;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;6-11-000;Gaji pokok dokter status karyawan tetap;TRUE;611
+6-11-002;Beban Gaji Perawat & Bidan;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;6-11-000;Gaji perawat, bidan, dan paramedis klinik;TRUE;612
+6-11-003;Beban Gaji Apoteker & Asisten Apoteker;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;6-11-000;Gaji staf instalasi farmasi / apotek;TRUE;613
+6-11-004;Beban Gaji Staff Administrasi & Kasir;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;6-11-000;Gaji staf adm, resepsionis, dan kasir;TRUE;614
+6-11-005;Beban Gaji Tenaga Keamanan & Kebersihan;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;6-11-000;Gaji sekuriti dan cleaning service;TRUE;615
+6-11-006;Beban Tunjangan Hari Raya & Kehadiran;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;6-11-000;THR, tunjangan makan, dan kompensasi kerja;TRUE;616
+6-11-007;Beban Upah Lembur Karyawan;EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;6-11-000;Upah lembur dan shift tambahan karyawan;TRUE;617
+6-11-008;Beban BPJS Kesehatan & Ketenagakerjaan (Perusahaan);EXPENSE;BEBAN OPERASIONAL;SDM;DEBIT;FALSE;6-11-000;Porsi iuran jaminan sosial ditanggung klinik;TRUE;618
+6-12-000;Beban Jasa Medis Dokter;EXPENSE;BEBAN OPERASIONAL;Jasa Medis;DEBIT;TRUE;6-00-000;Bagi Hasil Fee Dokter Medis;TRUE;620
+6-12-001;Beban Bagi Hasil Jasa Medis Dokter Umum;EXPENSE;BEBAN OPERASIONAL;Jasa Medis;DEBIT;FALSE;6-12-000;Beban hak kotor bagi hasil jasa dokter umum;TRUE;621
+6-12-002;Beban Bagi Hasil Jasa Medis Dokter Spesialis;EXPENSE;BEBAN OPERASIONAL;Jasa Medis;DEBIT;FALSE;6-12-000;Beban hak kotor bagi hasil jasa dokter spesialis;TRUE;622
+6-13-000;Beban Bahan & Utilitas Operasional;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;TRUE;6-00-000;Biaya Rutin Air, Listrik, Internet & Perlengkapan;TRUE;630
+6-13-001;Beban Alat Tulis Kantor (ATK) & Rekam Medis;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Kertas resep, map rekam medis, pulpen, amplop;TRUE;631
+6-13-002;Beban Cetakan & Fotokopi;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Brosur edukasi, kartu pasien, dan fotokopi dokumen;TRUE;632
+6-13-003;Beban Listrik (PLN);EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Biaya tagihan listrik operasional klinik;TRUE;633
+6-13-004;Beban Air (PDAM);EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Biaya tagihan air bersih klinik;TRUE;634
+6-13-005;Beban Telepon & Internet;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Langganan wifi internet fiber dan telepon kasir;TRUE;635
+6-13-006;Beban Kebersihan & Sanitasi;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Cairan disinfektan, sabun cuci tangan, pembersih lantai;TRUE;636
+6-13-007;Beban Keamanan & Satpam;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Iuran pos keamanan ruko dan jasa satpam;TRUE;637
+6-13-008;Beban Paket Pengiriman & Kurir;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Ongkir pengiriman obat, sampel lab, dan dokumen;TRUE;638
+6-13-009;Beban Parkir & Transportasi;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Bensin ambulans, uang transport pengadaan obat, parkir;TRUE;639
+6-13-010;Beban Konsumsi & Jamuan Kantor;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Makan jaga dokter malam, air galon, dan rapat tim;TRUE;640
+6-13-011;Beban Pakaian Dinas / Seragam Medis;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Pengadaan jas dokter dan seragam perawat;TRUE;641
+6-13-012;Beban Laundry Linen & Baju Medis;EXPENSE;BEBAN OPERASIONAL;Utilitas;DEBIT;FALSE;6-13-000;Jasa cuci sprei ranjang periksa dan linen steril;TRUE;642
+6-14-000;Beban Sewa Tempat & Alat;EXPENSE;BEBAN OPERASIONAL;Sewa;DEBIT;TRUE;6-00-000;Biaya Sewa Bangunan dan Alat;TRUE;650
+6-14-001;Beban Sewa Gedung / Bangunan Tempat Kerja;EXPENSE;BEBAN OPERASIONAL;Sewa;DEBIT;FALSE;6-14-000;Beban sewa bangunan atau tempat usaha klinik;TRUE;651
+6-14-002;Beban Sewa Peralatan Medis & Lab;EXPENSE;BEBAN OPERASIONAL;Sewa;DEBIT;FALSE;6-14-000;Sewa alat diagnostik atau alat lab eksternal;TRUE;652
+6-14-003;Beban Sewa Kendaraan / Angkutan;EXPENSE;BEBAN OPERASIONAL;Sewa;DEBIT;FALSE;6-14-000;Sewa mobil pick-up atau ambulans tambahan;TRUE;653
+6-15-000;Beban Pemeliharaan & Perawatan;EXPENSE;BEBAN OPERASIONAL;Pemeliharaan;DEBIT;TRUE;6-00-000;Biaya Perbaikan Fisik, Servis & Kalibrasi;TRUE;660
+6-15-001;Beban Pemeliharaan Gedung;EXPENSE;BEBAN OPERASIONAL;Pemeliharaan;DEBIT;FALSE;6-15-000;Pengecatan, perbaikan plafon, pipa air, kunci;TRUE;661
+6-15-002;Beban Pemeliharaan Alat Medis & Kalibrasi;EXPENSE;BEBAN OPERASIONAL;Pemeliharaan;DEBIT;FALSE;6-15-000;Uji kalibrasi berkala dan servis alat medis;TRUE;662
+6-15-003;Beban Pemeliharaan Alat Laboratorium;EXPENSE;BEBAN OPERASIONAL;Pemeliharaan;DEBIT;FALSE;6-15-000;Reagen kontrol dan maintenance alat lab;TRUE;663
+6-15-004;Beban Pemeliharaan Mebel & Perlengkapan;EXPENSE;BEBAN OPERASIONAL;Pemeliharaan;DEBIT;FALSE;6-15-000;Reparasi kursi tunggu, engsel pintu, meja;TRUE;664
+6-15-005;Beban Pemeliharaan IT & Komputer;EXPENSE;BEBAN OPERASIONAL;Pemeliharaan;DEBIT;FALSE;6-15-000;Servis printer kasir, instalasi router, OS;TRUE;665
+6-15-006;Beban Pemeliharaan Kendaraan Operasional;EXPENSE;BEBAN OPERASIONAL;Pemeliharaan;DEBIT;FALSE;6-15-000;Ganti oli ambulans, servis rem, ban;TRUE;666
+6-16-000;Beban Penyusutan & Amortisasi;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;TRUE;6-00-000;Alokasi Bulanan Depresiasi Aset;TRUE;670
+6-16-001;Beban Penyusutan Bangunan Gedung;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;6-16-000;Penyusutan garis lurus gedung klinik;TRUE;671
+6-16-002;Beban Penyusutan Peralatan Medis;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;6-16-000;Depresiasi peralatan medis;TRUE;672
+6-16-003;Beban Penyusutan Alat Laboratorium;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;6-16-000;Depresiasi alat diagnostik laboratorium;TRUE;673
+6-16-004;Beban Penyusutan Mebel & Perlengkapan;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;6-16-000;Depresiasi furnitur kantor dan ruang periksa;TRUE;674
+6-16-005;Beban Penyusutan Kendaraan Operasional;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;6-16-000;Depresiasi mobil ambulans dan motor;TRUE;675
+6-16-006;Beban Penyusutan Komputer & SI;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;6-16-000;Depresiasi komputer dan server kasir;TRUE;676
+6-16-007;Beban Amortisasi Aset Tak Berwujud;EXPENSE;BEBAN OPERASIONAL;Penyusutan;DEBIT;FALSE;6-16-000;Amortisasi software SIM klinik dan lisensi;TRUE;677
+6-17-000;Beban Pemasaran & Promosi;EXPENSE;BEBAN OPERASIONAL;Pemasaran;DEBIT;TRUE;6-00-000;Biaya Publikasi dan Branding;TRUE;680
+6-17-001;Beban Iklan & Promosi;EXPENSE;BEBAN OPERASIONAL;Pemasaran;DEBIT;FALSE;6-17-000;Iklan Instagram, spanduk posyandu, flyer;TRUE;681
+6-17-002;Beban Sampel & Edukasi Obat;EXPENSE;BEBAN OPERASIONAL;Pemasaran;DEBIT;FALSE;6-17-000;Pemberian sampel vitamin atau promosi kesehatan;TRUE;682
+6-17-003;Beban Souvenir & Kegiatan Edukasi Pasien;EXPENSE;BEBAN OPERASIONAL;Pemasaran;DEBIT;FALSE;6-17-000;Cinderamata seminar kesehatan lansia/ibu hamil;TRUE;683
+6-18-000;Beban Persediaan;EXPENSE;BEBAN OPERASIONAL;Beban Persediaan;DEBIT;TRUE;6-00-000;Pengeluaran Stok Non-Billing;TRUE;690
+6-18-001;Beban Pemakaian Internal Klinik;EXPENSE;BEBAN OPERASIONAL;Kerugian Stok;DEBIT;FALSE;6-18-000;Obat atau BHP yang digunakan untuk operasional mandiri klinik;TRUE;691
+6-18-002;Beban Kerugian Obat Rusak & Kadaluarsa;EXPENSE;BEBAN OPERASIONAL;Kerugian Stok;DEBIT;FALSE;6-18-000;Obat pecah fisik atau expired/lewat tanggal kadaluarsa;TRUE;692
+6-18-003;Beban Selisih Stok Opname;EXPENSE;BEBAN OPERASIONAL;Kerugian Stok;DEBIT;FALSE;6-18-000;Penyesuaian selisih fisik saat stock opname periodik;TRUE;693
+6-19-000;Beban Administrasi, Pajak & Lain-Lain;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;TRUE;6-00-000;Biaya Legalitas, Bank, Pajak dan Umum;TRUE;700
+6-19-001;Beban Administrasi Bank;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;6-19-000;Biaya admin rekening bank dan transfer antar bank;TRUE;701
+6-19-002;Beban Bunga Pinjaman Bank;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;6-19-000;Beban bunga kredit modal kerja klinik;TRUE;702
+6-19-003;Beban Pajak & Perizinan;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;6-19-000;Perpanjangan izin klinik, PBB, dan retribusi daerah;TRUE;703
+6-19-004;Beban Notaris & Konsultan Legal;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;6-19-000;Biaya akta notaris dan perizinan hukum;TRUE;704
+6-19-005;Beban Medical Check-Up & Pelatihan Staf;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;6-19-000;Pelatihan akreditasi dan cek kesehatan karyawan;TRUE;705
+6-19-006;Beban Bantuan & Donasi Medis;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;6-19-000;Bakti sosial, obat gratis bagi warga tidak mampu;TRUE;706
+6-19-007;Beban Operasional Lain-Lain;EXPENSE;BEBAN OPERASIONAL;Administrasi;DEBIT;FALSE;6-19-000;Pengeluaran operasional lain yang belum terklasifikasi;TRUE;707
