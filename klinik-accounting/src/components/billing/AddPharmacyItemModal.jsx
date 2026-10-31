@@ -21,9 +21,11 @@ export default function AddPharmacyItemModal({
     return (pharmacyItems || [])
       .filter(i => i.isActive !== false && i.is_active !== false)
       .map(i => {
-        const stock = (invBatches || [])
-          .filter(b => b.itemId === i.id && b.quantityCurrent > 0)
-          .reduce((s, b) => s + b.quantityCurrent, 0)
+        const stock = typeof getItemStock === 'function'
+          ? getItemStock(i.id)
+          : (invBatches || [])
+            .filter(b => (b.itemId === i.id || b.item_id === i.id) && Number(b.quantityCurrent ?? b.quantity_current) > 0)
+            .reduce((s, b) => s + (Number(b.quantityCurrent ?? b.quantity_current) || 0), 0)
 
         const catRaw = i.category || i.itemCategory || i.item_category || ''
         let categoryLabel = 'BHP'
@@ -49,7 +51,7 @@ export default function AddPharmacyItemModal({
       })
       .filter(i => i.stock > 0) // Only show items with stock
       .sort((a, b) => a.itemName.localeCompare(b.itemName))
-  }, [pharmacyItems, invBatches])
+  }, [pharmacyItems, invBatches, getItemStock])
 
   // Filter items based on search
   const filteredItems = useMemo(() => {

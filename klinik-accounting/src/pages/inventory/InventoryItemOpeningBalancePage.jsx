@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useStore } from '../../store/useStore'
+import { getAccountCode } from '../../utils/accountMapping'
 import { Search, Save, Package, RefreshCw, Download, Upload, FileDown, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react'
 import { fmtIDR, fmtNum } from '../../utils/format'
 import toast from 'react-hot-toast'
@@ -9,6 +11,7 @@ import Modal from '../../components/ui/Modal'
 import Alert from '../../components/ui/Alert'
 
 export default function InventoryItemOpeningBalancePage() {
+    const { activeBranchId, appSettings, refreshAll } = useStore()
     const [pharmacyItems, setPharmacyItems] = useState([])
     const [invBatches, setInvBatches] = useState([])
     const [searchTerm, setSearchTerm] = useState('')
@@ -106,40 +109,43 @@ export default function InventoryItemOpeningBalancePage() {
     }, [pharmacyItems, searchTerm])
 
     const handleQtyChange = (itemId, val) => {
-        setEditableBalances(prev => ({
-            ...prev,
-            [itemId]: {
-                ...prev[itemId],
-                quantity: val === '' ? 0 : Math.max(0, parseInt(val) || 0),
-            },
-        }))
+        setEditableBalances(prev => {
+            const current = prev[itemId] || { quantity: 0, unitCost: 0 }
+            let parsedQty = val
+            if (val !== '') {
+                const num = parseInt(val, 10)
+                parsedQty = isNaN(num) ? 0 : Math.max(0, num)
+            }
+            return {
+                ...prev,
+                [itemId]: {
+                    ...current,
+                    quantity: parsedQty,
+                },
+            }
+        })
     }
 
     const handleCostChange = (itemId, val) => {
-        setEditableBalances(prev => ({
-            ...prev,
-            [itemId]: {
-                ...prev[itemId],
-                unitCost: val === '' ? 0 : Math.max(0, parseFloat(val) || 0),
-            },
-        }))
+        setEditableBalances(prev => {
+            const current = prev[itemId] || { quantity: 0, unitCost: 0 }
+            let parsedCost = val
+            if (val !== '') {
+                const num = parseFloat(val)
+                parsedCost = isNaN(num) ? 0 : Math.max(0, num)
+            }
+            return {
+                ...prev,
+                [itemId]: {
+                    ...current,
+                    unitCost: parsedCost,
+                },
+            }
+        })
     }
 
     // Save functionality for current state or explicit data
     const saveToDatabase = async (balancesMapToSave = editableBalances) => {
-        const dataToSave = Object.entries(balancesMapToSave)
-            .map(([itemId, val]) => ({
-                itemId,
-                quantity: val.quantity,
-                unitCost: val.unitCost,
-            }))
-            .filter(item => item.quantity > 0)
-
-        if (dataToSave.length === 0) {
-            toast.error('Tidak ada saldo awal dengan Qty > 0 yang diisi.')
-            return false
-        }
-
         setSaving(true)
         try {
             const today = new Date().toISOString().split('T')[0]
@@ -147,7 +153,20 @@ export default function InventoryItemOpeningBalancePage() {
             futureDate.setFullYear(futureDate.getFullYear() + 10)
             const expiryDate = futureDate.toISOString().split('T')[0]
 
-            for (const item of dataToSave) {
+            const entries = Object.entries(balancesMapToSave).map(([itemId, val]) => ({
+                itemId,
+                quantity: Number(val?.quantity) || 0,
+                unitCost: Number(val?.unitCost) || 0,
+            }))
+
+            if (entries.length === 0) {
+                toast.error('Tidak ada item yang dapat disimpan.')
+                return false
+            }
+
+            let savedCount = 0
+
+            for (const item of entries) {
                 const pharmacyItem = pharmacyItems.find(p => p.id === item.itemId)
                 if (!pharmacyItem) continue
 
@@ -156,79 +175,142 @@ export default function InventoryItemOpeningBalancePage() {
                     b => b.itemId === item.itemId && b.batchNumber.includes('SALDO-AWAL')
                 )
 
-                if (existingBatch) {
-                    // Update existing batch
-                    const { error: updateError } = await supabase
+                if (item.quantity > 0) {
+                    if (existingBatch) {
+                        // Update existing batch
+                        const { error: updateError } = await supabase
+                            .from('inventory_batches')
+                            .update({
+                                quantity_received: item.quantity,
+                                quantity_current: item.quantity,
+                                unit_cost_price: item.unitCost,
+                                updated_at: new Date().toISOString()
+                            })
+                            .eq('id', existingBatch.id)
+
+                        if (updateError) throw updateError
+
+                        // Update stock ledger
+                        await supabase
+                            .from('stock_ledger_cards')
+                            .update({
+                                quantity_in: item.quantity,
+                                balance_after: item.quantity,
+                                unit_cost: item.unitCost,
+                                total_value: item.quantity * item.unitCost
+                            })
+                            .eq('batch_id', existingBatch.id)
+                    } else {
+                        // Create new batch
+                        const batchId = uuidv4()
+                        const { error: batchError } = await supabase
+                            .from('inventory_batches')
+                            .insert({
+                                id: batchId,
+                                item_id: item.itemId,
+                                batch_number: `SALDO-AWAL-${pharmacyItem.itemCode || pharmacyItem.id.substring(0, 8)}`,
+                                expiry_date: expiryDate,
+                                manufacture_date: today,
+                                unit_cost_price: item.unitCost,
+                                quantity_received: item.quantity,
+                                quantity_current: item.quantity,
+                                grn_reference: 'SALDO-AWAL',
+                                supplier_name: 'Saldo Awal Sistem',
+                                received_at: new Date().toISOString(),
+                                created_at: new Date().toISOString()
+                            })
+
+                        if (batchError) throw batchError
+
+                        // Create stock ledger entry
+                        await supabase
+                            .from('stock_ledger_cards')
+                            .insert({
+                                id: uuidv4(),
+                                batch_id: batchId,
+                                item_id: item.itemId,
+                                transaction_type: 'SALDO_AWAL',
+                                reference_number: 'SALDO-AWAL',
+                                quantity_in: item.quantity,
+                                quantity_out: 0,
+                                balance_after: item.quantity,
+                                unit_cost: item.unitCost,
+                                total_value: item.quantity * item.unitCost,
+                                notes: 'Saldo awal persediaan item',
+                                logged_at: new Date().toISOString()
+                            })
+                    }
+                    savedCount++
+                } else if (existingBatch) {
+                    // Update batch to 0 if previously recorded
+                    await supabase
                         .from('inventory_batches')
                         .update({
-                            quantity_received: item.quantity,
-                            quantity_current: item.quantity,
+                            quantity_received: 0,
+                            quantity_current: 0,
                             unit_cost_price: item.unitCost,
                             updated_at: new Date().toISOString()
                         })
                         .eq('id', existingBatch.id)
 
-                    if (updateError) throw updateError
-
-                    // Update stock ledger
-                    const { error: ledgerUpdateError } = await supabase
+                    await supabase
                         .from('stock_ledger_cards')
                         .update({
-                            quantity_in: item.quantity,
-                            balance_after: item.quantity,
-                            unit_cost: item.unitCost,
-                            total_value: item.quantity * item.unitCost
+                            quantity_in: 0,
+                            balance_after: 0,
+                            total_value: 0
                         })
                         .eq('batch_id', existingBatch.id)
-
-                    if (ledgerUpdateError) {
-                        console.warn('[updateLedger] Warning:', ledgerUpdateError)
-                    }
-                } else {
-                    // Create new batch
-                    const batchId = uuidv4()
-                    const { error: batchError } = await supabase
-                        .from('inventory_batches')
-                        .insert({
-                            id: batchId,
-                            item_id: item.itemId,
-                            batch_number: `SALDO-AWAL-${pharmacyItem.itemCode || pharmacyItem.id.substring(0, 8)}`,
-                            expiry_date: expiryDate,
-                            manufacture_date: today,
-                            unit_cost_price: item.unitCost,
-                            quantity_received: item.quantity,
-                            quantity_current: item.quantity,
-                            grn_reference: 'SALDO-AWAL',
-                            supplier_name: 'Saldo Awal Sistem',
-                            received_at: new Date().toISOString(),
-                            created_at: new Date().toISOString()
-                        })
-
-                    if (batchError) throw batchError
-
-                    // Create stock ledger entry
-                    const { error: ledgerError } = await supabase
-                        .from('stock_ledger_cards')
-                        .insert({
-                            id: uuidv4(),
-                            batch_id: batchId,
-                            item_id: item.itemId,
-                            transaction_type: 'SALDO_AWAL',
-                            reference_number: 'SALDO-AWAL',
-                            quantity_in: item.quantity,
-                            quantity_out: 0,
-                            balance_after: item.quantity,
-                            unit_cost: item.unitCost,
-                            total_value: item.quantity * item.unitCost,
-                            notes: 'Saldo awal persediaan item',
-                            logged_at: new Date().toISOString()
-                        })
-
-                    if (ledgerError) throw ledgerError
+                    savedCount++
                 }
             }
 
-            toast.success(`Saldo awal ${dataToSave.length} item berhasil disimpan ke database.`)
+            // ── Integrasi Penuh dengan Laporan Keuangan (opening_balances) ──
+            const totalInventoryValue = entries.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0)
+            const invAccountCode = getAccountCode('inventory', appSettings, '1-10301')
+            const fiscalYear = new Date().getFullYear()
+            const branchId = activeBranchId || 'f265df27-e277-4775-8b1d-5f28e585599a'
+
+            // Sinkronkan ke tabel opening_balances agar Neraca, Neraca Saldo, dan Laporan Keuangan terintegrasi
+            const { data: existingOB } = await supabase
+                .from('opening_balances')
+                .select('id')
+                .eq('account_code', invAccountCode)
+                .eq('fiscal_year', fiscalYear)
+                .eq('branch_id', branchId)
+                .maybeSingle()
+
+            if (existingOB) {
+                await supabase
+                    .from('opening_balances')
+                    .update({
+                        opening_balance: totalInventoryValue,
+                        description: 'Saldo awal persediaan obat & barang medis (Otomatis dari Saldo Awal Item)',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', existingOB.id)
+            } else {
+                await supabase
+                    .from('opening_balances')
+                    .insert({
+                        id: uuidv4(),
+                        account_code: invAccountCode,
+                        branch_id: branchId,
+                        fiscal_year: fiscalYear,
+                        opening_date: `${fiscalYear}-01-01`,
+                        opening_balance: totalInventoryValue,
+                        description: 'Saldo awal persediaan obat & barang medis (Otomatis dari Saldo Awal Item)',
+                        created_by: 'system',
+                        created_at: new Date().toISOString()
+                    })
+            }
+
+            toast.success(`Saldo awal item inventory (${savedCount} item diperbarui, total ${fmtIDR(totalInventoryValue)}) berhasil disimpan dan terintegrasi dengan laporan.`)
+
+            // Sinkronkan seluruh data in-memory di useStore
+            if (refreshAll) {
+                await refreshAll()
+            }
             await loadData()
             return true
         } catch (error) {
@@ -415,16 +497,18 @@ export default function InventoryItemOpeningBalancePage() {
 
     const grandTotalValue = useMemo(() => {
         return Object.values(editableBalances).reduce((acc, curr) => {
-            return acc + (curr.quantity * curr.unitCost)
+            const q = Number(curr?.quantity) || 0
+            const c = Number(curr?.unitCost) || 0
+            return acc + (q * c)
         }, 0)
     }, [editableBalances])
 
     const filledCount = useMemo(() => {
-        return Object.values(editableBalances).filter(b => b.quantity > 0).length
+        return Object.values(editableBalances).filter(b => (Number(b?.quantity) || 0) > 0).length
     }, [editableBalances])
 
     const totalQty = useMemo(() => {
-        return Object.values(editableBalances).reduce((acc, curr) => acc + (curr.quantity || 0), 0)
+        return Object.values(editableBalances).reduce((acc, curr) => acc + (Number(curr?.quantity) || 0), 0)
     }, [editableBalances])
 
     const CAT_LABELS = {
@@ -632,7 +716,7 @@ export default function InventoryItemOpeningBalancePage() {
                                                 <input
                                                     type="number"
                                                     className="form-input text-right font-sans font-bold text-xs py-1 px-2.5 focus:ring-primary-500"
-                                                    value={stateVal.quantity === 0 ? '' : stateVal.quantity}
+                                                    value={stateVal.quantity === '' ? '' : (stateVal.quantity ?? 0)}
                                                     onChange={(e) => handleQtyChange(item.id, e.target.value)}
                                                     placeholder="0"
                                                     min="0"
@@ -642,7 +726,7 @@ export default function InventoryItemOpeningBalancePage() {
                                                 <input
                                                     type="number"
                                                     className="form-input text-right font-sans font-bold text-xs py-1 px-2.5 focus:ring-primary-500"
-                                                    value={stateVal.unitCost === 0 ? '' : stateVal.unitCost}
+                                                    value={stateVal.unitCost === '' ? '' : (stateVal.unitCost ?? 0)}
                                                     onChange={(e) => handleCostChange(item.id, e.target.value)}
                                                     placeholder="0"
                                                     min="0"

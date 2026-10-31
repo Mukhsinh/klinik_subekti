@@ -61,7 +61,14 @@ let _state = {
   stockOutflowItems: [],
   users: [],
   auditLogs: [],
-  appSettings: {},
+  appSettings: (() => {
+    try {
+      const stored = localStorage.getItem('appSettings')
+      return stored ? JSON.parse(stored) : {}
+    } catch {
+      return {}
+    }
+  })(),
   openingBalances: [],
   activeBranchId: null,
   loading: true,
@@ -190,13 +197,16 @@ async function bootstrap() {
         stockOutflowItems: outflowItems,
         users,
         auditLogs,
-        appSettings,
+        appSettings: { ..._state.appSettings, ...(appSettings || {}) },
         openingBalances,
         activeBranchId,
         loading: false,
         initialized: true,
         error: null,
       })
+      try {
+        localStorage.setItem('appSettings', JSON.stringify({ ..._state.appSettings, ...(appSettings || {}) }))
+      } catch (_) {}
       _bootstrapDone = true
     } catch (err) {
       console.error('[Bootstrap] Supabase load failed:', err.message)
@@ -676,10 +686,23 @@ export function useStore() {
     try { await updateBatchQty(batchId, newQty); await insertStockLedger([entry]) } catch (e) { console.error('[adjustStock]', e.message) }
   }, [s.invBatches])
 
-  const getItemStock = useCallback((itemId) =>
-    s.invBatches.filter(b => b.itemId === itemId && b.quantityCurrent > 0)
-      .reduce((sum, b) => sum + b.quantityCurrent, 0),
-    [s.invBatches])
+  const getItemStock = useCallback((itemId) => {
+    if (!itemId) return 0
+    const batches = s.invBatches || []
+    const batchStock = batches
+      .filter(b => (b.itemId === itemId || b.item_id === itemId) && Number(b.quantityCurrent ?? b.quantity_current) > 0)
+      .reduce((sum, b) => sum + (Number(b.quantityCurrent ?? b.quantity_current) || 0), 0)
+    if (batchStock > 0) return batchStock
+
+    const ledger = s.stockLedger || []
+    const itemLedger = ledger.filter(l => l.itemId === itemId || l.item_id === itemId)
+    if (itemLedger.length > 0) {
+      const qIn = itemLedger.reduce((sum, l) => sum + (Number(l.quantityIn ?? l.quantity_in) || 0), 0)
+      const qOut = itemLedger.reduce((sum, l) => sum + (Number(l.quantityOut ?? l.quantity_out) || 0), 0)
+      return Math.max(0, qIn - qOut)
+    }
+    return 0
+  }, [s.invBatches, s.stockLedger])
 
   const depleteInventoryFIFO = useCallback(async (itemId, qtyNeeded, referenceNumber, branchId) => {
     let item = s.pharmacyItems.find(p => p.id === itemId)
@@ -1574,13 +1597,14 @@ export function useStore() {
     const expenseDebits = {}
     const inventoryCredits = {}
 
-    // Map outflowType to appropriate PABU expense account
+    // Map outflowType to appropriate PABU expense account based on saved COA mappings
     const OUTFLOW_EXPENSE_MAP = {
-      INTERNAL_USE: '6-18-001', // Beban Perlengkapan & Pemakaian Klinik
-      OVERHEAD: '6-18-001',     // Beban Overhead / Operasional Klinik
-      SAMPLE: '6-13-001',       // Beban Promosi & Sampel
-      DONATION: '6-91-002',     // Beban Donasi & Sosial
-      WASTE: '6-91-003',        // Beban Kerugian Barang Rusak / Kadaluarsa
+      INTERNAL_USE: getAccountCode('outflow_internal', s.appSettings, '6-18-001'), // Beban Perlengkapan & Pemakaian Klinik
+      OVERHEAD: getAccountCode('outflow_internal', s.appSettings, '6-18-001'),     // Beban Overhead / Operasional Klinik
+      SAMPLE: getAccountCode('outflow_sample', s.appSettings, '6-17-001'),         // Beban Promosi & Sampel
+      DONATION: getAccountCode('outflow_donation', s.appSettings, '6-91-002'),     // Beban Donasi & Sosial
+      WASTE: getAccountCode('outflow_waste', s.appSettings, '6-18-001'),          // Beban Kerugian Barang Rusak / Kadaluarsa
+      OTHER: getAccountCode('outflow_other', s.appSettings, '6-18-006'),          // Beban Operasional Lainnya
     }
 
     cogsDetails.forEach(d => {
@@ -1744,8 +1768,10 @@ export function useStore() {
   // ── App Settings ─────────────────────────────────────────
   const updateAppSettings = useCallback(async (settings) => {
     const oldSettings = { ...s.appSettings }
-    setState(prev => ({ ...prev, appSettings: { ...prev.appSettings, ...settings } }))
+    const merged = { ...s.appSettings, ...settings }
+    setState(prev => ({ ...prev, appSettings: merged }))
     try {
+      try { localStorage.setItem('appSettings', JSON.stringify(merged)) } catch (_) {}
       await saveAllAppSettings(settings)
       logActivity('UPDATE_SETTINGS', 'SETTINGS', `Updated app settings`)
     } catch (e) {

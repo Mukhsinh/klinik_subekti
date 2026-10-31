@@ -133,6 +133,15 @@ export const DEFAULT_ACCOUNT_MAPPINGS = {
     description: 'Porsi tagihan klaim asuransi rekanan perusahaan yang belum dibayar',
     targetType: 'ASSET'
   },
+  billing_piutang_pasien: {
+    key: 'billing_piutang_pasien',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Piutang Pasien Umum / Tagihan Belum Lunas',
+    defaultCode: '1-12-003',
+    description: 'Tagihan billing pasien umum atau layanan rawat jalan yang berstatus Belum Lunas',
+    targetType: 'ASSET'
+  },
   billing_ppn_output: {
     key: 'billing_ppn_output',
     module: 'BILLING',
@@ -531,6 +540,41 @@ export const DEFAULT_AUTO_JOURNAL_TEMPLATES = {
       { code: '4-13-002', name: 'Pendapatan Penjualan Obat Bebas / OTC', note: 'DPP penjualan obat bebas & generik' },
       { code: '4-13-003', name: 'Pendapatan Penjualan BHP Pasien', note: 'DPP penjualan bahan medis habis pakai' },
       { code: '2-14-001', name: 'Utang PPN Keluaran', note: 'Pajak PPN 11% yang dipungut dari pasien (bila ada)' }
+    ]
+  },
+  AJ_BILLING_UNPAID: {
+    id: 'AJ_BILLING_UNPAID',
+    name: 'Tagihan Billing Belum Lunas (Pengakuan Piutang Pasien & Pendapatan)',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    trigger: 'Kasir menyimpan transaksi billing pasien dengan status BELUM LUNAS',
+    description: 'Mencatat pengakuan piutang pasien umum / piutang usaha atas omzet layanan medis, lab, obat farmasi yang belum dibayar, serta mencatat HPP persediaan.',
+    debits: [
+      { code: '1-12-003', name: 'Piutang Pasien Umum', note: 'Total tagihan pasien belum dibayar (Grand Total)' },
+      { code: '4-14-001', name: 'Potongan / Diskon Penjualan', note: 'Alokasi diskon pasien (jika ada)' }
+    ],
+    credits: [
+      { code: '4-11-001', name: 'Pendapatan Konsultasi Dokter', note: 'Pengakuan omzet jasa dokter' },
+      { code: '4-11-003', name: 'Pendapatan Tindakan Medis & BHP', note: 'Pengakuan omzet tindakan medis' },
+      { code: '4-12-001', name: 'Pendapatan Laboratorium Medis', note: 'Pengakuan omzet lab medis' },
+      { code: '4-13-001', name: 'Pendapatan Penjualan Obat Etikal', note: 'DPP obat paten resep dokter' },
+      { code: '4-13-002', name: 'Pendapatan Penjualan Obat Bebas / OTC', note: 'DPP obat bebas & generik' },
+      { code: '4-13-003', name: 'Pendapatan Penjualan BHP Pasien', note: 'DPP bahan medis habis pakai' },
+      { code: '2-14-001', name: 'Utang PPN Keluaran', note: 'Pajak PPN 11% tagihan pasien' }
+    ]
+  },
+  AJ_BILLING_PAYMENT_UNPAID: {
+    id: 'AJ_BILLING_PAYMENT_UNPAID',
+    name: 'Pelunasan Piutang Billing Pasien (Penerimaan Kas atas Piutang)',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    trigger: 'Tagihan billing yang sebelumnya berstatus BELUM LUNAS diselesaikan / dibayar (LUNAS)',
+    description: 'Mencatat penerimaan kas / bank / QRIS dan mengkredit / melunasi saldo piutang pasien yang telah dibayar.',
+    debits: [
+      { code: '1-11-002', name: 'Kas Kasir / Penerimaan', note: 'Penerimaan uang kas / bank dari pelunasan pasien' }
+    ],
+    credits: [
+      { code: '1-12-003', name: 'Piutang Pasien Umum', note: 'Pelunasan dan penutupan saldo piutang pasien' }
     ]
   },
   AJ_BILLING_BPJS: {
@@ -1298,6 +1342,11 @@ export function getEffectiveAccountMappings(appSettings = {}) {
 
 /**
  * Mendapatkan kode akun COA aktif untuk kunci mapping tertentu
+ * Prioritas:
+ * 1. Nilai dari appSettings.account_mappings[key]
+ * 2. Nilai dari appSettings.auto_journal_templates (jika terkait)
+ * 3. Nilai bawaan DEFAULT_ACCOUNT_MAPPINGS[key].defaultCode
+ * 4. Nilai fallback manual
  */
 export function getAccountCode(key, appSettings = {}, fallback = null) {
   if (!key) return fallback
@@ -1305,6 +1354,45 @@ export function getAccountCode(key, appSettings = {}, fallback = null) {
   const val = savedMappings[key]
   if (typeof val === 'string' && val.trim()) return val.trim()
   if (typeof val === 'object' && val?.accountCode && val.accountCode.trim()) return val.accountCode.trim()
+
+  // Sinkronisasi dengan auto_journal_templates jika template diedit pengguna di Tab Jurnal Otomatis
+  const savedAj = extractRawSettings(appSettings, 'auto_journal_templates')
+  const ajKeyMap = {
+    billing_cash: { aj: 'AJ_BILLING_CASH', type: 'debit', idx: 0 },
+    billing_transfer: { aj: 'AJ_BILLING_TRANSFER', type: 'debit', idx: 0 },
+    billing_qris: { aj: 'AJ_BILLING_QRIS', type: 'debit', idx: 0 },
+    billing_piutang_bpjs: { aj: 'AJ_BILLING_BPJS', type: 'debit', idx: 1 },
+    billing_piutang_asuransi: { aj: 'AJ_BILLING_INSURANCE', type: 'debit', idx: 1 },
+    billing_ppn_output: { aj: 'AJ_BILLING_CASH', type: 'credit', match: '2-14-001' },
+    billing_doctor_fee: { aj: 'AJ_BILLING_CASH', type: 'debit', match: '6-12-001' },
+    billing_doctor_fee_payable: { aj: 'AJ_BILLING_CASH', type: 'credit', match: '2-12-003' },
+    billing_pph21_payable: { aj: 'AJ_BILLING_CASH', type: 'credit', match: '2-13-001' },
+    cogs_ethical: { aj: 'AJ_HPP_FIFO', type: 'debit', match: '5-11-001' },
+    cogs_otc: { aj: 'AJ_HPP_FIFO', type: 'debit', match: '5-11-002' },
+    cogs_bhp: { aj: 'AJ_HPP_FIFO', type: 'debit', match: '5-11-003' },
+    inv_ethical: { aj: 'AJ_HPP_FIFO', type: 'credit', match: '1-13-001' },
+    inv_otc: { aj: 'AJ_HPP_FIFO', type: 'credit', match: '1-13-002' },
+    inv_bhp: { aj: 'AJ_HPP_FIFO', type: 'credit', match: '1-13-003' },
+    outflow_internal: { aj: 'AJ_STOCK_OUTFLOW_INTERNAL', type: 'debit', idx: 0 },
+    outflow_sample: { aj: 'AJ_STOCK_OUTFLOW_SAMPLE', type: 'debit', idx: 0 },
+    outflow_donation: { aj: 'AJ_STOCK_OUTFLOW_DONATION', type: 'debit', idx: 0 },
+    outflow_waste: { aj: 'AJ_STOCK_OUTFLOW_WASTE', type: 'debit', idx: 0 },
+  }
+  const ajRule = ajKeyMap[key]
+  if (ajRule && savedAj && savedAj[ajRule.aj]) {
+    const ajObj = savedAj[ajRule.aj]
+    const list = ajRule.type === 'debit' ? ajObj.debits : ajObj.credits
+    if (list && Array.isArray(list) && list.length > 0) {
+      if (ajRule.idx !== undefined && list[ajRule.idx]?.accountCode) {
+        return list[ajRule.idx].accountCode.trim()
+      }
+      if (ajRule.match) {
+        const found = list.find(l => l.accountCode === ajRule.match || (l.label || '').toLowerCase().includes(key))
+        if (found?.accountCode) return found.accountCode.trim()
+      }
+    }
+  }
+
   if (DEFAULT_ACCOUNT_MAPPINGS[key]) return DEFAULT_ACCOUNT_MAPPINGS[key].defaultCode
   return fallback
 }

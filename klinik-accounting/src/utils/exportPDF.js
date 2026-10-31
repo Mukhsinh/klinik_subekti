@@ -314,17 +314,9 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null,
   doc.setTextColor(4, 100, 199)
   doc.text('BUKTI PEMBAYARAN / NOTA RAWAT JALAN', pageW - 12, 13, { align: 'right' })
 
-  // Status Stamp (LUNAS / BELUM LUNAS)
+  // Status Stamp (Only display BELUM LUNAS in header badge; LUNAS becomes a large center watermark)
   const isPaid = (billing.status || '').toUpperCase() === 'PAID'
-  if (isPaid) {
-    doc.setFillColor(220, 252, 231)
-    doc.setDrawColor(22, 163, 74)
-    doc.roundedRect(pageW - 48, 16, 36, 7, 1.5, 1.5, 'FD')
-    doc.setFontSize(8)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(22, 163, 74)
-    doc.text('✓ LUNAS', pageW - 30, 21, { align: 'center' })
-  } else {
+  if (!isPaid) {
     doc.setFillColor(254, 242, 242)
     doc.setDrawColor(220, 38, 38)
     doc.roundedRect(pageW - 55, 16, 43, 7, 1.5, 1.5, 'FD')
@@ -489,6 +481,35 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null,
   doc.setFontSize(6.5)
   doc.setTextColor(148, 163, 184)
   doc.text(`* Bukti pembayaran sah ini diterbitkan otomatis oleh Sistem Akuntansi Klinik (Dicetak: ${fmtDateTime(new Date())})`, 12, pageH - 6)
+
+  // 4. Large Center Watermark for LUNAS
+  if (isPaid) {
+    const totalPages = doc.internal.getNumberOfPages()
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p)
+      try {
+        if (typeof doc.saveGraphicsState === 'function' && doc.GState) {
+          doc.saveGraphicsState()
+          doc.setGState(new doc.GState({ opacity: 0.14 }))
+          doc.setTextColor(22, 163, 74)
+          doc.setFontSize(54)
+          doc.setFont('helvetica', 'bold')
+          doc.text('LUNAS', pageW / 2, pageH / 2 + 5, { align: 'center', angle: 25 })
+          doc.restoreGraphicsState()
+        } else {
+          doc.setTextColor(187, 247, 208)
+          doc.setFontSize(54)
+          doc.setFont('helvetica', 'bold')
+          doc.text('LUNAS', pageW / 2, pageH / 2 + 5, { align: 'center', angle: 25 })
+        }
+      } catch (_) {
+        doc.setTextColor(187, 247, 208)
+        doc.setFontSize(54)
+        doc.setFont('helvetica', 'bold')
+        doc.text('LUNAS', pageW / 2, pageH / 2 + 5, { align: 'center', angle: 25 })
+      }
+    }
+  }
 
   doc.save(`Nota_Billing_${billing.billingNumber || 'Receipt'}.pdf`)
 }

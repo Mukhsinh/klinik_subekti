@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, Fragment } from 'react'
 import {
   Plus, Pencil, PowerOff, Download, Upload, RefreshCw, Trash2,
   Settings, CheckCircle2, AlertTriangle, Layers, RotateCcw, Save, Search,
@@ -55,6 +55,23 @@ function AccountForm({ initial = {}, headerAccounts = [], onSave, onClose }) {
     onSave(form)
   }
 
+  const handleCodeChange = (code) => {
+    const clean = code.trim()
+    let detectedType = form.accountType
+    if (clean.startsWith('1')) detectedType = 'ASSET'
+    else if (clean.startsWith('2')) detectedType = 'LIABILITY'
+    else if (clean.startsWith('3')) detectedType = 'EQUITY'
+    else if (clean.startsWith('4') || clean.startsWith('8')) detectedType = 'REVENUE'
+    else if (clean.startsWith('5') || clean.startsWith('6') || clean.startsWith('9')) detectedType = 'EXPENSE'
+
+    setForm(f => ({
+      ...f,
+      accountCode: code,
+      accountType: detectedType,
+      naturalBalance: ['ASSET', 'EXPENSE'].includes(detectedType) ? 'DEBIT' : 'CREDIT'
+    }))
+  }
+
   const filteredParents = headerAccounts.filter(h => h.accountType === form.accountType && h.accountCode !== form.accountCode)
 
   return (
@@ -62,8 +79,8 @@ function AccountForm({ initial = {}, headerAccounts = [], onSave, onClose }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="form-label">Kode Akun *</label>
-          <input className="form-input font-mono" value={form.accountCode} onChange={e => set('accountCode', e.target.value)} placeholder="mis. 1-11-001" disabled={!!initial.accountCode} required />
-          <p className="text-xs text-slate-400 mt-1">Format: X-XX-XXX</p>
+          <input className="form-input font-mono" value={form.accountCode} onChange={e => handleCodeChange(e.target.value)} placeholder="mis. 1-11-001" disabled={!!initial.accountCode} required />
+          <p className="text-xs text-slate-400 mt-1">Format: X-XX-XXX (Otomatis deteksi jenis akun)</p>
         </div>
         <div>
           <label className="form-label">Tipe Akun *</label>
@@ -240,7 +257,7 @@ export default function COAPage() {
       }))
   }, [coa])
 
-  // Filtered COA accounts
+  // Filtered COA accounts - Strictly grouped by Account Type and sorted numerically by account code
   const TYPE_ORDER = { ASSET: 1, LIABILITY: 2, EQUITY: 3, REVENUE: 4, EXPENSE: 5 }
   const filteredCOA = useMemo(() =>
     coa
@@ -251,15 +268,36 @@ export default function COAPage() {
         (a.accountGroup || '').toLowerCase().includes(search.toLowerCase())
       )
       .sort((a, b) => {
-        const orderA = TYPE_ORDER[a.accountType] || 99
-        const orderB = TYPE_ORDER[b.accountType] || 99
+        const orderA = TYPE_ORDER[a.accountType] || (a.accountCode?.startsWith('1') ? 1 : a.accountCode?.startsWith('2') ? 2 : a.accountCode?.startsWith('3') ? 3 : (a.accountCode?.startsWith('4') || a.accountCode?.startsWith('8')) ? 4 : 5)
+        const orderB = TYPE_ORDER[b.accountType] || (b.accountCode?.startsWith('1') ? 1 : b.accountCode?.startsWith('2') ? 2 : b.accountCode?.startsWith('3') ? 3 : (b.accountCode?.startsWith('4') || b.accountCode?.startsWith('8')) ? 4 : 5)
         if (orderA !== orderB) return orderA - orderB
-        const sortA = a.sortOrder ?? 99999
-        const sortB = b.sortOrder ?? 99999
-        if (sortA !== sortB) return sortA - sortB
         return (a.accountCode || '').localeCompare(b.accountCode || '', undefined, { numeric: true })
       }),
     [coa, search, typeFilter])
+
+  // Pengelompokan akun COA sesuai Jenis Akun (Aset, Kewajiban, Ekuitas, Pendapatan, Beban)
+  const groupedCOA = useMemo(() => {
+    const groupDefs = [
+      { type: 'ASSET', title: '1. ASET (AKTIVA)', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200' },
+      { type: 'LIABILITY', title: '2. LIABILITAS (KEWAJIBAN)', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200' },
+      { type: 'EQUITY', title: '3. EKUITAS (MODAL)', badgeColor: 'bg-purple-100 text-purple-800 border-purple-200' },
+      { type: 'REVENUE', title: '4. PENDAPATAN', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+      { type: 'EXPENSE', title: '5. BEBAN & HARGA POKOK', badgeColor: 'bg-rose-100 text-rose-800 border-rose-200' },
+    ]
+    const map = {}
+    groupDefs.forEach(g => { map[g.type] = { ...g, accounts: [] } })
+
+    filteredCOA.forEach(acc => {
+      const t = acc.accountType || (acc.accountCode?.startsWith('1') ? 'ASSET' : acc.accountCode?.startsWith('2') ? 'LIABILITY' : acc.accountCode?.startsWith('3') ? 'EQUITY' : (acc.accountCode?.startsWith('4') || acc.accountCode?.startsWith('8')) ? 'REVENUE' : 'EXPENSE')
+      if (!map[t]) {
+        map[t] = { type: t, title: t, badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', accounts: [] }
+        groupDefs.push(map[t])
+      }
+      map[t].accounts.push(acc)
+    })
+
+    return groupDefs.filter(g => map[g.type]?.accounts?.length > 0).map(g => map[g.type])
+  }, [filteredCOA])
 
   // ── WORKFLOW CATEGORIZER UNTUK TAB 3 (MAPPING RUGI LABA & KASIR) ──
   const getWorkflowCategory = (item) => {
@@ -694,6 +732,10 @@ export default function COAPage() {
       if (typeof saveAppSettings === 'function') {
         await saveAppSettings({ [key]: payload }).catch(err => console.warn('[saveAppSettings]', err))
       }
+      try {
+        const stored = JSON.parse(localStorage.getItem('appSettings') || '{}')
+        localStorage.setItem('appSettings', JSON.stringify({ ...stored, [key]: payload }))
+      } catch (_) {}
       if (typeof refreshAll === 'function') {
         await refreshAll().catch(err => console.warn('[refreshAll]', err))
       }
@@ -1129,46 +1171,67 @@ export default function COAPage() {
                 <tbody className="divide-y divide-slate-100">
                   {filteredCOA.length === 0 ? (
                     <tr><td colSpan={8} className="text-center py-10 text-slate-400">Tidak ada akun ditemukan</td></tr>
-                  ) : filteredCOA.map(acc => (
-                    <tr key={acc.accountCode} className={acc.isHeader ? 'bg-slate-50/60 font-semibold' : 'hover:bg-slate-50/50'}>
-                      <td>
-                        <span className={`font-mono text-xs ${acc.isHeader ? 'font-bold text-slate-700' : 'text-primary-700 font-bold'}`}>
-                          {acc.accountCode}
-                        </span>
-                      </td>
-                      <td className={`${acc.isHeader ? 'font-bold text-slate-800' : 'font-medium text-slate-900'} ${acc.accountCode.split('-').length === 1 ? 'uppercase' : acc.accountCode.split('-').length === 2 ? 'pl-3' : 'pl-6'}`}>
-                        <div>{acc.accountName}</div>
-                        {mappingLookup[acc.accountCode] && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {mappingLookup[acc.accountCode].map((m, idx) => (
-                              <button
-                                key={idx}
-                                onClick={() => { setActiveTab('income_statement'); setMappingFilter(m.module); setMappingSearch(m.label) }}
-                                className="inline-block text-[10px] bg-primary-50 text-primary-700 border border-primary-200 px-1.5 py-0.5 rounded font-medium hover:bg-primary-100 cursor-pointer text-left"
-                                title="Klik untuk membuka mapping ini di tab Mapping Rugi Laba"
-                              >
-                                Terpetakan: {m.label} ({m.moduleLabel})
-                              </button>
-                            ))}
+                  ) : groupedCOA.map(group => (
+                    <Fragment key={group.type}>
+                      <tr className="bg-slate-100/90 border-t-2 border-b border-slate-300 font-bold text-slate-800">
+                        <td colSpan={8} className="py-2.5 px-4 bg-slate-100/95">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                              <span className={`px-2.5 py-0.5 rounded text-[11px] font-extrabold uppercase border shadow-xs ${group.badgeColor}`}>
+                                {accountTypeLabel(group.type)}
+                              </span>
+                              <span className="text-xs uppercase font-extrabold tracking-wider text-slate-800">
+                                {group.title}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-semibold font-mono">
+                              {group.accounts.length} akun terkelompok
+                            </span>
                           </div>
-                        )}
-                      </td>
-                      <td><span className={`badge ${accountTypeBadge(acc.accountType)}`}>{accountTypeLabel(acc.accountType)}</span></td>
-                      <td className="text-xs text-slate-500">{acc.accountGroup}</td>
-                      <td>
-                        <span className={`badge text-xs ${acc.naturalBalance === 'DEBIT' ? 'badge-blue' : 'badge-green'}`}>{acc.naturalBalance}</span>
-                      </td>
-                      <td className="text-center text-xs font-bold text-slate-600">{acc.isHeader ? '✓' : ''}</td>
-                      <td className="text-center"><StatusBadge status={acc.isActive ? 'ACTIVE' : 'INACTIVE'} /></td>
-                      <td className="text-center">
-                        {!acc.isHeader && (
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button className="btn-action-edit" onClick={() => { setSelected(acc); setModal('edit') }} title="Edit Akun"><Pencil className="w-3.5 h-3.5" /></button>
-                            {acc.isActive && <button className="btn-action-delete" onClick={() => handleDeactivate(acc)} title="Nonaktifkan"><PowerOff className="w-3.5 h-3.5" /></button>}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
+                        </td>
+                      </tr>
+                      {group.accounts.map(acc => (
+                        <tr key={acc.accountCode} className={acc.isHeader ? 'bg-slate-50/70 font-semibold' : 'hover:bg-slate-50/50'}>
+                          <td>
+                            <span className={`font-mono text-xs ${acc.isHeader ? 'font-bold text-slate-700' : 'text-primary-700 font-bold'}`}>
+                              {acc.accountCode}
+                            </span>
+                          </td>
+                          <td className={`${acc.isHeader ? 'font-bold text-slate-800' : 'font-medium text-slate-900'} ${acc.accountCode.split('-').length === 1 ? 'uppercase' : acc.accountCode.split('-').length === 2 ? 'pl-3' : 'pl-6'}`}>
+                            <div>{acc.accountName}</div>
+                            {mappingLookup[acc.accountCode] && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {mappingLookup[acc.accountCode].map((m, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={() => { setActiveTab('income_statement'); setMappingFilter(m.module); setMappingSearch(m.label) }}
+                                    className="inline-block text-[10px] bg-primary-50 text-primary-700 border border-primary-200 px-1.5 py-0.5 rounded font-medium hover:bg-primary-100 cursor-pointer text-left"
+                                    title="Klik untuk membuka mapping ini di tab Mapping Rugi Laba"
+                                  >
+                                    Terpetakan: {m.label} ({m.moduleLabel})
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td><span className={`badge ${accountTypeBadge(acc.accountType)}`}>{accountTypeLabel(acc.accountType)}</span></td>
+                          <td className="text-xs text-slate-500">{acc.accountGroup}</td>
+                          <td>
+                            <span className={`badge text-xs ${acc.naturalBalance === 'DEBIT' ? 'badge-blue' : 'badge-green'}`}>{acc.naturalBalance}</span>
+                          </td>
+                          <td className="text-center text-xs font-bold text-slate-600">{acc.isHeader ? '✓' : ''}</td>
+                          <td className="text-center"><StatusBadge status={acc.isActive ? 'ACTIVE' : 'INACTIVE'} /></td>
+                          <td className="text-center">
+                            {!acc.isHeader && (
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button className="btn-action-edit" onClick={() => { setSelected(acc); setModal('edit') }} title="Edit Akun"><Pencil className="w-3.5 h-3.5" /></button>
+                                {acc.isActive && <button className="btn-action-delete" onClick={() => handleDeactivate(acc)} title="Nonaktifkan"><PowerOff className="w-3.5 h-3.5" /></button>}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

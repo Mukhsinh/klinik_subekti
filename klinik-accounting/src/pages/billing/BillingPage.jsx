@@ -277,8 +277,23 @@ export default function BillingPage() {
 
     setIsSubmitting(true)
     try {
+      // 1. Validasi stok obat jika ada farmasi
+      for (const line of pharmacyLines.filter(l => l.itemId)) {
+        const requestedQty = parseInt(line.qty) || 0
+        if (requestedQty <= 0) {
+          toast.error('Jumlah pembelian obat harus lebih besar dari 0.')
+          return
+        }
+        const available = getItemStock(line.itemId)
+        if (requestedQty > available) {
+          toast.error(`Stok obat "${line.name}" tidak mencukupi. (Tersedia: ${available}, Diminta: ${requestedQty})`)
+          return
+        }
+      }
+
       const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName}`.trim() : ''
       const bId = uuidv4()
+      const eId = uuidv4()
       const freshBillingNumber = generateBillingNumber()
       const effectiveBranchId = activeBranchId || 'f265df27-e277-4775-8b1d-5f28e585599a'
 
@@ -317,6 +332,156 @@ export default function BillingPage() {
           discountPct: 0
         })),
       ]
+
+      // 2. Deplete inventory FIFO untuk obat & catat mutasi stok
+      const hppDebits = {}
+      const hppCredits = {}
+      try {
+        for (const line of pharmacyLines.filter(l => l.itemId)) {
+          const qtyToDeplete = parseInt(line.qty) || 0
+          const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, freshBillingNumber, bId)
+          cogsDetails.forEach(d => {
+            const val = d.qty * d.unitCostPrice
+            if (val > 0) {
+              hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
+              hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
+            }
+          })
+        }
+      } catch (err) {
+        toast.error(err.message)
+        return
+      }
+
+      // 3. Jurnal Otomatis Piutang Pendapatan (Belum Lunas)
+      const eNum = generateEntryNumber('BILLING')
+      const journalItems = []
+
+      const piutangPasienAcc = getAccountCode('billing_piutang_pasien', appSettings, '1-12-003')
+      const bpjsAcc = getAccountCode('billing_piutang_bpjs', appSettings, '1-12-001')
+      const insAcc = getAccountCode('billing_piutang_asuransi', appSettings, '1-12-002')
+      const ppnAcc = getAccountCode('billing_ppn_output', appSettings, '2-14-001')
+
+      // Sisi Debet: Piutang Pendapatan (Berdasarkan metode klaim/pasien)
+      if (payMethod === 'BPJS') {
+        if (patientPortion > 0) {
+          journalItems.push({
+            id: uuidv4(), journalEntryId: eId, accountCode: piutangPasienAcc,
+            description: `Piutang Pasien BPJS (Iuran) — ${freshBillingNumber}`,
+            debit: patientPortion, credit: 0
+          })
+        }
+        if (insurancePortion > 0) {
+          journalItems.push({
+            id: uuidv4(), journalEntryId: eId, accountCode: bpjsAcc,
+            description: `Piutang Klaim BPJS Kesehatan — ${freshBillingNumber}`,
+            debit: insurancePortion, credit: 0
+          })
+        }
+      } else if (payMethod === 'ASURANSI') {
+        if (patientPortion > 0) {
+          journalItems.push({
+            id: uuidv4(), journalEntryId: eId, accountCode: piutangPasienAcc,
+            description: `Piutang Pasien Asuransi — ${freshBillingNumber}`,
+            debit: patientPortion, credit: 0
+          })
+        }
+        if (insurancePortion > 0) {
+          journalItems.push({
+            id: uuidv4(), journalEntryId: eId, accountCode: insAcc,
+            description: `Piutang Klaim Asuransi Swasta — ${freshBillingNumber}`,
+            debit: insurancePortion, credit: 0
+          })
+        }
+      } else {
+        // Tagihan Pasien Umum Belum Lunas
+        journalItems.push({
+          id: uuidv4(), journalEntryId: eId, accountCode: piutangPasienAcc,
+          description: `Piutang Pendapatan Pasien Umum (Belum Lunas) — ${freshBillingNumber}`,
+          debit: grandTotal, credit: 0
+        })
+      }
+
+      // Sisi Kredit: Pengakuan Pendapatan Layanan Medis & Lab
+      const revenueByAccount = {}
+      serviceLines.forEach(l => {
+        const defaultActionAcc = getAccountCode('billing_action', appSettings, '4-11-003')
+        const accCode = l.revenueAccountCode || defaultActionAcc
+        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+      })
+      labLines.forEach(l => {
+        const defaultLabAcc = getAccountCode('billing_lab', appSettings, '4-12-001')
+        const accCode = l.revenueAccountCode || defaultLabAcc
+        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+      })
+      Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
+        if (amount > 0) {
+          const accDesc = accCode === getAccountCode('billing_action', appSettings, '4-11-003')
+            ? 'Pendapatan Tindakan Medis & BHP'
+            : accCode === getAccountCode('billing_lab', appSettings, '4-12-001')
+              ? 'Pendapatan Laboratorium'
+              : 'Pendapatan Konsultasi Dokter'
+          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `${accDesc} — ${freshBillingNumber}`, debit: 0, credit: amount })
+        }
+      })
+
+      // Sisi Kredit: Pengakuan Pendapatan Farmasi (Obat/BHP)
+      const pharmacyRevAccounts = {}
+      pharmacyLines.filter(l => l.itemId).forEach(l => {
+        const lineVal = (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)
+        if (lineVal > 0) {
+          const item = pharmacyItems.find(p => p.id === l.itemId)
+          const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
+          const isOTC = (item?.category || item?.itemCategory || '').toUpperCase().includes('OTC') || (item?.category || item?.itemCategory || '').toUpperCase().includes('GENERIK') || (item?.category || item?.itemCategory || '').toUpperCase().includes('BEBAS')
+          const defaultRev = isBHP
+            ? getAccountCode('billing_pharmacy_bhp', appSettings, '4-13-003')
+            : isOTC
+              ? getAccountCode('billing_pharmacy_otc', appSettings, '4-13-002')
+              : getAccountCode('billing_pharmacy_ethical', appSettings, '4-13-001')
+          const itemRev = item?.coaRevenueCode || item?.coa_revenue_code
+          const revAcc = (itemRev && !['4-13-001', '4-13-002', '4-13-003'].includes(itemRev)) ? itemRev : defaultRev
+          pharmacyRevAccounts[revAcc] = (pharmacyRevAccounts[revAcc] || 0) + lineVal
+        }
+      })
+      Object.entries(pharmacyRevAccounts).forEach(([accCode, amount]) => {
+        if (amount > 0) {
+          const accDesc = accCode === '4-13-003' ? 'Pendapatan Penjualan BHP Medis (DPP)' : accCode === '4-13-002' ? 'Pendapatan Penjualan Obat OTC / Generik (DPP)' : 'Penjualan Obat Etikal (DPP)'
+          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `${accDesc} — ${freshBillingNumber}`, debit: 0, credit: amount })
+        }
+      })
+
+      // PPN & Diskon
+      if (ppnAmount > 0) {
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: ppnAcc, description: `Utang PPN 11% — ${freshBillingNumber}`, debit: 0, credit: ppnAmount })
+      }
+      if (discountAmt > 0) {
+        const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon Billing — ${freshBillingNumber}`, debit: discountAmt, credit: 0 })
+      }
+
+      // HPP & Persediaan Obat
+      Object.entries(hppDebits).forEach(([coaCode, val]) => {
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `HPP Penjualan Obat — ${freshBillingNumber}`, debit: val, credit: 0 })
+      })
+      Object.entries(hppCredits).forEach(([coaCode, val]) => {
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${freshBillingNumber}`, debit: 0, credit: val })
+      })
+
+      const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
+      const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
+
+      await saveJournalDraft({
+        id: eId,
+        branchId: effectiveBranchId,
+        entryNumber: eNum,
+        transactionDate: visitDate,
+        description: `Piutang Billing Pasien ${patientName} — ${freshBillingNumber}`,
+        entryType: 'BILLING',
+        totalDebit: td,
+        totalCredit: tc
+      }, journalItems)
+      await postJournalEntry(eId, 'System-Billing')
+
       const billing = {
         id: bId,
         branchId: effectiveBranchId,
@@ -339,13 +504,13 @@ export default function BillingPage() {
         insurancePortion,
         status: 'UNPAID',
         createdBy: 'Pendaftaran / Kasir',
-        journalEntryId: null,
+        journalEntryId: eId,
       }
 
       const savedBilling = await saveBilling(billing, items)
       await refreshAll()
       const finalNum = savedBilling?.billingNumber || freshBillingNumber
-      toast.success(`Pendaftaran ${finalNum} (${patientName}) berhasil disimpan. Status: BELUM LUNAS.`)
+      toast.success(`Pendaftaran ${finalNum} (${patientName}) berhasil disimpan. Status: BELUM LUNAS. Piutang pendapatan dicatat ke jurnal.`)
       setModal(null)
       resetForm()
     } catch (err) {
@@ -568,6 +733,10 @@ export default function BillingPage() {
   }
 
   const handleOpenEditModal = async (b) => {
+    if ((b?.status || '').toUpperCase() === 'PAID') {
+      toast.error('Billing sudah berstatus LUNAS dan tidak dapat diedit.')
+      return
+    }
     setEditingBilling(b)
     let bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
     if (bItems.length === 0) {
@@ -601,12 +770,20 @@ export default function BillingPage() {
       qty: Number(i.quantity || 1),
       revenueAccountCode: i.revenueAccountCode || i.revenue_account_code || '4-12-001'
     }))
-    const pharms = bItems.filter(i => (i.itemType || i.item_type) === 'PHARMACY').map(i => ({
-      itemId: i.pharmacyItemId || i.pharmacy_item_id || i.itemId || i.item_id,
-      name: i.itemName || i.item_name,
-      price: Number(i.unitPrice ?? i.unit_price ?? 0),
-      qty: Number(i.quantity || 1),
-    }))
+    const pharms = bItems.filter(i => (i.itemType || i.item_type) === 'PHARMACY').map(i => {
+      const itId = i.pharmacyItemId || i.pharmacy_item_id || i.itemId || i.item_id
+      const q = Number(i.quantity || 1)
+      const currentStk = typeof getItemStock === 'function' ? getItemStock(itId) : 0
+      return {
+        id: i.id || uuidv4(),
+        itemId: itId,
+        name: i.itemName || i.item_name,
+        price: Number(i.unitPrice ?? i.unit_price ?? 0),
+        qty: q,
+        originalQty: q,
+        availableStock: currentStk + q
+      }
+    })
 
     setServiceLines(svcs)
     setLabLines(labs)
@@ -660,6 +837,162 @@ export default function BillingPage() {
       ]
 
       if (actionType === 'KEEP_UNPAID' || (editingBilling.status === 'UNPAID' && actionType !== 'PAY_NOW')) {
+        // Balikkan jurnal piutang lama jika sudah ada
+        if (editingBilling.journalEntryId) {
+          await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Piutang Billing ${editingBilling.billingNumber}`)
+        }
+
+        // Restock obat lama jika pernah dipotong
+        const stockLedgers = await fetchStockLedger()
+        const oldLedgerForBilling = stockLedgers.filter(l => l.referenceNumber === editingBilling.billingNumber && l.quantityOut > 0)
+        for (const lEntry of oldLedgerForBilling) {
+          if (lEntry.batchId) {
+            const batch = invBatches.find(b => b.id === lEntry.batchId)
+            if (batch) {
+              const restoredQty = batch.quantityCurrent + lEntry.quantityOut
+              await updateBatchQty(lEntry.batchId, restoredQty)
+              await insertStockLedger([{
+                id: uuidv4(),
+                batchId: lEntry.batchId,
+                itemId: lEntry.itemId,
+                transactionType: 'REVISION_RESTORE',
+                referenceId: editingBilling.id,
+                referenceNumber: editingBilling.billingNumber,
+                quantityIn: lEntry.quantityOut,
+                quantityOut: 0,
+                balanceAfter: restoredQty,
+                unitCost: lEntry.unitCost,
+                totalValue: lEntry.quantityOut * lEntry.unitCost,
+                notes: `Restok revisi piutang billing ${editingBilling.billingNumber}`,
+                loggedAt: new Date().toISOString()
+              }])
+            }
+          }
+        }
+
+        // Deplete FIFO obat baru
+        const hppDebits = {}
+        const hppCredits = {}
+        for (const line of pharmacyLines.filter(l => l.itemId)) {
+          const qtyToDeplete = parseInt(line.qty) || 0
+          const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, editingBilling.billingNumber, activeBranchId)
+          cogsDetails.forEach(d => {
+            const val = d.qty * d.unitCostPrice
+            if (val > 0) {
+              hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
+              hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
+            }
+          })
+        }
+
+        // Buat jurnal piutang pendapatan baru
+        const newJournalId = uuidv4()
+        const eNum = generateEntryNumber('BILLING')
+        const journalItems = []
+
+        const piutangPasienAcc = getAccountCode('billing_piutang_pasien', appSettings, '1-12-003')
+        const bpjsAcc = getAccountCode('billing_piutang_bpjs', appSettings, '1-12-001')
+        const insAcc = getAccountCode('billing_piutang_asuransi', appSettings, '1-12-002')
+        const ppnAcc = getAccountCode('billing_ppn_output', appSettings, '2-14-001')
+
+        if (payMethod === 'BPJS') {
+          if (patientPortion > 0) {
+            journalItems.push({
+              id: uuidv4(), journalEntryId: newJournalId, accountCode: piutangPasienAcc,
+              description: `Piutang Pasien BPJS (Revisi) — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0
+            })
+          }
+          if (insurancePortion > 0) {
+            journalItems.push({
+              id: uuidv4(), journalEntryId: newJournalId, accountCode: bpjsAcc,
+              description: `Piutang Klaim BPJS (Revisi) — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0
+            })
+          }
+        } else if (payMethod === 'ASURANSI') {
+          if (patientPortion > 0) {
+            journalItems.push({
+              id: uuidv4(), journalEntryId: newJournalId, accountCode: piutangPasienAcc,
+              description: `Piutang Pasien Asuransi (Revisi) — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0
+            })
+          }
+          if (insurancePortion > 0) {
+            journalItems.push({
+              id: uuidv4(), journalEntryId: newJournalId, accountCode: insAcc,
+              description: `Piutang Klaim Asuransi (Revisi) — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0
+            })
+          }
+        } else {
+          journalItems.push({
+            id: uuidv4(), journalEntryId: newJournalId, accountCode: piutangPasienAcc,
+            description: `Piutang Pasien Umum (Revisi Belum Lunas) — ${editingBilling.billingNumber}`, debit: grandTotal, credit: 0
+          })
+        }
+
+        const revenueByAccount = {}
+        serviceLines.forEach(l => {
+          const defaultActionAcc = getAccountCode('billing_action', appSettings, '4-11-003')
+          const accCode = l.revenueAccountCode || defaultActionAcc
+          revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+        })
+        labLines.forEach(l => {
+          const defaultLabAcc = getAccountCode('billing_lab', appSettings, '4-12-001')
+          const accCode = l.revenueAccountCode || defaultLabAcc
+          revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+        })
+        Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
+          if (amount > 0) {
+            const accDesc = accCode === getAccountCode('billing_action', appSettings, '4-11-003') ? 'Pendapatan Tindakan Medis & BHP' : accCode === getAccountCode('billing_lab', appSettings, '4-12-001') ? 'Pendapatan Laboratorium' : 'Pendapatan Konsultasi Dokter'
+            journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: accCode, description: `${accDesc} — ${editingBilling.billingNumber}`, debit: 0, credit: amount })
+          }
+        })
+
+        const pharmacyRevAccounts = {}
+        pharmacyLines.filter(l => l.itemId).forEach(l => {
+          const lineVal = (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)
+          if (lineVal > 0) {
+            const item = pharmacyItems.find(p => p.id === l.itemId)
+            const isBHP = item?.category === 'BHP' || item?.category === 'PEMAKAIAN BHP' || (item?.itemCode || item?.item_code || '').startsWith('BHP-')
+            const isOTC = (item?.category || item?.itemCategory || '').toUpperCase().includes('OTC') || (item?.category || item?.itemCategory || '').toUpperCase().includes('GENERIK') || (item?.category || item?.itemCategory || '').toUpperCase().includes('BEBAS')
+            const defaultRev = isBHP
+              ? getAccountCode('billing_pharmacy_bhp', appSettings, '4-13-003')
+              : isOTC
+                ? getAccountCode('billing_pharmacy_otc', appSettings, '4-13-002')
+                : getAccountCode('billing_pharmacy_ethical', appSettings, '4-13-001')
+            const itemRev = item?.coaRevenueCode || item?.coa_revenue_code
+            const revAcc = (itemRev && !['4-13-001', '4-13-002', '4-13-003'].includes(itemRev)) ? itemRev : defaultRev
+            pharmacyRevAccounts[revAcc] = (pharmacyRevAccounts[revAcc] || 0) + lineVal
+          }
+        })
+        Object.entries(pharmacyRevAccounts).forEach(([accCode, amount]) => {
+          if (amount > 0) {
+            const accDesc = accCode === '4-13-003' ? 'Pendapatan Penjualan BHP Medis (DPP)' : accCode === '4-13-002' ? 'Pendapatan Penjualan Obat OTC / Generik (DPP)' : 'Penjualan Obat Etikal (DPP)'
+            journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: accCode, description: `${accDesc} — ${editingBilling.billingNumber}`, debit: 0, credit: amount })
+          }
+        })
+
+        if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: ppnAcc, description: `Utang PPN 11% — ${editingBilling.billingNumber}`, debit: 0, credit: ppnAmount })
+        if (discountAmt > 0) {
+          const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: firstRevAccount, description: `Diskon Billing — ${editingBilling.billingNumber}`, debit: discountAmt, credit: 0 })
+        }
+
+        Object.entries(hppDebits).forEach(([coaCode, val]) => {
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: coaCode, description: `HPP Penjualan Obat — ${editingBilling.billingNumber}`, debit: val, credit: 0 })
+        })
+        Object.entries(hppCredits).forEach(([coaCode, val]) => {
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${editingBilling.billingNumber}`, debit: 0, credit: val })
+        })
+
+        const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
+        const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
+
+        await saveJournalDraft({
+          id: newJournalId, branchId: activeBranchId, entryNumber: eNum,
+          transactionDate: visitDate, description: `Piutang Billing Pasien ${patientName} — ${editingBilling.billingNumber}`,
+          entryType: 'BILLING', totalDebit: td, totalCredit: tc
+        }, journalItems)
+        await postJournalEntry(newJournalId, 'System-Billing')
+
         const updatedBillingObj = {
           id: editingBilling.id,
           patientName,
@@ -679,19 +1012,166 @@ export default function BillingPage() {
           patientPortion,
           insurancePortion,
           status: 'UNPAID',
+          journalEntryId: newJournalId,
           updatedAt: new Date().toISOString()
         }
         await updateBilling(editingBilling.id, updatedBillingObj)
         await deleteBillingItemsByBilling(editingBilling.id)
         await insertBillingItems(items)
         await refreshAll()
-        toast.success(`Data pendaftaran ${editingBilling.billingNumber} berhasil diperbarui. Status tetap: BELUM LUNAS.`)
+        toast.success(`Data pendaftaran ${editingBilling.billingNumber} berhasil diperbarui. Status: BELUM LUNAS. Piutang tercatat di jurnal.`)
         setModal(null)
         setEditingBilling(null)
         resetForm()
         return
       }
 
+      // ── KASUS PELUNASAN: Jika billing sebelumnya sudah dicatat sebagai Piutang (status UNPAID) ──
+      if (editingBilling.status === 'UNPAID' && editingBilling.journalEntryId && actionType === 'PAY_NOW') {
+        const settlementEntryId = uuidv4()
+        const eNum = generateEntryNumber('BILLING')
+        const journalItems = []
+
+        const cashAcc = getAccountCode('billing_cash', appSettings, '1-11-002')
+        const transferAcc = getAccountCode('billing_transfer', appSettings, '1-11-005')
+        const qrisAcc = getAccountCode('billing_qris', appSettings, '1-11-004')
+        const piutangPasienAcc = getAccountCode('billing_piutang_pasien', appSettings, '1-12-003')
+        const pph21Acc = getAccountCode('billing_pph21_payable', appSettings, '2-13-001')
+        const docFeePayableAcc = getAccountCode('billing_doctor_fee_payable', appSettings, '2-12-003')
+
+        const paymentAssetAcc = payMethod === 'TRANSFER' ? transferAcc : payMethod === 'QRIS' ? qrisAcc : cashAcc
+
+        // Debet Kas/Bank Penerimaan, Kredit Piutang Pasien
+        if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
+          journalItems.push({
+            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: paymentAssetAcc,
+            description: `Kas/Bank Pelunasan Piutang Pasien — ${editingBilling.billingNumber}`, debit: grandTotal, credit: 0
+          })
+          journalItems.push({
+            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: piutangPasienAcc,
+            description: `Pelunasan Piutang Pasien Umum — ${editingBilling.billingNumber}`, debit: 0, credit: grandTotal
+          })
+        } else if (payMethod === 'BPJS') {
+          if (patientPortion > 0) {
+            journalItems.push({
+              id: uuidv4(), journalEntryId: settlementEntryId, accountCode: cashAcc,
+              description: `Kas Penerimaan Iuran Pasien BPJS — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0
+            })
+            journalItems.push({
+              id: uuidv4(), journalEntryId: settlementEntryId, accountCode: piutangPasienAcc,
+              description: `Pelunasan Piutang Iuran Pasien BPJS — ${editingBilling.billingNumber}`, debit: 0, credit: patientPortion
+            })
+          }
+        } else {
+          if (patientPortion > 0) {
+            journalItems.push({
+              id: uuidv4(), journalEntryId: settlementEntryId, accountCode: cashAcc,
+              description: `Kas Penerimaan Pasien Asuransi — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0
+            })
+            journalItems.push({
+              id: uuidv4(), journalEntryId: settlementEntryId, accountCode: piutangPasienAcc,
+              description: `Pelunasan Piutang Pasien Asuransi — ${editingBilling.billingNumber}`, debit: 0, credit: patientPortion
+            })
+          }
+        }
+
+        // Pengakuan hak bagi hasil jasa medis dokter & PPh 21
+        if (grossDoctorFee > 0 && selectedDoctor) {
+          const docFeeAcc = getAccountCode('billing_doctor_fee', appSettings, '6-12-001')
+          journalItems.push({
+            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: docFeeAcc,
+            description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0
+          })
+          journalItems.push({
+            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: pph21Acc,
+            description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount
+          })
+          journalItems.push({
+            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: docFeePayableAcc,
+            description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor
+          })
+        }
+
+        const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
+        const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
+
+        await saveJournalDraft({
+          id: settlementEntryId,
+          branchId: activeBranchId,
+          entryNumber: eNum,
+          transactionDate: visitDate,
+          description: `Pelunasan Piutang Billing Pasien ${patientName} — ${editingBilling.billingNumber}`,
+          entryType: 'BILLING',
+          totalDebit: td,
+          totalCredit: tc
+        }, journalItems)
+        await postJournalEntry(settlementEntryId, 'System-Billing')
+
+        // Update billing menjadi LUNAS (PAID)
+        const updatedBillingObj = {
+          id: editingBilling.id,
+          patientName,
+          patientMRN,
+          doctorId: selectedDoctor?.id || null,
+          doctorName: docName,
+          visitDate,
+          paymentMethod: payMethod,
+          bpjsClaimNumber: bpjsClaimNo,
+          subtotalDoctorServices: subService,
+          subtotalLab: subLab,
+          subtotalServices: subService + subLab,
+          subtotalPharmacy,
+          discountAmount: discountAmt,
+          ppnAmount,
+          grandTotal,
+          patientPortion,
+          insurancePortion,
+          status: 'PAID',
+          updatedAt: new Date().toISOString()
+        }
+        await updateBilling(editingBilling.id, updatedBillingObj)
+        await deleteBillingItemsByBilling(editingBilling.id)
+        await insertBillingItems(items)
+
+        // Catat doctor fee record jika ada dokter
+        if (selectedDoctor && grossDoctorFee > 0) {
+          try {
+            await insertDoctorFeeRecord({
+              id: uuidv4(),
+              billingId: editingBilling.id,
+              doctorId: selectedDoctor.id,
+              doctorName: docName,
+              doctorNpwp: selectedDoctor.npwp || selectedDoctor.doctor_npwp || '',
+              grossJasaMedis: grossDoctorFee,
+              dppAmount: pph21Calc.dpp,
+              taxRate: pph21Calc.rate * 100,
+              pph21Amount: pph21Calc.pph21Amount,
+              netToDoctor: pph21Calc.netToDoctor,
+              cumulativeGrossYtd: 0,
+              journalEntryId: settlementEntryId,
+              createdAt: new Date().toISOString()
+            })
+          } catch (dfErr) {
+            console.warn('[handleSaveEditBilling] Doctor fee record insert error:', dfErr.message)
+          }
+        }
+
+        await insertAuditLog({
+          id: uuidv4(), user_id: 'system', user_name: 'Kasir', user_role: 'system',
+          action: 'PAY_BILLING', module: 'BILLING',
+          detail: `Pelunasan piutang tagihan ${editingBilling.billingNumber} (${patientName}) Rp ${grandTotal.toLocaleString('id-ID')}`,
+          ip_address: '127.0.0.1', created_at: new Date().toISOString()
+        }).catch(() => {})
+
+        await refreshAll()
+        toast.success(`Pembayaran billing ${editingBilling.billingNumber} berhasil. Pelunasan piutang pada kas diposting ke jurnal.`)
+        setModal(null)
+        setEditingBilling(null)
+        resetForm()
+        return
+      }
+
+      // ── KASUS LAIN: Billing baru atau belum memiliki jurnal piutang sebelumnya ──
       if (editingBilling.journalEntryId) {
         await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Billing ${editingBilling.billingNumber}`)
       }
@@ -979,9 +1459,23 @@ export default function BillingPage() {
                       <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors" onClick={() => handlePrintReceipt(b)} title="Cetak Kuitansi Nota (PDF 1/2 A4)">
                         <Printer className="w-3.5 h-3.5" />
                       </button>
-                      <button className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors" onClick={() => handleOpenEditModal(b)} title="Edit / Tambah Transaksi">
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
+                      {b.status === 'PAID' ? (
+                        <button
+                          className="p-1.5 text-slate-300 rounded cursor-not-allowed opacity-40"
+                          disabled
+                          title="Billing sudah lunas, tidak dapat diedit"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          className="p-1.5 text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                          onClick={() => handleOpenEditModal(b)}
+                          title="Edit / Tambah Transaksi"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       {b.status === 'UNPAID' && (
                         <button
                           className="px-2 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-sm flex items-center gap-1 transition-colors ml-0.5"
@@ -1226,8 +1720,11 @@ export default function BillingPage() {
                   </thead>
                   <tbody>
                     {pharmacyLines.map(l => {
-                      const availableStock = l.availableStock || 0
-                      const isOverStock = l.qty > availableStock
+                      const dynamicStk = typeof getItemStock === 'function' ? getItemStock(l.itemId) : 0
+                      const availableStock = l.availableStock !== undefined
+                        ? l.availableStock
+                        : (dynamicStk + (l.originalQty || 0))
+                      const isOverStock = availableStock > 0 ? l.qty > availableStock : false
 
                       return (
                         <tr key={l.id} className={isOverStock ? 'bg-red-50 border-l-4 border-red-500' : ''}>
@@ -1248,12 +1745,12 @@ export default function BillingPage() {
                               className={`form-input text-center text-sm py-2 w-full ${isOverStock ? 'border-red-500 bg-red-50 text-red-700 font-bold' : ''}`}
                               value={l.qty}
                               min={1}
-                              max={availableStock}
+                              max={availableStock > 0 ? availableStock : undefined}
                               onChange={e => {
                                 const newQty = parseInt(e.target.value) || 1
                                 setPharmacyLines(ls => ls.map(item => {
                                   if (item.id !== l.id) return item
-                                  if (newQty > availableStock) {
+                                  if (availableStock > 0 && newQty > availableStock) {
                                     toast.error(`Stok tidak mencukupi! Tersedia: ${availableStock}`, {
                                       duration: 2000,
                                       icon: '⚠️'
@@ -1269,9 +1766,12 @@ export default function BillingPage() {
                           <td className="text-center p-2">
                             <button
                               type="button"
-                              onClick={() => removePharm(l.id)}
-                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                              title="Hapus item"
+                              onClick={() => {
+                                removePharm(l.id)
+                                toast.success(`Item "${l.name || 'obat'}" dihapus dari daftar billing`)
+                              }}
+                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                              title="Hapus item obat ini saja"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
