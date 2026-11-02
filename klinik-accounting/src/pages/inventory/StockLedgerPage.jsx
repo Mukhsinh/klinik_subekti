@@ -62,7 +62,29 @@ export default function StockLedgerPage() {
 
   const effectiveStockLedger = useMemo(() => {
     const baseLedger = stockLedger || []
-    const list = [...baseLedger]
+    
+    // Map billing status by ID and billingNumber
+    const billingMap = new Map()
+    ;(billings || []).forEach(b => {
+      if (b.id) billingMap.set(b.id, b)
+      const bNum = b.billingNumber || b.billing_number
+      if (bNum) billingMap.set(bNum, b)
+    })
+
+    // Sesuai prinsip akuntansi & inventori: obat pasien dari farmasi/billing
+    // hanya keluar dari stok jika status billing telah PAID (LUNAS).
+    // Transaksi BILLING yang masih UNPAID tidak boleh mengurangi stok di kartu stok.
+    const list = baseLedger.filter(l => {
+      const isBilling = l.transactionType === 'BILLING' || l.transaction_type === 'BILLING'
+      if (!isBilling) return true
+      const ref = l.referenceNumber || l.reference_number || l.referenceId || l.reference_id
+      const b = billingMap.get(ref) || billingMap.get(l.referenceId || l.reference_id)
+      if (b) {
+        return b.status === 'PAID'
+      }
+      return true
+    })
+
     const processedBillingKeys = new Set(
       list.filter(l => l.transactionType === 'BILLING').map(l => `${l.referenceNumber}_${l.itemId}`)
     )
@@ -104,6 +126,9 @@ export default function StockLedgerPage() {
         .filter(bi => bi.itemType === 'PHARMACY' || bi.pharmacyItemId)
         .forEach(bi => {
           const billing = (billings || []).find(b => b.id === bi.billingId)
+          // Hanya sertakan jika billing berstatus PAID (LUNAS)
+          if (!billing || billing.status !== 'PAID') return
+
           const itemId = bi.pharmacyItemId || bi.itemId
           const refNo = billing?.billingNumber || 'BILL-KASIR'
           const key = `${refNo}_${itemId}`

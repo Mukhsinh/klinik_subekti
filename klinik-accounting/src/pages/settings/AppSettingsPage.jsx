@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Save, Settings, Building2, FileText, Upload, Trash2, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { useAuth } from '../../store/useAuth'
 import { supabase } from '../../lib/supabase'
@@ -11,6 +11,12 @@ export default function AppSettingsPage() {
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef(null)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    if (appSettings) {
+      setForm(prev => ({ ...appSettings, ...prev }))
+    }
+  }, [appSettings])
 
   // ── Upload logo to Supabase Storage ─────────────────────────
   const handleLogoUpload = async (file) => {
@@ -209,6 +215,18 @@ export default function AppSettingsPage() {
             <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-primary-600" /><span className="section-title">Pengaturan Laporan & Cetak</span></div>
           </div>
           <div className="card-body space-y-4">
+            <div>
+              <label className="form-label">Nama Petugas Kasir (Default Tanda Tangan Kuitansi)</label>
+              <input
+                type="text"
+                className="form-input"
+                value={form.cashierName || ''}
+                onChange={e => set('cashierName', e.target.value)}
+                placeholder="Contoh: Bagian Kasir Klinik / Siti Rahmawati"
+              />
+              <p className="text-xs text-slate-400 mt-1">Nama ini akan tercetak pada kolom tanda tangan kasir di slip kuitansi dan nota billing pasien.</p>
+            </div>
+
             <div>
               <label className="form-label">Teks Footer Laporan / Invoice</label>
               <textarea className="form-textarea" rows={2} value={form.footerText || ''} onChange={e => set('footerText', e.target.value)} placeholder="Teks yang muncul di footer setiap laporan dan invoice…" />

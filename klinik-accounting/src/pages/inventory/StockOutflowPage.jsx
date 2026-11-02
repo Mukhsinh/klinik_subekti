@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useStore } from '../../store/useStore'
+import { supabase } from '../../lib/supabase'
 import {
   fetchStockLedger,
   fetchStockOutflows,
@@ -18,8 +19,10 @@ import {
   fetchBranches,
   insertBillingItems,
   updateBilling,
+  deleteBillingItemsByBilling,
+  deleteStockOutflowItemByBillingAndItem,
 } from '../../lib/db'
-import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown, Layers, Pill, Stethoscope, UserCheck, AlertCircle } from 'lucide-react'
+import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown, Layers, Pill, Stethoscope, UserCheck, AlertCircle, Pencil, Lock } from 'lucide-react'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
 import SearchableSelect from '../../components/ui/SearchableSelect'
@@ -61,6 +64,7 @@ export default function StockOutflowPage() {
   const [selectedBillingId, setSelectedBillingId] = useState('')
   const [patientMedItems, setPatientMedItems] = useState([])
   const [isSavingPatientMed, setIsSavingPatientMed] = useState(false)
+  const [editingPatientOutflow, setEditingPatientOutflow] = useState(null)
 
   const effectiveBranchId = useMemo(() => {
     return activeBranchId || (branches && branches[0]?.id) || 'f265df27-e277-4775-8b1d-5f28e585599a'
@@ -120,9 +124,11 @@ export default function StockOutflowPage() {
         const biItemId = bi.pharmacyItemId || bi.pharmacy_item_id || bi.itemId || bi.item_id
         if (biItemId === itemId) {
           const billing = (billings || []).find(b => b.id === (bi.billingId || bi.billing_id))
-          const refNo = billing?.billingNumber || billing?.billing_number
-          if (!refNo || !processedBillingKeys.has(refNo)) {
-            extraBillingOut += Number(bi.quantity || 1)
+          if (billing && billing.status === 'PAID') {
+            const refNo = billing?.billingNumber || billing?.billing_number
+            if (!refNo || !processedBillingKeys.has(refNo)) {
+              extraBillingOut += Number(bi.quantity || 1)
+            }
           }
         }
       })
@@ -351,6 +357,7 @@ export default function StockOutflowPage() {
   }, [billingItems, selectedBillingId])
 
   const resetPatientMedForm = () => {
+    setEditingPatientOutflow(null)
     setSelectedBillingId('')
     setPatientMedItems([{
       id: uuidv4(),
@@ -364,6 +371,61 @@ export default function StockOutflowPage() {
       unit: 'Unit',
       notes: ''
     }])
+  }
+
+  const handleOpenEditPatientMed = (outflow) => {
+    const billingRecord = (billings || []).find(b => b.id === (outflow.billingId || outflow.billing_id) || (outflow.prescriptionNo && (b.billingNumber === outflow.prescriptionNo || b.billing_number === outflow.prescriptionNo)))
+    if (billingRecord && (billingRecord.status === 'PAID' || billingRecord.status === 'LUNAS')) {
+      toast.error('Tagihan pasien ini sudah LUNAS di kasir. Resep terkunci dan tidak dapat diedit.')
+      return
+    }
+
+    setEditingPatientOutflow(outflow)
+    const targetBillingId = billingRecord?.id || outflow.billingId || outflow.billing_id || ''
+    setSelectedBillingId(targetBillingId)
+
+    // Ambil item obat: prioritas dari billingItems (live di kasir) atau dari combinedItems
+    const liveBillingMeds = (billingItems || []).filter(i => (i.billingId === targetBillingId || i.billing_id === targetBillingId) && (i.itemType === 'PHARMACY' || i.item_type === 'PHARMACY'))
+    const sourceItems = liveBillingMeds.length > 0
+      ? liveBillingMeds
+      : ((Array.isArray(outflow.combinedItems) && outflow.combinedItems.length > 0) ? outflow.combinedItems : (itemsByOutflow[outflow.id] || []))
+
+    if (sourceItems.length > 0) {
+      setPatientMedItems(sourceItems.map(it => {
+        const itId = it.pharmacyItemId || it.pharmacy_item_id || it.itemId || it.item_id
+        const pItem = activePharmacyItems.find(p => p.id === itId)
+        const q = Number(it.quantity || 1)
+        const sp = Number(it.unitPrice ?? it.unit_price ?? it.sellingPrice ?? it.selling_price ?? it.sellPrice ?? (pItem?.sellingPrice || pItem?.selling_price || 0))
+        const uc = Number(it.unitCost ?? it.unit_cost ?? (pItem?.purchasePrice || pItem?.hpp || 0))
+        return {
+          id: it.id || uuidv4(),
+          itemId: itId,
+          itemName: it.itemName || it.item_name || pItem?.itemName || 'Obat',
+          quantity: q,
+          sellPrice: sp,
+          unitCost: uc,
+          totalPrice: q * sp,
+          totalCost: q * uc,
+          unit: it.unit || pItem?.baseUnit || 'Unit',
+          notes: it.notes || ''
+        }
+      }))
+    } else {
+      setPatientMedItems([{
+        id: uuidv4(),
+        itemId: '',
+        itemName: '',
+        quantity: 1,
+        sellPrice: 0,
+        unitCost: 0,
+        totalPrice: 0,
+        totalCost: 0,
+        unit: 'Unit',
+        notes: ''
+      }])
+    }
+
+    setModal('patient_medicine')
   }
 
   const addPatientMedLine = () => {
@@ -465,11 +527,12 @@ export default function StockOutflowPage() {
     }
 
     setIsSavingPatientMed(true)
+    const isEditing = !!editingPatientOutflow
     const now = new Date().toISOString()
     const billingNum = selectedBilling.billingNumber || selectedBilling.billing_number || 'INV'
     const patientDisplay = selectedBilling.patientName || selectedBilling.patient_name || 'Pasien'
-    const outflowId = uuidv4()
-    const outNum = `OUT-MED/${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(10000 + Math.random() * 90000)}`
+    const outflowId = isEditing ? (editingPatientOutflow.id || uuidv4()) : uuidv4()
+    const outNum = isEditing ? (editingPatientOutflow.outflowNumber || editingPatientOutflow.outflow_number) : `OUT-MED/${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}/${Math.floor(10000 + Math.random() * 90000)}`
 
     try {
       let totalHpp = 0
@@ -547,6 +610,20 @@ export default function StockOutflowPage() {
         })
       }
 
+      // If editing existing outflow, cleanly clear old records before re-inserting
+      if (isEditing) {
+        if (Array.isArray(editingPatientOutflow.allOutflowIds) && editingPatientOutflow.allOutflowIds.length > 0) {
+          await supabase.from('stock_outflow_items').delete().in('outflow_id', editingPatientOutflow.allOutflowIds)
+          const extraIds = editingPatientOutflow.allOutflowIds.filter(id => id !== outflowId)
+          if (extraIds.length > 0) {
+            await supabase.from('stock_outflow_entries').delete().in('id', extraIds)
+          }
+        } else {
+          await supabase.from('stock_outflow_items').delete().eq('outflow_id', outflowId)
+        }
+        await supabase.from('billing_items').delete().eq('billing_id', selectedBilling.id).eq('item_type', 'PHARMACY')
+      }
+
       // 1. Insert billing items to database
       await insertBillingItems(newBillingItems)
 
@@ -555,41 +632,47 @@ export default function StockOutflowPage() {
         await insertStockLedger(ledgerEntries)
       }
 
-      // 3. Create stock outflow entry for pharmacy audit history (saved to Supabase database)
+      // 3. Create or Update stock outflow entry for pharmacy audit history (saved to Supabase database)
       const totalSellingVal = newBillingItems.reduce((sum, it) => sum + (it.totalPrice || 0), 0)
       const docName = patientBillingOptions.find(o => o.value === selectedBillingId)?.docName || selectedBilling.doctorName || selectedBilling.doctor_name || '-'
 
-      await insertStockOutflow({
-        id: outflowId,
-        branchId: effectiveBranchId,
-        outflowNumber: outNum,
-        outflowDate: todayISO(),
-        outflowType: 'PATIENT_MEDICINE',
-        description: `Pengeluaran Obat Pasien: ${patientDisplay} (No. Billing: ${billingNum})`,
-        totalValue: totalHpp,
-        totalSelling: totalSellingVal,
-        patientId: selectedBilling.patientId || selectedBilling.patient_id || null,
-        patientName: patientDisplay,
-        prescriptionNo: billingNum,
-        billingId: selectedBilling.id,
-        doctorName: docName,
-        status: 'POSTED',
-        journalEntryId: null,
-        createdBy: 'Farmasi/Apotek',
-        createdAt: now,
-        updatedAt: now,
-      })
+      if (isEditing) {
+        await updateStockOutflow(outflowId, {
+          totalValue: totalHpp,
+          totalSelling: totalSellingVal,
+          updatedAt: now,
+        })
+      } else {
+        await insertStockOutflow({
+          id: outflowId,
+          branchId: effectiveBranchId,
+          outflowNumber: outNum,
+          outflowDate: todayISO(),
+          outflowType: 'PATIENT_MEDICINE',
+          description: `Pengeluaran Obat Pasien: ${patientDisplay} (No. Billing: ${billingNum})`,
+          totalValue: totalHpp,
+          totalSelling: totalSellingVal,
+          patientId: selectedBilling.patientId || selectedBilling.patient_id || null,
+          patientName: patientDisplay,
+          prescriptionNo: billingNum,
+          billingId: selectedBilling.id,
+          doctorName: docName,
+          status: 'POSTED',
+          journalEntryId: null,
+          createdBy: 'Farmasi/Apotek',
+          createdAt: now,
+          updatedAt: now,
+        })
+      }
       await insertStockOutflowItems(newOutflowItems)
 
       // 4. Update patient_billings totals in database
-      const addedPharmacySubtotal = newBillingItems.reduce((sum, it) => sum + (it.totalPrice || 0), 0)
-      const currentPharmSubtotal = Number(selectedBilling.subtotalPharmacy || selectedBilling.subtotal_pharmacy || 0)
+      const updatedPharmSubtotal = newBillingItems.reduce((sum, it) => sum + (it.totalPrice || 0), 0)
       const currentDoctorSvc = Number(selectedBilling.subtotalDoctorServices || selectedBilling.subtotal_doctor_services || 0)
       const currentLab = Number(selectedBilling.subtotalLab || selectedBilling.subtotal_lab || 0)
       const currentSvcSubtotal = Number(selectedBilling.subtotalServices || selectedBilling.subtotal_services || (currentDoctorSvc + currentLab))
       const currentDiscount = Number(selectedBilling.discountAmount || selectedBilling.discount_amount || 0)
 
-      const updatedPharmSubtotal = currentPharmSubtotal + addedPharmacySubtotal
       // PPN 11% is strictly applied on pharmacy items
       const updatedPpn = Math.round(updatedPharmSubtotal * 0.11)
       const updatedGrandTotal = Math.max(0, currentSvcSubtotal + updatedPharmSubtotal + updatedPpn - currentDiscount)
@@ -617,7 +700,10 @@ export default function StockOutflowPage() {
       // 5. Refresh full store state across all components in real time!
       await refreshAll()
 
-      toast.success(`Pengeluaran obat untuk ${patientDisplay} berhasil disimpan ke database! Terhubung langsung dengan billing kasir.`)
+      toast.success(isEditing 
+        ? `Resep obat pasien ${patientDisplay} berhasil diperbarui dan disinkronkan ke Kasir!`
+        : `Pengeluaran obat untuk ${patientDisplay} berhasil disimpan ke database! Terhubung langsung dengan billing kasir.`
+      )
       setModal(null)
       setActiveViewTab('PATIENT_MEDICINE')
       resetPatientMedForm()
@@ -835,22 +921,74 @@ export default function StockOutflowPage() {
     return map
   }, [outflowItems])
 
-  const patientMedOutflows = useMemo(() => {
-    return (outflows || []).filter(o => o.outflowType === 'PATIENT_MEDICINE' || (o.description || '').toLowerCase().includes('obat pasien'))
-  }, [outflows])
+  // Konsolidasi pengeluaran obat pasien per invoice/billing (seperti kasus pasien 'Yanti' yang memiliki beberapa batch inputan)
+  const consolidatedPatientMedOutflows = useMemo(() => {
+    const list = (outflows || []).filter(o => o.outflowType === 'PATIENT_MEDICINE' || (o.description || '').toLowerCase().includes('obat pasien'))
+    const groupMap = new Map()
+
+    list.forEach(o => {
+      const bRef = o.prescriptionNo || (o.description?.match(/No\. Billing:\s*([^)]+)/)?.[1]?.trim()) || ''
+      const billKey = o.billingId || o.billing_id || bRef || `${o.patientName || 'UMUM'}_${(o.outflowDate || '').split('T')[0]}`
+
+      if (!groupMap.has(billKey)) {
+        groupMap.set(billKey, {
+          ...o,
+          id: o.id,
+          allOutflowIds: [o.id],
+          outflowNumber: o.outflowNumber,
+          allOutflowNumbers: [o.outflowNumber],
+          prescriptionNo: bRef || o.prescriptionNo || '—',
+          patientName: o.patientName || (o.description?.match(/Pasien:\s*([^(]+)/)?.[1]?.trim()) || 'Pasien Umum',
+          doctorName: o.doctorName || '-',
+          outflowDate: o.outflowDate || o.createdAt,
+          createdAt: o.createdAt || o.outflowDate,
+          totalValue: Number(o.totalValue || 0),
+          totalSelling: Number(o.totalSelling || 0),
+          billingId: o.billingId || o.billing_id,
+          combinedItems: [...(itemsByOutflow[o.id] || [])]
+        })
+      } else {
+        const existing = groupMap.get(billKey)
+        existing.allOutflowIds.push(o.id)
+        if (!existing.allOutflowNumbers.includes(o.outflowNumber)) {
+          existing.allOutflowNumbers.push(o.outflowNumber)
+        }
+        existing.totalValue += Number(o.totalValue || 0)
+        existing.totalSelling += Number(o.totalSelling || 0)
+        const moreItems = itemsByOutflow[o.id] || []
+        moreItems.forEach(mi => {
+          const mItemId = mi.itemId || mi.item_id
+          const existItem = existing.combinedItems.find(ci => (ci.itemId || ci.item_id) === mItemId)
+          if (existItem) {
+            existItem.quantity = Number(existItem.quantity || 0) + Number(mi.quantity || 0)
+            existItem.totalCost = Number(existItem.totalCost || 0) + Number(mi.totalCost || 0)
+            existItem.subtotalSale = Number(existItem.subtotalSale || 0) + Number(mi.subtotalSale || 0)
+          } else {
+            existing.combinedItems.push({ ...mi })
+          }
+        })
+      }
+    })
+
+    return Array.from(groupMap.values())
+  }, [outflows, itemsByOutflow])
+
+  const patientMedOutflows = consolidatedPatientMedOutflows
 
   const internalOutflows = useMemo(() => {
     return (outflows || []).filter(o => o.outflowType !== 'PATIENT_MEDICINE' && !(o.description || '').toLowerCase().includes('obat pasien'))
   }, [outflows])
 
   const filtered = useMemo(() => {
-    const outflowsArray = Array.isArray(outflows) ? outflows : []
-    let result = outflowsArray
+    let result = []
 
     if (activeViewTab === 'PATIENT_MEDICINE') {
-      result = patientMedOutflows
+      result = consolidatedPatientMedOutflows
     } else if (activeViewTab === 'INTERNAL') {
       result = internalOutflows
+    } else {
+      // Gabungkan pengeluaran obat pasien yang sudah terkonsolidasi dengan pengeluaran internal
+      result = [...consolidatedPatientMedOutflows, ...internalOutflows]
     }
 
     if (statusFilter !== 'ALL') {
@@ -868,16 +1006,34 @@ export default function StockOutflowPage() {
       )
     }
 
+    // Urutkan presisi: tanggal terbaru di atas, dan jika tanggal sama, urutkan berdasarkan jam:menit transaksi (terbaru di atas)
     return result.sort((a, b) => {
-      const dateA = a.outflowDate ? new Date(a.outflowDate) : (a.createdAt ? new Date(a.createdAt) : new Date(0))
-      const dateB = b.outflowDate ? new Date(b.outflowDate) : (b.createdAt ? new Date(b.createdAt) : new Date(0))
-      return dateB - dateA
+      const dStrA = (a.outflowDate || a.outflow_date || a.createdAt || '').split('T')[0]
+      const dStrB = (b.outflowDate || b.outflow_date || b.createdAt || '').split('T')[0]
+      if (dStrA && dStrB && dStrA !== dStrB) {
+        return dStrB.localeCompare(dStrA)
+      }
+      const timeA = new Date(a.createdAt || a.created_at || a.outflowDate || 0).getTime()
+      const timeB = new Date(b.createdAt || b.created_at || b.outflowDate || 0).getTime()
+      if (timeA && timeB && timeA !== timeB) return timeB - timeA
+      const numA = a.outflowNumber || a.outflow_number || ''
+      const numB = b.outflowNumber || b.outflow_number || ''
+      return numB.localeCompare(numA)
     })
-  }, [outflows, activeViewTab, patientMedOutflows, internalOutflows, statusFilter, search])
+  }, [consolidatedPatientMedOutflows, internalOutflows, activeViewTab, statusFilter, search])
 
   const selectedItems = useMemo(() => {
     if (!selected?.id) return []
-    return (outflowItems || []).filter(i => String(i.outflowId || i.outflow_id) === String(selected.id))
+    if (Array.isArray(selected.combinedItems) && selected.combinedItems.length > 0) {
+      return selected.combinedItems
+    }
+    const oId = String(selected.id)
+    const directItems = (outflowItems || []).filter(i => String(i.outflowId || i.outflow_id) === oId)
+    if (directItems.length > 0) return directItems
+    if (Array.isArray(selected.allOutflowIds)) {
+      return (outflowItems || []).filter(i => selected.allOutflowIds.includes(String(i.outflowId || i.outflow_id)))
+    }
+    return []
   }, [outflowItems, selected])
 
   const totalQtyOut = useMemo(() => {
@@ -1094,7 +1250,7 @@ export default function StockOutflowPage() {
                   ) : (
                     filtered.map(o => {
                       const isMed = o.outflowType === 'PATIENT_MEDICINE' || (o.description || '').toLowerCase().includes('obat pasien')
-                      const curItems = itemsByOutflow[o.id] || []
+                      const curItems = (Array.isArray(o.combinedItems) && o.combinedItems.length > 0) ? o.combinedItems : (itemsByOutflow[o.id] || [])
                       const billingRecord = (billings || []).find(b => b.id === (o.billingId || o.billing_id) || (o.prescriptionNo && (b.billingNumber === o.prescriptionNo || b.billing_number === o.prescriptionNo)))
                       const isPaid = billingRecord ? (billingRecord.status === 'PAID') : (o.status === 'POSTED')
                       
@@ -1182,13 +1338,34 @@ export default function StockOutflowPage() {
                             )}
                           </td>
                           <td className="py-2.5 px-2 text-center whitespace-nowrap">
-                            <button
-                              className="btn-ghost p-1.5 hover:bg-slate-100 text-slate-600 hover:text-primary-700 rounded-lg transition"
-                              onClick={() => { setSelected(o); setModal('view') }}
-                              title="Lihat rincian lengkap pengeluaran obat ini"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                className="btn-ghost p-1.5 hover:bg-slate-100 text-slate-600 hover:text-primary-700 rounded-lg transition"
+                                onClick={() => { setSelected(o); setModal('view') }}
+                                title="Lihat rincian lengkap pengeluaran obat ini"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              {isMed && (
+                                isPaid ? (
+                                  <button
+                                    className="p-1.5 rounded-lg text-slate-300 cursor-not-allowed bg-slate-50 opacity-50"
+                                    disabled
+                                    title="Tagihan sudah lunas di kasir, resep terkunci dan tidak dapat diedit"
+                                  >
+                                    <Lock className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="p-1.5 rounded-lg text-amber-600 hover:text-amber-800 hover:bg-amber-50 transition"
+                                    onClick={() => handleOpenEditPatientMed(o)}
+                                    title="Edit resep obat pasien (tersambung ke kasir)"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                )
+                              )}
+                            </div>
                           </td>
                         </tr>
                       )
@@ -1581,8 +1758,8 @@ export default function StockOutflowPage() {
       {/* ═══ Patient Medicine Outflow Modal ═══════════════════════ */}
       <Modal
         open={modal === 'patient_medicine'}
-        onClose={() => setModal(null)}
-        title="Pengeluaran Obat Pasien (Apotek/Farmasi)"
+        onClose={() => { setModal(null); resetPatientMedForm() }}
+        title={editingPatientOutflow ? "Edit / Revisi Resep Obat Pasien (Tersambung ke Kasir)" : "Pengeluaran Obat Pasien (Apotek/Farmasi)"}
         size="xl"
       >
         <div className="space-y-5">
@@ -1759,6 +1936,8 @@ export default function StockOutflowPage() {
                 >
                   {isSavingPatientMed ? (
                     <><span className="animate-spin">⏳</span> Menyimpan...</>
+                  ) : editingPatientOutflow ? (
+                    <><CheckCircle className="w-4.5 h-4.5" /> Simpan Perubahan & Sinkronkan ke Kasir</>
                   ) : (
                     <><CheckCircle className="w-4.5 h-4.5" /> Simpan & Keluarkan Obat Pasien</>
                   )}

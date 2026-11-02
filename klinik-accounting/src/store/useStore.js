@@ -739,8 +739,15 @@ export function useStore() {
     const coaInventoryCode = (itemInv && !['1-13-001', '1-13-002', '1-13-003'].includes(itemInv)) ? itemInv : mappedInv
 
     const activeBatches = [...s.invBatches]
-      .filter(b => b.itemId === itemId && b.quantityCurrent > 0)
-      .sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate))
+      .filter(b => (b.itemId === itemId || b.item_id === itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
+      .sort((a, b) => {
+        const expA = new Date(a.expiryDate || a.expiry_date || '2099-12-31').getTime()
+        const expB = new Date(b.expiryDate || b.expiry_date || '2099-12-31').getTime()
+        if (expA !== expB) return expA - expB
+        const dateA = new Date(a.receivedAt || a.received_at || a.createdAt || a.created_at || 0).getTime()
+        const dateB = new Date(b.receivedAt || b.received_at || b.createdAt || b.created_at || 0).getTime()
+        return dateA - dateB
+      })
 
     let remaining = qtyNeeded
     const depletedList = []

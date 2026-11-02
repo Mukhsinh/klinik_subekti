@@ -118,8 +118,8 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     return map[form.paymentMethod] || '1-11-002'
   }, [form.paymentMethod])
 
-  const submit = (e) => {
-    e.preventDefault()
+  const handleFormSubmit = (e, postNow = true) => {
+    if (e && e.preventDefault) e.preventDefault()
     if (!form.description.trim()) {
       toast.error('Keterangan pengeluaran wajib diisi.')
       return
@@ -137,8 +137,8 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
       coaCode: selectedCat.coa,
       creditCoaCode: creditAccountCode,
       branchId: activeBranchId,
-      status: 'DRAFT'
-    })
+      status: postNow ? 'POSTED' : 'DRAFT'
+    }, postNow)
   }
 
   return (
@@ -259,7 +259,12 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
 
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" className="btn-secondary text-xs" onClick={onClose}>Batal</button>
-        <button type="submit" className="btn-primary text-xs px-5">Simpan Draft Pengeluaran</button>
+        <button type="button" className="btn-secondary text-xs px-3.5 text-slate-700" onClick={(e) => handleFormSubmit(e, false)}>
+          Simpan sebagai Draft
+        </button>
+        <button type="button" className="btn-primary text-xs px-4 bg-emerald-600 hover:bg-emerald-700 border-emerald-600 font-bold" onClick={(e) => handleFormSubmit(e, true)}>
+          ✓ Simpan & Posting ke Buku Besar
+        </button>
       </div>
     </form>
   )
@@ -269,7 +274,7 @@ export default function ExpensePage() {
   const {
     expenses, invBatches, fixedAssets, journalEntries, generateExpenseNumber,
     saveExpense, postExpense, activeBranchId, saveJournalDraft, postJournalEntry,
-    generateEntryNumber, vendors, refreshAll, appSettings
+    generateEntryNumber, vendors, refreshAll, appSettings, pharmacyItems
   } = useStore()
 
   // Main Page Tab: 'expenses' (Daftar Pengeluaran) | 'debts' (Fitur Bayar Utang & Tagihan)
@@ -285,6 +290,7 @@ export default function ExpensePage() {
   const [debtStatusFilter, setDebtStatusFilter] = useState('UNPAID') // 'ALL' | 'UNPAID' | 'PAID'
   const [debtTypeFilter, setDebtTypeFilter] = useState('ALL') // 'ALL' | 'GRN' | 'ASSET'
   const [payingDebtItem, setPayingDebtItem] = useState(null)
+  const [viewingDebtItem, setViewingDebtItem] = useState(null)
   const [payForm, setPayForm] = useState({
     payAmount: '',
     paymentMethod: 'TRANSFER',
@@ -549,6 +555,87 @@ export default function ExpensePage() {
       toast.error(`Gagal memproses pelunasan utang: ${err.message || 'Terjadi kesalahan'}`)
     } finally {
       setIsProcessingPay(false)
+    }
+  }
+
+  const handlePostDraftExpense = async (exp) => {
+    try {
+      const journalEntryId = exp.journalEntryId || uuidv4()
+      const entryNumber = generateEntryNumber('EXP')
+      const totalAmount = Number(exp.netAmount || exp.grossAmount || 0)
+
+      const journalHeader = {
+        id: journalEntryId,
+        branchId: activeBranchId || null,
+        entryNumber,
+        transactionDate: exp.expenseDate,
+        description: `Posting Pengeluaran Beban: ${exp.category} — ${exp.description}`,
+        entryType: 'EXPENSE',
+        status: 'POSTED',
+        totalDebit: totalAmount,
+        totalCredit: totalAmount,
+        createdBy: 'Admin',
+        postedBy: 'Admin',
+        postedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+
+      const journalLines = [
+        {
+          id: uuidv4(),
+          journalEntryId,
+          accountCode: exp.coaCode || '6-91-004',
+          description: `Beban ${exp.category} — ${exp.description}`,
+          debit: Number(exp.grossAmount || totalAmount),
+          credit: 0
+        }
+      ]
+
+      if (Number(exp.ppnAmount || 0) > 0) {
+        journalLines.push({
+          id: uuidv4(),
+          journalEntryId,
+          accountCode: getAccountCode('billing_ppn_masukan', appSettings, '1-17-001'),
+          description: `PPN Masukan — ${exp.description}`,
+          debit: Number(exp.ppnAmount),
+          credit: 0
+        })
+      }
+
+      if (Number(exp.pphAmount || 0) > 0) {
+        journalLines.push({
+          id: uuidv4(),
+          journalEntryId,
+          accountCode: getAccountCode('billing_pph21_payable', appSettings, '2-13-001'),
+          description: `Utang PPh Dipotong — ${exp.description}`,
+          debit: 0,
+          credit: Number(exp.pphAmount)
+        })
+      }
+
+      journalLines.push({
+        id: uuidv4(),
+        journalEntryId,
+        accountCode: exp.creditCoaCode || '1-11-002',
+        description: `Kas/Bank Pembayaran — ${paymentMethodLabel(exp.paymentMethod)}`,
+        debit: 0,
+        credit: totalAmount
+      })
+
+      await saveJournalDraft(journalHeader, journalLines)
+      await postJournalEntry(journalEntryId, 'Admin')
+      await upsertExpense({
+        ...exp,
+        status: 'POSTED',
+        journalEntryId,
+        postedAt: new Date().toISOString()
+      })
+      await refreshAll()
+      toast.success(`Pengeluaran ${exp.expenseNumber} berhasil diposting ke Buku Besar!`)
+    } catch (err) {
+      console.error('[handlePostDraftExpense]', err)
+      toast.error(`Gagal memposting pengeluaran: ${err.message}`)
     }
   }
 
@@ -819,20 +906,29 @@ export default function ExpensePage() {
                           )}
                         </td>
                         <td className="py-2 px-2 text-center whitespace-nowrap">
-                          {item.status === 'UNPAID' ? (
+                          <div className="flex items-center justify-center gap-1">
                             <button
-                              onClick={() => handleOpenPayDebt(item)}
-                              className="px-2 py-1 text-[11px] font-bold rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-xs flex items-center justify-center gap-1 w-full"
-                              title="Bayar Utang Sekarang"
+                              onClick={() => { setViewingDebtItem(item); setModal('view_debt') }}
+                              className="p-1 rounded-lg text-slate-500 hover:text-primary-700 hover:bg-slate-100 transition"
+                              title="Lihat Rincian Item Tagihan / Faktur"
                             >
-                              <Wallet className="w-3 h-3" />
-                              <span>Bayar</span>
+                              <Eye className="w-3.5 h-3.5" />
                             </button>
-                          ) : (
-                            <span className="text-[10px] text-emerald-700 font-mono font-bold">
-                              Lunas
-                            </span>
-                          )}
+                            {item.status === 'UNPAID' ? (
+                              <button
+                                onClick={() => handleOpenPayDebt(item)}
+                                className="px-2 py-1 text-[11px] font-bold rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-xs flex items-center justify-center gap-1"
+                                title="Bayar Utang Sekarang"
+                              >
+                                <Wallet className="w-3 h-3" />
+                                <span>Bayar</span>
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-emerald-700 font-mono font-bold">
+                                Lunas
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -919,7 +1015,18 @@ export default function ExpensePage() {
                         <StatusBadge status={e.status === 'POSTED' ? 'POSTED' : e.status === 'VOID' ? 'VOID' : 'DRAFT'} />
                       </td>
                       <td className="py-2 px-1 text-center whitespace-nowrap">
-                        <button className="btn-ghost p-1" onClick={() => { setSelected(e); setModal('view') }} title="Lihat Detail"><Eye className="w-3.5 h-3.5" /></button>
+                        <div className="flex items-center justify-center gap-1">
+                          <button className="btn-ghost p-1" onClick={() => { setSelected(e); setModal('view') }} title="Lihat Detail"><Eye className="w-3.5 h-3.5" /></button>
+                          {e.status === 'DRAFT' && (
+                            <button
+                              onClick={() => handlePostDraftExpense(e)}
+                              className="p-1 rounded text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 transition"
+                              title="Posting ke Buku Besar"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1068,14 +1175,92 @@ export default function ExpensePage() {
           vendors={vendors}
           storeBatches={effectiveBatches}
           storeExpenses={effectiveExpenses}
-          onSave={async (data) => {
+          onSave={async (data, postNow = true) => {
             try {
-              await saveExpense(data)
-              await refreshAll()
-              toast.success(`Pengeluaran ${data.expenseNumber} berhasil disimpan.`)
+              if (postNow) {
+                const journalEntryId = uuidv4()
+                const entryNumber = generateEntryNumber('EXP')
+                const totalAmount = Number(data.netAmount || data.grossAmount || 0)
+
+                const journalHeader = {
+                  id: journalEntryId,
+                  branchId: activeBranchId || null,
+                  entryNumber,
+                  transactionDate: data.expenseDate,
+                  description: `Pengeluaran Beban: ${data.category} — ${data.description}`,
+                  entryType: 'EXPENSE',
+                  status: 'POSTED',
+                  totalDebit: totalAmount,
+                  totalCredit: totalAmount,
+                  createdBy: 'Kasir/Admin',
+                  postedBy: 'Admin',
+                  postedAt: new Date().toISOString(),
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString()
+                }
+
+                const journalLines = [
+                  {
+                    id: uuidv4(),
+                    journalEntryId,
+                    accountCode: data.coaCode || '6-91-004',
+                    description: `Beban ${data.category} — ${data.description}`,
+                    debit: Number(data.grossAmount || totalAmount),
+                    credit: 0
+                  }
+                ]
+
+                if (Number(data.ppnAmount || 0) > 0) {
+                  journalLines.push({
+                    id: uuidv4(),
+                    journalEntryId,
+                    accountCode: getAccountCode('billing_ppn_masukan', appSettings, '1-17-001'),
+                    description: `PPN Masukan — ${data.description}`,
+                    debit: Number(data.ppnAmount),
+                    credit: 0
+                  })
+                }
+
+                if (Number(data.pphAmount || 0) > 0) {
+                  journalLines.push({
+                    id: uuidv4(),
+                    journalEntryId,
+                    accountCode: getAccountCode('billing_pph21_payable', appSettings, '2-13-001'),
+                    description: `Utang PPh Dipotong — ${data.description}`,
+                    debit: 0,
+                    credit: Number(data.pphAmount)
+                  })
+                }
+
+                journalLines.push({
+                  id: uuidv4(),
+                  journalEntryId,
+                  accountCode: data.creditCoaCode || '1-11-002',
+                  description: `Kas/Bank Pembayaran Beban — ${paymentMethodLabel(data.paymentMethod)}`,
+                  debit: 0,
+                  credit: totalAmount
+                })
+
+                await saveJournalDraft(journalHeader, journalLines)
+                await postJournalEntry(journalEntryId, 'Admin')
+                
+                await saveExpense({
+                  ...data,
+                  status: 'POSTED',
+                  journalEntryId,
+                  postedAt: new Date().toISOString()
+                })
+                await refreshAll()
+                toast.success(`Pengeluaran ${data.expenseNumber} berhasil disimpan dan langsung diposting ke Buku Besar!`)
+              } else {
+                await saveExpense({ ...data, status: 'DRAFT' })
+                await refreshAll()
+                toast.success(`Pengeluaran ${data.expenseNumber} berhasil disimpan sebagai Draft.`)
+              }
               setModal(null)
             } catch (err) {
-              toast.error(err.message)
+              console.error('[onSave Expense]', err)
+              toast.error(`Gagal menyimpan pengeluaran: ${err.message}`)
             }
           }}
           onClose={() => setModal(null)}
@@ -1084,6 +1269,139 @@ export default function ExpensePage() {
           appSettings={appSettings}
         />
       </Modal>
+
+      {/* MODAL: VIEW RINCIAN TAGIHAN UTANG */}
+      {modal === 'view_debt' && viewingDebtItem && (
+        <Modal
+          open={true}
+          onClose={() => { setModal(null); setViewingDebtItem(null) }}
+          title={`Rincian Tagihan: ${viewingDebtItem.refNumber}`}
+          size="lg"
+        >
+          <div className="space-y-4 text-xs">
+            {/* Header info */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200">
+              <div>
+                <span className="text-slate-500 block text-[10px]">No. Referensi / Faktur:</span>
+                <span className="font-mono font-bold text-slate-800">{viewingDebtItem.refNumber}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px]">Pihak / Supplier:</span>
+                <span className="font-semibold text-slate-800">{viewingDebtItem.partyName}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px]">Tgl Transaksi:</span>
+                <span className="text-slate-800">{fmtDate(viewingDebtItem.transactionDate)}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px]">Status Pembayaran:</span>
+                <span className={`inline-block font-bold text-[10px] px-2 py-0.5 rounded-full ${
+                  viewingDebtItem.status === 'PAID' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                }`}>
+                  {viewingDebtItem.status === 'PAID' ? 'LUNAS' : 'BELUM LUNAS'}
+                </span>
+              </div>
+            </div>
+
+            {/* List Item GRN jika tipe GRN */}
+            {viewingDebtItem.debtType === 'GRN' ? (
+              <div className="space-y-2">
+                <h4 className="font-bold text-slate-800 text-xs">Daftar Item Obat / BHP pada Faktur Ini:</h4>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-left border-collapse table-auto text-xs">
+                    <thead className="bg-slate-100 text-[11px] font-bold text-slate-700 uppercase">
+                      <tr>
+                        <th className="py-2 px-3">Nama Barang / Obat</th>
+                        <th className="py-2 px-3">No. Batch</th>
+                        <th className="py-2 px-3 text-center">Tgl Kadaluarsa (ED)</th>
+                        <th className="py-2 px-3 text-center">Qty Masuk</th>
+                        <th className="py-2 px-3 text-right">Harga Beli Satuan</th>
+                        <th className="py-2 px-3 text-right">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {effectiveBatches
+                        .filter(b => (b.grnReference || b.grn_reference || '').toUpperCase().trim() === viewingDebtItem.refNumber.toUpperCase().trim())
+                        .map(b => {
+                          const pItem = (pharmacyItems || []).find(p => p.id === (b.itemId || b.item_id))
+                          const iName = pItem?.itemName || b.itemName || b.item_name || 'Item Farmasi'
+                          const qty = Number(b.quantityReceived ?? b.quantity_received ?? 0)
+                          const cost = Number(b.unitCostPrice ?? b.unit_cost_price ?? 0)
+                          const subtotal = qty * cost
+                          return (
+                            <tr key={b.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 font-medium text-slate-800">{iName}</td>
+                              <td className="py-2 px-3 font-mono text-slate-700">{b.batchNumber || b.batch_number || '-'}</td>
+                              <td className="py-2 px-3 text-center font-mono text-slate-600">{b.expiryDate ? fmtDate(b.expiryDate) : '-'}</td>
+                              <td className="py-2 px-3 text-center font-bold text-slate-800">{fmtNum(qty)}</td>
+                              <td className="py-2 px-3 text-right font-mono text-slate-700">{fmtIDR(cost)}</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">{fmtIDR(subtotal)}</td>
+                            </tr>
+                          )
+                        })}
+                    </tbody>
+                    <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
+                      <tr>
+                        <td colSpan={5} className="py-2 px-3 text-right text-slate-600">Total Nilai Tagihan:</td>
+                        <td className="py-2 px-3 text-right font-mono text-slate-900">{fmtIDR(viewingDebtItem.totalAmount)}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={5} className="py-1 px-3 text-right text-emerald-600">Sudah Dibayar:</td>
+                        <td className="py-1 px-3 text-right font-mono text-emerald-700">{fmtIDR(viewingDebtItem.totalPaid)}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={5} className="py-1.5 px-3 text-right text-rose-600">Sisa Utang:</td>
+                        <td className="py-1.5 px-3 text-right font-mono text-rose-600 font-extrabold">{fmtIDR(viewingDebtItem.unpaid)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                <p className="font-semibold text-slate-800">{viewingDebtItem.title}</p>
+                <div className="flex justify-between border-t border-slate-200 pt-2 text-xs">
+                  <span className="text-slate-600">Total Biaya Pengadaan:</span>
+                  <span className="font-mono font-bold">{fmtIDR(viewingDebtItem.totalAmount)}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-emerald-600">Sudah Dibayar:</span>
+                  <span className="font-mono font-bold text-emerald-700">{fmtIDR(viewingDebtItem.totalPaid)}</span>
+                </div>
+                <div className="flex justify-between text-xs font-bold text-rose-600 border-t border-slate-200 pt-1">
+                  <span>Sisa Utang:</span>
+                  <span className="font-mono">{fmtIDR(viewingDebtItem.unpaid)}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                onClick={() => { setModal(null); setViewingDebtItem(null) }}
+              >
+                Tutup
+              </button>
+              {viewingDebtItem.status === 'UNPAID' && (
+                <button
+                  type="button"
+                  className="btn-primary text-xs bg-rose-600 hover:bg-rose-700 border-rose-600 flex items-center gap-1.5 px-4"
+                  onClick={() => {
+                    const item = viewingDebtItem
+                    setModal(null)
+                    setViewingDebtItem(null)
+                    handleOpenPayDebt(item)
+                  }}
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Bayar Tagihan Ini</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* MODAL: VIEW DETAIL PENGELUARAN */}
       <Modal open={modal === 'view'} onClose={() => setModal(null)} title={`Detail Pengeluaran — ${selected?.expenseNumber}`} size="md"

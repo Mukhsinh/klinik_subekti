@@ -19,12 +19,16 @@ export function calculateFifoValuation(batches, qtyNeeded, fallbackCost = 0) {
         return { totalValuation: 0, avgUnitCost: 0, fifoBreakdown: [] }
     }
 
-    // FIFO: Sort batches by received_at / created_at ASC (earliest received first)
+    // FEFO: Sort batches primarily by expiry_date ASC (earliest expiry date first).
+    // If expiry dates are identical, fallback to received_at / created_at ASC.
     const fifoBatches = [...(batches || [])]
         .filter(b => Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
         .sort((a, b) => {
-            const dateA = new Date(a.receivedAt || a.received_at || a.createdAt || a.created_at || 0)
-            const dateB = new Date(b.receivedAt || b.received_at || b.createdAt || b.created_at || 0)
+            const expA = new Date(a.expiryDate || a.expiry_date || '2099-12-31').getTime()
+            const expB = new Date(b.expiryDate || b.expiry_date || '2099-12-31').getTime()
+            if (expA !== expB) return expA - expB
+            const dateA = new Date(a.receivedAt || a.received_at || a.createdAt || a.created_at || 0).getTime()
+            const dateB = new Date(b.receivedAt || b.received_at || b.createdAt || b.created_at || 0).getTime()
             return dateA - dateB
         })
 
@@ -48,6 +52,7 @@ export function calculateFifoValuation(batches, qtyNeeded, fallbackCost = 0) {
             qty: take,
             unitCost: cost,
             totalCost: val,
+            expiryDate: batch.expiryDate || batch.expiry_date,
             receivedAt: batch.receivedAt || batch.received_at || batch.createdAt,
         })
     }
@@ -63,6 +68,7 @@ export function calculateFifoValuation(batches, qtyNeeded, fallbackCost = 0) {
             qty: remaining,
             unitCost: defaultCost,
             totalCost: val,
+            expiryDate: null,
             receivedAt: new Date().toISOString(),
         })
     }
@@ -84,13 +90,16 @@ export function depleteFefoPhysicalStock(batches, qtyNeeded) {
     const reqQty = Number(qtyNeeded) || 0
     if (reqQty <= 0) return []
 
-    // FEFO: Sort batches by expiry_date ASC (earliest expiry first)
+    // FEFO: Sort batches primarily by expiry_date ASC (earliest expiry first), fallback to received_at
     const fefoBatches = [...(batches || [])]
         .filter(b => Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
         .sort((a, b) => {
-            const expA = new Date(a.expiryDate || a.expiry_date || '2099-12-31')
-            const expB = new Date(b.expiryDate || b.expiry_date || '2099-12-31')
-            return expA - expB
+            const expA = new Date(a.expiryDate || a.expiry_date || '2099-12-31').getTime()
+            const expB = new Date(b.expiryDate || b.expiry_date || '2099-12-31').getTime()
+            if (expA !== expB) return expA - expB
+            const dateA = new Date(a.receivedAt || a.received_at || a.createdAt || a.created_at || 0).getTime()
+            const dateB = new Date(b.receivedAt || b.received_at || b.createdAt || b.created_at || 0).getTime()
+            return dateA - dateB
         })
 
     let remaining = reqQty

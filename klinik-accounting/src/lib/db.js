@@ -538,16 +538,74 @@ export async function deleteBillingItemsByBilling(billingId) {
     .from('billing_items').delete().eq('billing_id', billingId)
   handleError(error, 'deleteBillingItemsByBilling')
 }
+const ALLOWED_BILLING_COLUMNS = new Set([
+  'id', 'branch_id', 'billing_number', 'patient_name', 'patient_mrn',
+  'doctor_id', 'doctor_name', 'visit_date', 'payment_method', 'bpjs_claim_number',
+  'subtotal_services', 'subtotal_pharmacy', 'subtotal_doctor_services', 'subtotal_lab',
+  'discount_amount', 'ppn_amount', 'grand_total', 'patient_portion', 'insurance_portion',
+  'status', 'journal_entry_id', 'created_by', 'created_at', 'updated_at'
+])
+
 export async function updateBilling(id, updates) {
   const row = snake(updates)
-  if (!row.updated_at) row.updated_at = new Date().toISOString()
+  const cleanRow = {}
+  for (const [k, v] of Object.entries(row)) {
+    if (ALLOWED_BILLING_COLUMNS.has(k)) {
+      cleanRow[k] = v
+    }
+  }
+  cleanRow.updated_at = new Date().toISOString()
   const { data, error } = await supabase
     .from('patient_billings')
-    .update(row)
+    .update(cleanRow)
     .eq('id', id)
     .select().single()
   handleError(error, 'updateBilling')
   return norm(data)
+}
+
+export async function deleteStockOutflowItemByBillingAndItem(billingId, itemId) {
+  if (!billingId || !itemId) return
+  try {
+    // 1. Cari outflow entries yang memiliki billing_id ini
+    const { data: outflows } = await supabase
+      .from('stock_outflow_entries')
+      .select('id')
+      .eq('billing_id', billingId)
+
+    if (outflows && outflows.length > 0) {
+      const outflowIds = outflows.map(o => o.id)
+
+      // 2. Hapus item dari stock_outflow_items
+      await supabase
+        .from('stock_outflow_items')
+        .delete()
+        .in('outflow_id', outflowIds)
+        .eq('item_id', itemId)
+
+      // 3. Periksa apakah outflow entry masih memiliki item lain
+      for (const outId of outflowIds) {
+        const { data: remItems } = await supabase
+          .from('stock_outflow_items')
+          .select('id, total_cost, subtotal_sale')
+          .eq('outflow_id', outId)
+
+        if (!remItems || remItems.length === 0) {
+          await supabase.from('stock_outflow_entries').delete().eq('id', outId)
+        } else {
+          const newTotalVal = remItems.reduce((s, it) => s + Number(it.total_cost || 0), 0)
+          const newTotalSell = remItems.reduce((s, it) => s + Number(it.subtotal_sale || 0), 0)
+          await supabase.from('stock_outflow_entries').update({
+            total_value: newTotalVal,
+            total_selling: newTotalSell,
+            updated_at: new Date().toISOString()
+          }).eq('id', outId)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[deleteStockOutflowItemByBillingAndItem] Warning:', err.message)
+  }
 }
 export async function deleteDoctorFeeRecordByBilling(billingId) {
   const { error } = await supabase
@@ -582,8 +640,8 @@ const ALLOWED_EXPENSE_COLUMNS = new Set([
   'id', 'branch_id', 'expense_number', 'expense_date', 'category',
   'description', 'vendor_name', 'payment_method', 'gross_amount',
   'ppn_amount', 'pph_amount', 'net_amount', 'receipt_file_url',
-  'status', 'journal_entry_id', 'created_by', 'authorized_by',
-  'created_at', 'selected_grn_refs', 'coa_code', 'credit_coa_code',
+  'receipt_file_name', 'status', 'journal_entry_id', 'created_by', 'authorized_by',
+  'posted_at', 'created_at', 'updated_at', 'selected_grn_refs', 'coa_code', 'credit_coa_code',
   'selected_asset_ids', 'debt_type'
 ])
 
@@ -599,7 +657,10 @@ export async function upsertExpense(expense) {
   ;['gross_amount', 'ppn_amount', 'pph_amount', 'net_amount'].forEach(k => {
     cleanRow[k] = Number(cleanRow[k] || 0)
   })
-  if (!cleanRow.branch_id || cleanRow.branch_id === '') cleanRow.branch_id = null
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!cleanRow.branch_id || !UUID_REGEX.test(String(cleanRow.branch_id))) {
+    cleanRow.branch_id = null
+  }
   if (!cleanRow.status) cleanRow.status = 'DRAFT'
   if (!cleanRow.expense_date) cleanRow.expense_date = new Date().toISOString().split('T')[0]
   if (cleanRow.selected_grn_refs && !Array.isArray(cleanRow.selected_grn_refs)) {

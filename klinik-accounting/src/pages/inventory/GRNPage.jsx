@@ -361,27 +361,8 @@ export default function GRNPage() {
   }
 
   const handleEditGRN = (grnGroup) => {
-    setEditingGrnRef(grnGroup.grnReference)
-    setEditingJournalId(grnGroup.journalEntryId)
-    setGrnNumber(grnGroup.grnReference)
-    if (grnGroup.receivedAt) {
-      setGrnDate(grnGroup.receivedAt.split('T')[0])
-    }
-    setSupplierName(grnGroup.supplierName || '')
-
-    const loadedLines = grnGroup.batches.map(b => ({
-      id: b.id || uuidv4(),
-      itemId: b.itemId || b.item_id,
-      batchNumber: b.batchNumber || b.batch_number,
-      expiryDate: (b.expiryDate || b.expiry_date) ? (b.expiryDate || b.expiry_date).split('T')[0] : '',
-      unitCostPrice: b.unitCostPrice ?? b.unit_cost_price,
-      sellingPrice: b.sellingPrice ?? b.selling_price,
-      quantityReceived: b.quantityReceived ?? b.quantity_received,
-      notes: ''
-    }))
-    setLines(loadedLines)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-    toast.success(`GRN ${grnGroup.grnReference} dimuat ke form untuk diedit (Jumlah Qty & Harga dikunci).`)
+    toast.error(`GRN ${grnGroup.grnReference} telah diposting ke jurnal akuntansi & persediaan, sehingga dokumen ini terkunci dan tidak dapat diedit.`)
+    return
   }
 
   const resetForm = (customBatches = null) => {
@@ -854,7 +835,10 @@ export default function GRNPage() {
                         )}
                       </td>
                       <td>
-                        <span className="font-sans text-xs text-primary-700 font-extrabold tracking-tight">{grn.grnReference}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-sans text-xs text-primary-700 font-extrabold tracking-tight">{grn.grnReference}</span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">POSTED</span>
+                        </div>
                       </td>
                       <td className="font-bold text-slate-800">{grn.supplierName}</td>
                       <td className="text-center">
@@ -874,9 +858,9 @@ export default function GRNPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleEditGRN(grn)}
-                            className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-600 hover:text-amber-800 transition-colors"
-                            title="Edit GRN ini (Jumlah Qty & Harga Dikunci)"
+                            disabled={true}
+                            className="p-1.5 rounded-lg bg-slate-100 text-slate-300 cursor-not-allowed opacity-50"
+                            title="GRN telah diposting — Dokumen terkunci dan tidak dapat diedit"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>

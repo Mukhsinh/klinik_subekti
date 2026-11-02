@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useStore } from '../../store/useStore'
 import { getAccountCode } from '../../utils/accountMapping'
-import { Search, Save, Package, RefreshCw, Download, Upload, FileDown, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react'
+import { Search, Save, Package, RefreshCw, Download, Upload, FileDown, CheckCircle, AlertTriangle, TrendingUp, Lock } from 'lucide-react'
 import { fmtIDR, fmtNum } from '../../utils/format'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
@@ -14,6 +14,7 @@ export default function InventoryItemOpeningBalancePage() {
     const { activeBranchId, appSettings, refreshAll } = useStore()
     const [pharmacyItems, setPharmacyItems] = useState([])
     const [invBatches, setInvBatches] = useState([])
+    const [lockedItemIds, setLockedItemIds] = useState(new Set())
     const [searchTerm, setSearchTerm] = useState('')
     const [editableBalances, setEditableBalances] = useState({})
     const [saving, setSaving] = useState(false)
@@ -50,6 +51,29 @@ export default function InventoryItemOpeningBalancePage() {
                 .like('batch_number', '%SALDO-AWAL%')
 
             if (batchesError) throw batchesError
+
+            // Deteksi item yang sudah pernah ada transaksi (GRN, BILLING, OUTFLOW, dll)
+            // Item yang sudah ada transaksi operasional tidak boleh diinput atau diedit saldo awalnya
+            const { data: transData, error: transError } = await supabase
+                .from('stock_ledger_cards')
+                .select('item_id')
+                .neq('transaction_type', 'SALDO_AWAL')
+
+            if (transError) throw transError
+
+            const { data: nonOpeningBatches, error: nonOpeningError } = await supabase
+                .from('inventory_batches')
+                .select('item_id')
+                .not('batch_number', 'like', '%SALDO-AWAL%')
+
+            if (nonOpeningError) throw nonOpeningError
+
+            const transSet = new Set([
+                ...(transData || []).map(t => t.item_id),
+                ...(nonOpeningBatches || []).map(b => b.item_id)
+            ].filter(Boolean))
+
+            setLockedItemIds(transSet)
 
             // Normalize data
             const normalizedItems = (itemsData || []).map(item => ({
@@ -109,6 +133,10 @@ export default function InventoryItemOpeningBalancePage() {
     }, [pharmacyItems, searchTerm])
 
     const handleQtyChange = (itemId, val) => {
+        if (lockedItemIds.has(itemId)) {
+            toast.error('Item ini sudah memiliki transaksi sehingga saldo awal terkunci dan tidak dapat diubah.')
+            return
+        }
         setEditableBalances(prev => {
             const current = prev[itemId] || { quantity: 0, unitCost: 0 }
             let parsedQty = val
@@ -127,6 +155,10 @@ export default function InventoryItemOpeningBalancePage() {
     }
 
     const handleCostChange = (itemId, val) => {
+        if (lockedItemIds.has(itemId)) {
+            toast.error('Item ini sudah memiliki transaksi sehingga HPP saldo awal terkunci.')
+            return
+        }
         setEditableBalances(prev => {
             const current = prev[itemId] || { quantity: 0, unitCost: 0 }
             let parsedCost = val
@@ -153,14 +185,17 @@ export default function InventoryItemOpeningBalancePage() {
             futureDate.setFullYear(futureDate.getFullYear() + 10)
             const expiryDate = futureDate.toISOString().split('T')[0]
 
-            const entries = Object.entries(balancesMapToSave).map(([itemId, val]) => ({
-                itemId,
-                quantity: Number(val?.quantity) || 0,
-                unitCost: Number(val?.unitCost) || 0,
-            }))
+            // Item yang sudah ada transaksi tidak boleh diubah
+            const entries = Object.entries(balancesMapToSave)
+                .filter(([itemId]) => !lockedItemIds.has(itemId))
+                .map(([itemId, val]) => ({
+                    itemId,
+                    quantity: Number(val?.quantity) || 0,
+                    unitCost: Number(val?.unitCost) || 0,
+                }))
 
             if (entries.length === 0) {
-                toast.error('Tidak ada item yang dapat disimpan.')
+                toast.error('Tidak ada item yang dapat disimpan atau semua item telah terkunci transaksi.')
                 return false
             }
 
@@ -190,16 +225,41 @@ export default function InventoryItemOpeningBalancePage() {
 
                         if (updateError) throw updateError
 
-                        // Update stock ledger
-                        await supabase
+                        // Periksa apakah sudah ada kartu stok untuk batch ini
+                        const { data: existingLedger } = await supabase
                             .from('stock_ledger_cards')
-                            .update({
-                                quantity_in: item.quantity,
-                                balance_after: item.quantity,
-                                unit_cost: item.unitCost,
-                                total_value: item.quantity * item.unitCost
-                            })
+                            .select('id')
                             .eq('batch_id', existingBatch.id)
+                            .maybeSingle()
+
+                        if (existingLedger) {
+                            await supabase
+                                .from('stock_ledger_cards')
+                                .update({
+                                    quantity_in: item.quantity,
+                                    balance_after: item.quantity,
+                                    unit_cost: item.unitCost,
+                                    total_value: item.quantity * item.unitCost
+                                })
+                                .eq('id', existingLedger.id)
+                        } else {
+                            await supabase
+                                .from('stock_ledger_cards')
+                                .insert({
+                                    id: uuidv4(),
+                                    batch_id: existingBatch.id,
+                                    item_id: item.itemId,
+                                    transaction_type: 'SALDO_AWAL',
+                                    reference_number: 'SALDO-AWAL',
+                                    quantity_in: item.quantity,
+                                    quantity_out: 0,
+                                    balance_after: item.quantity,
+                                    unit_cost: item.unitCost,
+                                    total_value: item.quantity * item.unitCost,
+                                    notes: 'Saldo awal persediaan item',
+                                    logged_at: new Date().toISOString()
+                                })
+                        }
                     } else {
                         // Create new batch
                         const batchId = uuidv4()
@@ -266,7 +326,9 @@ export default function InventoryItemOpeningBalancePage() {
             }
 
             // ── Integrasi Penuh dengan Laporan Keuangan (opening_balances) ──
-            const totalInventoryValue = entries.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0)
+            const totalInventoryValue = Object.entries(balancesMapToSave).reduce((sum, [, val]) => {
+                return sum + ((Number(val?.quantity) || 0) * (Number(val?.unitCost) || 0))
+            }, 0)
             const invAccountCode = getAccountCode('inventory', appSettings, '1-10301')
             const fiscalYear = new Date().getFullYear()
             const branchId = activeBranchId || 'f265df27-e277-4775-8b1d-5f28e585599a'
@@ -681,6 +743,7 @@ export default function InventoryItemOpeningBalancePage() {
                                 <th className="py-3 px-3" style={{ minWidth: '220px' }}>Nama Item</th>
                                 <th className="py-3 px-3" style={{ width: '100px' }}>Kategori</th>
                                 <th className="py-3 px-3 text-center" style={{ width: '80px' }}>Satuan</th>
+                                <th className="py-3 px-3 text-center" style={{ width: '130px' }}>Status Saldo</th>
                                 <th className="py-3 px-3 text-right" style={{ width: '120px' }}>Kuantitas (Qty)</th>
                                 <th className="py-3 px-3 text-right" style={{ width: '150px' }}>HPP / Unit (Rp)</th>
                                 <th className="py-3 px-3 text-right" style={{ width: '150px' }}>Total Nilai (Rp)</th>
@@ -689,18 +752,19 @@ export default function InventoryItemOpeningBalancePage() {
                         <tbody className="divide-y divide-slate-100 bg-white text-xs font-sans">
                             {filteredItems.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="text-center py-12 text-slate-400 font-sans">
+                                    <td colSpan={8} className="text-center py-12 text-slate-400 font-sans">
                                         <Package className="w-8 h-8 mx-auto mb-2 opacity-20" />
                                         <p className="text-xs">{searchTerm ? 'Item tidak ditemukan' : 'Belum ada master item / data kosong'}</p>
                                     </td>
                                 </tr>
                             ) : (
                                 filteredItems.map(item => {
+                                    const isLocked = lockedItemIds.has(item.id)
                                     const stateVal = editableBalances[item.id] || { quantity: 0, unitCost: 0 }
                                     const totalVal = stateVal.quantity * stateVal.unitCost
 
                                     return (
-                                        <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                        <tr key={item.id} className={`transition-colors ${isLocked ? 'bg-slate-50/60' : 'hover:bg-slate-50'}`}>
                                             <td className="py-2.5 px-3 font-mono font-bold text-primary-700 whitespace-nowrap">{item.itemCode || '—'}</td>
                                             <td className="py-2.5 px-3">
                                                 <div className="font-bold text-slate-900 leading-tight">{item.itemName}</div>
@@ -712,25 +776,54 @@ export default function InventoryItemOpeningBalancePage() {
                                                 </span>
                                             </td>
                                             <td className="py-2.5 px-3 text-center text-slate-600 font-medium whitespace-nowrap">{item.baseUnit}</td>
+                                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                                {isLocked ? (
+                                                    <span
+                                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200"
+                                                        title="Saldo awal terkunci karena item ini sudah memiliki riwayat transaksi (GRN / Outflow / Penjualan)"
+                                                    >
+                                                        <Lock className="w-3 h-3 text-amber-600" /> Terkunci
+                                                    </span>
+                                                ) : (
+                                                    <span
+                                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                                        title="Item belum ada transaksi. Saldo awal dapat diinput atau diperbarui bebas."
+                                                    >
+                                                        <CheckCircle className="w-3 h-3 text-emerald-600" /> Siap Input
+                                                    </span>
+                                                )}
+                                            </td>
                                             <td className="py-2.5 px-3">
                                                 <input
                                                     type="number"
-                                                    className="form-input text-right font-sans font-bold text-xs py-1 px-2.5 focus:ring-primary-500"
+                                                    disabled={isLocked}
+                                                    className={`form-input text-right font-sans font-bold text-xs py-1 px-2.5 ${
+                                                        isLocked
+                                                            ? 'bg-slate-100/90 text-slate-400 border-slate-200 cursor-not-allowed select-none'
+                                                            : 'focus:ring-primary-500'
+                                                    }`}
                                                     value={stateVal.quantity === '' ? '' : (stateVal.quantity ?? 0)}
                                                     onChange={(e) => handleQtyChange(item.id, e.target.value)}
                                                     placeholder="0"
                                                     min="0"
+                                                    title={isLocked ? 'Saldo awal terkunci karena item ini sudah memiliki transaksi' : 'Kuantitas saldo awal item'}
                                                 />
                                             </td>
                                             <td className="py-2.5 px-3">
                                                 <input
                                                     type="number"
-                                                    className="form-input text-right font-sans font-bold text-xs py-1 px-2.5 focus:ring-primary-500"
+                                                    disabled={isLocked}
+                                                    className={`form-input text-right font-sans font-bold text-xs py-1 px-2.5 ${
+                                                        isLocked
+                                                            ? 'bg-slate-100/90 text-slate-400 border-slate-200 cursor-not-allowed select-none'
+                                                            : 'focus:ring-primary-500'
+                                                    }`}
                                                     value={stateVal.unitCost === '' ? '' : (stateVal.unitCost ?? 0)}
                                                     onChange={(e) => handleCostChange(item.id, e.target.value)}
                                                     placeholder="0"
                                                     min="0"
                                                     step="100"
+                                                    title={isLocked ? 'HPP terkunci karena item ini sudah memiliki transaksi' : 'Harga pokok pembelian per unit'}
                                                 />
                                             </td>
                                             <td className="py-2.5 px-3 text-right font-sans text-xs font-extrabold text-slate-900 tracking-tight whitespace-nowrap">

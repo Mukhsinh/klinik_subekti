@@ -11,7 +11,7 @@ import { resolveBillingItemCategory, getBillingCategoryBadgeClass } from '../../
 import {
   updateBilling, deleteBillingItemsByBilling, insertBillingItems, fetchBillingItems,
   deleteDoctorFeeRecordByBilling, insertDoctorFeeRecord, updateBatchQty,
-  insertStockLedger, fetchStockLedger, insertAuditLog
+  insertStockLedger, fetchStockLedger, insertAuditLog, deleteStockOutflowItemByBillingAndItem
 } from '../../lib/db'
 import {
   fmtIDR, fmtDate, todayISO,
@@ -836,54 +836,84 @@ export default function BillingPage() {
         })),
       ]
 
+      // 1. Identifikasi dan hapus item farmasi yang dihapus oleh kasir dari laporan pengeluaran
+      const prevBillingMeds = (billingItems || []).filter(bi => 
+        (bi.billingId === editingBilling.id || bi.billing_id === editingBilling.id) && 
+        (bi.itemType === 'PHARMACY' || bi.item_type === 'PHARMACY')
+      )
+      const currentItemIds = new Set(pharmacyLines.filter(l => l.itemId).map(l => l.itemId))
+      const removedMeds = prevBillingMeds.filter(pb => {
+        const pId = pb.pharmacyItemId || pb.pharmacy_item_id || pb.itemId || pb.item_id
+        return pId && !currentItemIds.has(pId)
+      })
+
+      for (const rm of removedMeds) {
+        const rmId = rm.pharmacyItemId || rm.pharmacy_item_id || rm.itemId || rm.item_id
+        await deleteStockOutflowItemByBillingAndItem(editingBilling.id, rmId)
+      }
+
+      // 2. Hitung net stock yang pernah keluar untuk billing ini per batch agar tidak terjadi restore dobel
+      const stockLedgers = await fetchStockLedger()
+      const ledgerForThisBill = stockLedgers.filter(l => 
+        l.referenceNumber === editingBilling.billingNumber || l.referenceId === editingBilling.id
+      )
+
+      const batchNetDeductions = {}
+      for (const entry of ledgerForThisBill) {
+        if (entry.batchId) {
+          if (!batchNetDeductions[entry.batchId]) {
+            batchNetDeductions[entry.batchId] = {
+              batchId: entry.batchId,
+              itemId: entry.itemId,
+              unitCost: Number(entry.unitCost || 0),
+              netOut: 0
+            }
+          }
+          if (entry.quantityOut > 0) {
+            batchNetDeductions[entry.batchId].netOut += Number(entry.quantityOut || 0)
+          }
+          if (entry.quantityIn > 0 && entry.transactionType === 'REVISION_RESTORE') {
+            batchNetDeductions[entry.batchId].netOut -= Number(entry.quantityIn || 0)
+          }
+        }
+      }
+
+      // Kembalikan ke batch hanya sebesar netOut yang benar-benar pernah terpotong (netOut > 0)
+      for (const bId of Object.keys(batchNetDeductions)) {
+        const itemDed = batchNetDeductions[bId]
+        if (itemDed.netOut > 0) {
+          const batch = invBatches.find(b => b.id === itemDed.batchId)
+          if (batch) {
+            const currentQty = Number(batch.quantityCurrent ?? batch.quantity_current ?? 0)
+            const restoredQty = currentQty + itemDed.netOut
+            await updateBatchQty(itemDed.batchId, restoredQty)
+            await insertStockLedger([{
+              id: uuidv4(),
+              batchId: itemDed.batchId,
+              itemId: itemDed.itemId,
+              transactionType: 'REVISION_RESTORE',
+              referenceId: editingBilling.id,
+              referenceNumber: editingBilling.billingNumber,
+              quantityIn: itemDed.netOut,
+              quantityOut: 0,
+              balanceAfter: restoredQty,
+              unitCost: itemDed.unitCost,
+              totalValue: itemDed.netOut * itemDed.unitCost,
+              notes: `Restok revisi billing ${editingBilling.billingNumber}`,
+              loggedAt: new Date().toISOString()
+            }])
+          }
+        }
+      }
+
       if (actionType === 'KEEP_UNPAID' || (editingBilling.status === 'UNPAID' && actionType !== 'PAY_NOW')) {
         // Balikkan jurnal piutang lama jika sudah ada
         if (editingBilling.journalEntryId) {
           await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Piutang Billing ${editingBilling.billingNumber}`)
         }
 
-        // Restock obat lama jika pernah dipotong
-        const stockLedgers = await fetchStockLedger()
-        const oldLedgerForBilling = stockLedgers.filter(l => l.referenceNumber === editingBilling.billingNumber && l.quantityOut > 0)
-        for (const lEntry of oldLedgerForBilling) {
-          if (lEntry.batchId) {
-            const batch = invBatches.find(b => b.id === lEntry.batchId)
-            if (batch) {
-              const restoredQty = batch.quantityCurrent + lEntry.quantityOut
-              await updateBatchQty(lEntry.batchId, restoredQty)
-              await insertStockLedger([{
-                id: uuidv4(),
-                batchId: lEntry.batchId,
-                itemId: lEntry.itemId,
-                transactionType: 'REVISION_RESTORE',
-                referenceId: editingBilling.id,
-                referenceNumber: editingBilling.billingNumber,
-                quantityIn: lEntry.quantityOut,
-                quantityOut: 0,
-                balanceAfter: restoredQty,
-                unitCost: lEntry.unitCost,
-                totalValue: lEntry.quantityOut * lEntry.unitCost,
-                notes: `Restok revisi piutang billing ${editingBilling.billingNumber}`,
-                loggedAt: new Date().toISOString()
-              }])
-            }
-          }
-        }
-
-        // Deplete FIFO obat baru
         const hppDebits = {}
         const hppCredits = {}
-        for (const line of pharmacyLines.filter(l => l.itemId)) {
-          const qtyToDeplete = parseInt(line.qty) || 0
-          const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, editingBilling.billingNumber, activeBranchId)
-          cogsDetails.forEach(d => {
-            const val = d.qty * d.unitCostPrice
-            if (val > 0) {
-              hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
-              hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
-            }
-          })
-        }
 
         // Buat jurnal piutang pendapatan baru
         const newJournalId = uuidv4()
@@ -1174,34 +1204,6 @@ export default function BillingPage() {
       // ── KASUS LAIN: Billing baru atau belum memiliki jurnal piutang sebelumnya ──
       if (editingBilling.journalEntryId) {
         await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Billing ${editingBilling.billingNumber}`)
-      }
-
-      const stockLedgers = await fetchStockLedger()
-      const oldLedgerForBilling = stockLedgers.filter(l => l.referenceNumber === editingBilling.billingNumber && l.quantityOut > 0)
-
-      for (const lEntry of oldLedgerForBilling) {
-        if (lEntry.batchId) {
-          const batch = invBatches.find(b => b.id === lEntry.batchId)
-          if (batch) {
-            const restoredQty = batch.quantityCurrent + lEntry.quantityOut
-            await updateBatchQty(lEntry.batchId, restoredQty)
-            await insertStockLedger([{
-              id: uuidv4(),
-              batchId: lEntry.batchId,
-              itemId: lEntry.itemId,
-              transactionType: 'REVISION_RESTORE',
-              referenceId: editingBilling.id,
-              referenceNumber: editingBilling.billingNumber,
-              quantityIn: lEntry.quantityOut,
-              quantityOut: 0,
-              balanceAfter: restoredQty,
-              unitCost: lEntry.unitCost,
-              totalValue: lEntry.quantityOut * lEntry.unitCost,
-              notes: `Restok revisi billing ${editingBilling.billingNumber}`,
-              loggedAt: new Date().toISOString()
-            }])
-          }
-        }
       }
 
       await deleteDoctorFeeRecordByBilling(editingBilling.id)
@@ -2055,7 +2057,7 @@ export default function BillingPage() {
                 <p>Petugas Kasir / Administrasi,</p>
                 <div className="h-14"></div>
                 <p className="font-bold border-t border-slate-300 inline-block px-8 pt-1">
-                  ( Bagian Kasir Klinik )
+                  ( {appSettings?.cashierName || appSettings?.cashier_name || selected.cashierName || selected.createdBy || 'Bagian Kasir Klinik'} )
                 </p>
               </div>
             </div>

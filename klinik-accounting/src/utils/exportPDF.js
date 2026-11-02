@@ -474,8 +474,9 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null,
   doc.text('Pasien / Keluarga Pasien,', 30, sigY, { align: 'center' })
   doc.text('( ______________________ )', 30, sigY + 15, { align: 'center' })
 
+  const cashierDisplayName = appSettings?.cashierName || appSettings?.cashier_name || billing.cashierName || billing.cashier_name || billing.createdBy || 'Petugas Kasir'
   doc.text('Petugas Kasir / Pembayaran,', 78, sigY, { align: 'center' })
-  doc.text(`( ${billing.createdBy || 'Petugas Kasir'} )`, 78, sigY + 15, { align: 'center' })
+  doc.text(`( ${cashierDisplayName} )`, 78, sigY + 15, { align: 'center' })
 
   // Bottom Notice
   doc.setFontSize(6.5)

@@ -27,6 +27,7 @@ const DEFAULT_SETTINGS = {
   invoicePrefix: 'INV',
   receiptPrefix: 'RCP',
   taxRate: 11,
+  cashierName: 'Bagian Kasir Klinik',
 }
 
 const DEFAULT_USERS = [

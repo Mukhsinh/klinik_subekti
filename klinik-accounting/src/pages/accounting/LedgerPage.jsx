@@ -69,16 +69,32 @@ export default function LedgerPage() {
 
     const lines = (journalItems || [])
       .filter(i => i && i.accountCode === selectedCode && entryMap[i.journalEntryId])
-      .map(i => ({
-        ...i,
-        transactionDate: entryMap[i.journalEntryId].transactionDate,
-        entryNumber: entryMap[i.journalEntryId].entryNumber,
-        description: entryMap[i.journalEntryId].description,
-        entryType: entryMap[i.journalEntryId].entryType,
-        debit: parseFloat(i.debit || 0),
-        credit: parseFloat(i.credit || 0),
-      }))
-      .sort((a, b) => a.transactionDate.localeCompare(b.transactionDate) || a.entryNumber.localeCompare(b.entryNumber))
+      .map(i => {
+        const je = entryMap[i.journalEntryId] || {}
+        return {
+          ...i,
+          transactionDate: je.transactionDate,
+          entryNumber: je.entryNumber,
+          description: je.description,
+          entryType: je.entryType,
+          createdAt: je.createdAt || je.created_at || je.postedAt || je.posted_at || null,
+          debit: parseFloat(i.debit || 0),
+          credit: parseFloat(i.credit || 0),
+        }
+      })
+      .sort((a, b) => {
+        // 1. Urutkan berdasarkan tanggal transaksi
+        const dateComp = (a.transactionDate || '').localeCompare(b.transactionDate || '')
+        if (dateComp !== 0) return dateComp
+
+        // 2. Jika tanggal sama, urutkan berdasarkan waktu inputan transaksi (jam:menit)
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+        if (timeA && timeB && timeA !== timeB) return timeA - timeB
+
+        // 3. Fallback nomor bukti jurnal
+        return (a.entryNumber || '').localeCompare(b.entryNumber || '')
+      })
 
     // Add opening balance as first entry if exists or has prior movements
     const allLines = []
@@ -216,7 +232,14 @@ export default function LedgerPage() {
                   <tr><td colSpan={7} className="text-center py-10 text-slate-400">Tidak ada transaksi pada periode ini</td></tr>
                 ) : ledgerEntries.map((e, i) => (
                   <tr key={e.id || i} className={e.isOpeningBalance ? 'bg-blue-50 font-semibold' : ''}>
-                    <td className="text-sm">{fmtDate(e.transactionDate)}</td>
+                    <td className="text-sm">
+                      <div className="font-medium text-slate-800">{fmtDate(e.transactionDate)}</div>
+                      {e.createdAt && !e.isOpeningBalance && (
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          {new Date(e.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                        </div>
+                      )}
+                    </td>
                     <td className={`font-mono text-xs ${e.isOpeningBalance ? 'text-blue-700 font-bold' : 'text-primary-700'}`}>
                       {e.entryNumber}
                     </td>
