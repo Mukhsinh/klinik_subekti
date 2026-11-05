@@ -52,8 +52,8 @@ export default function InventoryItemOpeningBalancePage() {
 
             if (batchesError) throw batchesError
 
-            // Deteksi item yang sudah pernah ada transaksi (GRN, BILLING, OUTFLOW, dll)
-            // Item yang sudah ada transaksi operasional tidak boleh diinput atau diedit saldo awalnya
+            // Deteksi item yang sudah pernah ada transaksi operasional (GRN, BILLING, OUTFLOW, dll)
+            // Item yang sudah ada mutasi di stock ledger selain SALDO_AWAL tidak boleh diedit saldo awalnya
             const { data: transData, error: transError } = await supabase
                 .from('stock_ledger_cards')
                 .select('item_id')
@@ -61,18 +61,7 @@ export default function InventoryItemOpeningBalancePage() {
 
             if (transError) throw transError
 
-            const { data: nonOpeningBatches, error: nonOpeningError } = await supabase
-                .from('inventory_batches')
-                .select('item_id')
-                .not('batch_number', 'like', '%SALDO-AWAL%')
-
-            if (nonOpeningError) throw nonOpeningError
-
-            const transSet = new Set([
-                ...(transData || []).map(t => t.item_id),
-                ...(nonOpeningBatches || []).map(b => b.item_id)
-            ].filter(Boolean))
-
+            const transSet = new Set((transData || []).map(t => t.item_id).filter(Boolean))
             setLockedItemIds(transSet)
 
             // Normalize data
@@ -180,12 +169,13 @@ export default function InventoryItemOpeningBalancePage() {
     const saveToDatabase = async (balancesMapToSave = editableBalances) => {
         setSaving(true)
         try {
-            const today = new Date().toISOString().split('T')[0]
-            const futureDate = new Date()
-            futureDate.setFullYear(futureDate.getFullYear() + 10)
-            const expiryDate = futureDate.toISOString().split('T')[0]
+            // Otomatis tanggal 1 Januari pada tahun berjalan
+            const currentYear = new Date().getFullYear()
+            const openingDate = `${currentYear}-01-01`
+            const openingIso = `${currentYear}-01-01T00:00:00.000Z`
+            const expiryDate = `${currentYear + 10}-12-31`
 
-            // Item yang sudah ada transaksi tidak boleh diubah
+            // Item yang sudah ada mutasi operasional tidak boleh diubah
             const entries = Object.entries(balancesMapToSave)
                 .filter(([itemId]) => !lockedItemIds.has(itemId))
                 .map(([itemId, val]) => ({
@@ -219,6 +209,8 @@ export default function InventoryItemOpeningBalancePage() {
                                 quantity_received: item.quantity,
                                 quantity_current: item.quantity,
                                 unit_cost_price: item.unitCost,
+                                manufacture_date: openingDate,
+                                received_at: openingIso,
                                 updated_at: new Date().toISOString()
                             })
                             .eq('id', existingBatch.id)
@@ -239,7 +231,8 @@ export default function InventoryItemOpeningBalancePage() {
                                     quantity_in: item.quantity,
                                     balance_after: item.quantity,
                                     unit_cost: item.unitCost,
-                                    total_value: item.quantity * item.unitCost
+                                    total_value: item.quantity * item.unitCost,
+                                    logged_at: openingIso
                                 })
                                 .eq('id', existingLedger.id)
                         } else {
@@ -257,7 +250,7 @@ export default function InventoryItemOpeningBalancePage() {
                                     unit_cost: item.unitCost,
                                     total_value: item.quantity * item.unitCost,
                                     notes: 'Saldo awal persediaan item',
-                                    logged_at: new Date().toISOString()
+                                    logged_at: openingIso
                                 })
                         }
                     } else {
@@ -270,14 +263,14 @@ export default function InventoryItemOpeningBalancePage() {
                                 item_id: item.itemId,
                                 batch_number: `SALDO-AWAL-${pharmacyItem.itemCode || pharmacyItem.id.substring(0, 8)}`,
                                 expiry_date: expiryDate,
-                                manufacture_date: today,
+                                manufacture_date: openingDate,
                                 unit_cost_price: item.unitCost,
                                 quantity_received: item.quantity,
                                 quantity_current: item.quantity,
                                 grn_reference: 'SALDO-AWAL',
                                 supplier_name: 'Saldo Awal Sistem',
-                                received_at: new Date().toISOString(),
-                                created_at: new Date().toISOString()
+                                received_at: openingIso,
+                                created_at: openingIso
                             })
 
                         if (batchError) throw batchError
@@ -297,7 +290,7 @@ export default function InventoryItemOpeningBalancePage() {
                                 unit_cost: item.unitCost,
                                 total_value: item.quantity * item.unitCost,
                                 notes: 'Saldo awal persediaan item',
-                                logged_at: new Date().toISOString()
+                                logged_at: openingIso
                             })
                     }
                     savedCount++
@@ -309,6 +302,8 @@ export default function InventoryItemOpeningBalancePage() {
                             quantity_received: 0,
                             quantity_current: 0,
                             unit_cost_price: item.unitCost,
+                            manufacture_date: openingDate,
+                            received_at: openingIso,
                             updated_at: new Date().toISOString()
                         })
                         .eq('id', existingBatch.id)
@@ -318,7 +313,8 @@ export default function InventoryItemOpeningBalancePage() {
                         .update({
                             quantity_in: 0,
                             balance_after: 0,
-                            total_value: 0
+                            total_value: 0,
+                            logged_at: openingIso
                         })
                         .eq('batch_id', existingBatch.id)
                     savedCount++
@@ -329,45 +325,80 @@ export default function InventoryItemOpeningBalancePage() {
             const totalInventoryValue = Object.entries(balancesMapToSave).reduce((sum, [, val]) => {
                 return sum + ((Number(val?.quantity) || 0) * (Number(val?.unitCost) || 0))
             }, 0)
-            const invAccountCode = getAccountCode('inventory', appSettings, '1-10301')
-            const fiscalYear = new Date().getFullYear()
-            const branchId = activeBranchId || 'f265df27-e277-4775-8b1d-5f28e585599a'
 
-            // Sinkronkan ke tabel opening_balances agar Neraca, Neraca Saldo, dan Laporan Keuangan terintegrasi
-            const { data: existingOB } = await supabase
-                .from('opening_balances')
-                .select('id')
-                .eq('account_code', invAccountCode)
-                .eq('fiscal_year', fiscalYear)
-                .eq('branch_id', branchId)
-                .maybeSingle()
+            // Ambil daftar akun persediaan yang valid di COA (1-13%)
+            const { data: validInvCOA } = await supabase
+                .from('chart_of_accounts')
+                .select('account_code')
+                .like('account_code', '1-13%')
+                .eq('is_header', false)
 
-            if (existingOB) {
-                await supabase
-                    .from('opening_balances')
-                    .update({
-                        opening_balance: totalInventoryValue,
-                        description: 'Saldo awal persediaan obat & barang medis (Otomatis dari Saldo Awal Item)',
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', existingOB.id)
-            } else {
-                await supabase
-                    .from('opening_balances')
-                    .insert({
-                        id: uuidv4(),
-                        account_code: invAccountCode,
-                        branch_id: branchId,
-                        fiscal_year: fiscalYear,
-                        opening_date: `${fiscalYear}-01-01`,
-                        opening_balance: totalInventoryValue,
-                        description: 'Saldo awal persediaan obat & barang medis (Otomatis dari Saldo Awal Item)',
-                        created_by: 'system',
-                        created_at: new Date().toISOString()
-                    })
+            const validCodes = new Set((validInvCOA || []).map(c => c.account_code))
+            const defaultInvCode = validCodes.has('1-13-001') ? '1-13-001' : (Array.from(validCodes)[0] || '1-13-001')
+
+            // Hitung total saldo awal per akun COA persediaan
+            const balanceByAccount = {}
+            for (const [itemId, val] of Object.entries(balancesMapToSave)) {
+                const qty = Number(val?.quantity) || 0
+                const cost = Number(val?.unitCost) || 0
+                if (qty <= 0 || cost <= 0) continue
+                const pItem = pharmacyItems.find(p => p.id === itemId)
+                let acc = pItem?.coaInventoryCode
+                if (!acc || !validCodes.has(acc)) {
+                    if (pItem?.category === 'GENERIK' || pItem?.category === 'OBAT_GENERIK') {
+                        acc = validCodes.has('1-13-002') ? '1-13-002' : defaultInvCode
+                    } else if (pItem?.category === 'BHP' || pItem?.category === 'PEMAKAIAN BHP') {
+                        acc = validCodes.has('1-13-003') ? '1-13-003' : defaultInvCode
+                    } else if (pItem?.category === 'RUMAH_TANGGA') {
+                        acc = validCodes.has('1-13-004') ? '1-13-004' : defaultInvCode
+                    } else {
+                        acc = defaultInvCode
+                    }
+                }
+                balanceByAccount[acc] = (balanceByAccount[acc] || 0) + (qty * cost)
             }
 
-            toast.success(`Saldo awal item inventory (${savedCount} item diperbarui, total ${fmtIDR(totalInventoryValue)}) berhasil disimpan dan terintegrasi dengan laporan.`)
+            const fiscalYear = currentYear
+            const branchId = activeBranchId || 'f265df27-e277-4775-8b1d-5f28e585599a'
+
+            // Sinkronkan setiap akun persediaan ke opening_balances
+            for (const [accCode, totalVal] of Object.entries(balanceByAccount)) {
+                const { data: existingOB } = await supabase
+                    .from('opening_balances')
+                    .select('id')
+                    .eq('account_code', accCode)
+                    .eq('fiscal_year', fiscalYear)
+                    .eq('branch_id', branchId)
+                    .maybeSingle()
+
+                if (existingOB) {
+                    await supabase
+                        .from('opening_balances')
+                        .update({
+                            opening_balance: totalVal,
+                            opening_date: openingDate,
+                            description: 'Saldo awal persediaan farmasi (Otomatis dari Saldo Awal Item)',
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', existingOB.id)
+                } else {
+                    await supabase
+                        .from('opening_balances')
+                        .insert({
+                            id: uuidv4(),
+                            account_code: accCode,
+                            branch_id: branchId,
+                            fiscal_year: fiscalYear,
+                            opening_date: openingDate,
+                            opening_balance: totalVal,
+                            description: 'Saldo awal persediaan farmasi (Otomatis dari Saldo Awal Item)',
+                            created_by: 'system',
+                            created_at: new Date().toISOString()
+                        })
+                }
+            }
+
+            toast.success(`Saldo awal item inventory (${savedCount} item diperbarui, total ${fmtIDR(totalInventoryValue)}) berhasil disimpan (per tanggal 1 Januari ${currentYear}) dan terintegrasi dengan laporan keuangan.`)
 
             // Sinkronkan seluruh data in-memory di useStore
             if (refreshAll) {

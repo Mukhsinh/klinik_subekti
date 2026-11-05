@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { Plus, Eye, CheckCircle, Trash2, Stethoscope, Package, Printer, Pencil, UserCheck, CreditCard } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import Modal from '../../components/ui/Modal'
@@ -48,6 +48,7 @@ export default function BillingPage() {
   const [pharmacyLines, setPharmacyLines] = useState([])
   const [discount, setDiscount] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const isSubmittingRef = useRef(false)
 
   // Modal state for add pharmacy item
   const [showAddPharmModal, setShowAddPharmModal] = useState(false)
@@ -271,10 +272,11 @@ export default function BillingPage() {
   }
 
   const handleRegisterPatient = async () => {
-    if (isSubmitting) return
+    if (isSubmittingRef.current || isSubmitting) return
     if (!patientName.trim()) { toast.error('Nama pasien wajib diisi.'); return }
     if (!serviceLines.length && !labLines.length && !pharmacyLines.length) { toast.error('Minimal 1 item layanan, lab, atau farmasi.'); return }
 
+    isSubmittingRef.current = true
     setIsSubmitting(true)
     try {
       // 1. Validasi stok obat jika ada farmasi
@@ -517,15 +519,17 @@ export default function BillingPage() {
       console.error('[handleRegisterPatient] Error:', err)
       toast.error(`Gagal menyimpan pendaftaran: ${err.message}`)
     } finally {
+      isSubmittingRef.current = false
       setIsSubmitting(false)
     }
   }
 
   const handleCheckout = async () => {
-    if (isSubmitting) return
+    if (isSubmittingRef.current || isSubmitting) return
     if (!patientName.trim()) { toast.error('Nama pasien wajib diisi.'); return }
     if (!serviceLines.length && !labLines.length && !pharmacyLines.length) { toast.error('Minimal 1 item layanan, lab, atau farmasi.'); return }
 
+    isSubmittingRef.current = true
     setIsSubmitting(true)
     try {
       // Validation: check stock limit for each pharmacy item
@@ -715,6 +719,7 @@ export default function BillingPage() {
       console.error('[handleCheckout] Error:', err.message)
       toast.error(`Gagal menyimpan billing: ${err.message}`)
     } finally {
+      isSubmittingRef.current = false
       setIsSubmitting(false)
     }
   }
@@ -757,14 +762,16 @@ export default function BillingPage() {
     setDiscount(b.discountAmount || b.discount_amount || 0)
 
     const svcs = bItems.filter(i => (i.itemType || i.item_type) === 'SERVICE').map(i => ({
-      id: i.serviceTariffId || i.service_tariff_id || i.id,
+      id: i.id || uuidv4(),
+      serviceId: i.serviceTariffId || i.service_tariff_id || i.id,
       name: i.itemName || i.item_name,
       price: Number(i.unitPrice ?? i.unit_price ?? 0),
       qty: Number(i.quantity || 1),
       revenueAccountCode: i.revenueAccountCode || i.revenue_account_code || '4-11-001'
     }))
     const labs = bItems.filter(i => (i.itemType || i.item_type) === 'LAB').map(i => ({
-      id: i.serviceTariffId || i.service_tariff_id || i.id,
+      id: i.id || uuidv4(),
+      serviceId: i.serviceTariffId || i.service_tariff_id || i.id,
       name: i.itemName || i.item_name,
       price: Number(i.unitPrice ?? i.unit_price ?? 0),
       qty: Number(i.quantity || 1),
@@ -777,6 +784,7 @@ export default function BillingPage() {
       return {
         id: i.id || uuidv4(),
         itemId: itId,
+        pharmacyItemId: itId,
         name: i.itemName || i.item_name,
         price: Number(i.unitPrice ?? i.unit_price ?? 0),
         qty: q,
@@ -792,12 +800,36 @@ export default function BillingPage() {
   }
 
   const handleSaveEditBilling = async (actionType = 'PAY_NOW') => {
+    if (isSubmittingRef.current || isSubmitting) return
     if (!editingBilling) return
     if (!patientName.trim()) { toast.error('Nama pasien wajib diisi'); return }
+    if (!serviceLines.length && !labLines.length && !pharmacyLines.length) {
+      toast.error('Minimal 1 item layanan, lab, atau farmasi.')
+      return
+    }
+
+    isSubmittingRef.current = true
     setIsSubmitting(true)
     try {
-      const subService = serviceLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
-      const subLab = labLines.reduce((sum, l) => sum + (l.qty * l.price), 0)
+      // 1. Validasi kuantitas obat jika ada farmasi
+      for (const line of pharmacyLines.filter(l => l.itemId)) {
+        const requestedQty = parseInt(line.qty) || 0
+        if (requestedQty <= 0) {
+          toast.error(`Kuantitas obat "${line.name}" harus lebih besar dari 0.`)
+          return
+        }
+        if (actionType === 'PAY_NOW') {
+          const available = getItemStock(line.itemId)
+          const effectiveAvail = (line.availableStock !== undefined) ? line.availableStock : available
+          if (requestedQty > effectiveAvail) {
+            toast.error(`Stok obat "${line.name}" tidak mencukupi. (Tersedia: ${effectiveAvail}, Diminta: ${requestedQty})`)
+            return
+          }
+        }
+      }
+
+      const subService = serviceLines.reduce((sum, l) => sum + (Number(l.qty || 1) * Number(l.price || 0)), 0)
+      const subLab = labLines.reduce((sum, l) => sum + (Number(l.qty || 1) * Number(l.price || 0)), 0)
       const subPharmacy = pharmacyLines.reduce((sum, l) => sum + ((parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)), 0)
       const discountAmt = Math.min(Number(discount) || 0, subService + subLab + subPharmacy)
       const ppnAmount = Math.round(subPharmacy * PPN_RATE)
@@ -814,29 +846,45 @@ export default function BillingPage() {
       }
 
       const docFeePct = selectedDoctor ? (Number(selectedDoctor.feePercentage ?? selectedDoctor.fee_percentage) || 70) : 70
-      const docName = selectedDoctor?.fullName || selectedDoctor?.name || 'Dokter'
+      const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName || selectedDoctor.name}`.trim() : ''
       const grossDoctorFee = selectedDoctor ? Math.round(subService * (docFeePct / 100)) : 0
       const pph21Calc = calcPPh21Doctor(grossDoctorFee, false)
+      const effectiveBranchId = activeBranchId || editingBilling.branchId || editingBilling.branch_id || 'f265df27-e277-4775-8b1d-5f28e585599a'
 
       const items = [
         ...serviceLines.map(l => ({
-          id: uuidv4(), billingId: editingBilling.id, itemType: 'SERVICE',
-          serviceTariffId: l.serviceId || l.id || null, itemName: l.name, quantity: l.qty,
-          unitPrice: l.price, totalPrice: l.qty * l.price
+          id: uuidv4(),
+          billingId: editingBilling.id,
+          itemType: 'SERVICE',
+          serviceTariffId: l.serviceId || l.id || null,
+          itemName: l.name,
+          quantity: Number(l.qty || 1),
+          unitPrice: Number(l.price || 0),
+          totalPrice: Number(l.qty || 1) * Number(l.price || 0)
         })),
         ...labLines.map(l => ({
-          id: uuidv4(), billingId: editingBilling.id, itemType: 'LAB',
-          serviceTariffId: l.serviceId || l.id || null, itemName: l.name, quantity: l.qty,
-          unitPrice: l.price, totalPrice: l.qty * l.price
+          id: uuidv4(),
+          billingId: editingBilling.id,
+          itemType: 'LAB',
+          serviceTariffId: l.serviceId || l.id || null,
+          itemName: l.name,
+          quantity: Number(l.qty || 1),
+          unitPrice: Number(l.price || 0),
+          totalPrice: Number(l.qty || 1) * Number(l.price || 0)
         })),
         ...pharmacyLines.filter(l => l.itemId).map(l => ({
-          id: uuidv4(), billingId: editingBilling.id, itemType: 'PHARMACY',
-          pharmacyItemId: l.itemId || l.pharmacyItemId || null, itemName: l.name, quantity: parseInt(l.qty) || 1,
-          unitPrice: parseFloat(l.price) || 0, totalPrice: (parseInt(l.qty) || 1) * (parseFloat(l.price) || 0)
+          id: uuidv4(),
+          billingId: editingBilling.id,
+          itemType: 'PHARMACY',
+          pharmacyItemId: l.itemId || l.pharmacyItemId || null,
+          itemName: l.name,
+          quantity: parseInt(l.qty) || 1,
+          unitPrice: parseFloat(l.price) || 0,
+          totalPrice: (parseInt(l.qty) || 1) * (parseFloat(l.price) || 0)
         })),
       ]
 
-      // 1. Identifikasi dan hapus item farmasi yang dihapus oleh kasir dari laporan pengeluaran
+      // 1. Identifikasi dan bersihkan outflow lama jika ada item farmasi yang dihapus
       const prevBillingMeds = (billingItems || []).filter(bi => 
         (bi.billingId === editingBilling.id || bi.billing_id === editingBilling.id) && 
         (bi.itemType === 'PHARMACY' || bi.item_type === 'PHARMACY')
@@ -854,7 +902,7 @@ export default function BillingPage() {
 
       // 2. Hitung net stock yang pernah keluar untuk billing ini per batch agar tidak terjadi restore dobel
       const stockLedgers = await fetchStockLedger()
-      const ledgerForThisBill = stockLedgers.filter(l => 
+      const ledgerForThisBill = (stockLedgers || []).filter(l => 
         l.referenceNumber === editingBilling.billingNumber || l.referenceId === editingBilling.id
       )
 
@@ -906,16 +954,14 @@ export default function BillingPage() {
         }
       }
 
-      if (actionType === 'KEEP_UNPAID' || (editingBilling.status === 'UNPAID' && actionType !== 'PAY_NOW')) {
+      // ── KASUS 1: SIMPAN SEBAGAI BELUM LUNAS (KEEP_UNPAID) ──
+      if (actionType === 'KEEP_UNPAID') {
         // Balikkan jurnal piutang lama jika sudah ada
         if (editingBilling.journalEntryId) {
           await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Piutang Billing ${editingBilling.billingNumber}`)
         }
 
-        const hppDebits = {}
-        const hppCredits = {}
-
-        // Buat jurnal piutang pendapatan baru
+        // Buat jurnal piutang pendapatan baru yang akurat dengan layanan tambahan
         const newJournalId = uuidv4()
         const eNum = generateEntryNumber('BILLING')
         const journalItems = []
@@ -962,12 +1008,12 @@ export default function BillingPage() {
         serviceLines.forEach(l => {
           const defaultActionAcc = getAccountCode('billing_action', appSettings, '4-11-003')
           const accCode = l.revenueAccountCode || defaultActionAcc
-          revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+          revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (Number(l.qty || 1) * Number(l.price || 0))
         })
         labLines.forEach(l => {
           const defaultLabAcc = getAccountCode('billing_lab', appSettings, '4-12-001')
           const accCode = l.revenueAccountCode || defaultLabAcc
-          revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+          revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (Number(l.qty || 1) * Number(l.price || 0))
         })
         Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
           if (amount > 0) {
@@ -1006,18 +1052,11 @@ export default function BillingPage() {
           journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: firstRevAccount, description: `Diskon Billing — ${editingBilling.billingNumber}`, debit: discountAmt, credit: 0 })
         }
 
-        Object.entries(hppDebits).forEach(([coaCode, val]) => {
-          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: coaCode, description: `HPP Penjualan Obat — ${editingBilling.billingNumber}`, debit: val, credit: 0 })
-        })
-        Object.entries(hppCredits).forEach(([coaCode, val]) => {
-          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${editingBilling.billingNumber}`, debit: 0, credit: val })
-        })
-
         const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
         const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
 
         await saveJournalDraft({
-          id: newJournalId, branchId: activeBranchId, entryNumber: eNum,
+          id: newJournalId, branchId: effectiveBranchId, entryNumber: eNum,
           transactionDate: visitDate, description: `Piutang Billing Pasien ${patientName} — ${editingBilling.billingNumber}`,
           entryType: 'BILLING', totalDebit: td, totalCredit: tc
         }, journalItems)
@@ -1048,212 +1087,47 @@ export default function BillingPage() {
         await updateBilling(editingBilling.id, updatedBillingObj)
         await deleteBillingItemsByBilling(editingBilling.id)
         await insertBillingItems(items)
+
         await refreshAll()
-        toast.success(`Data pendaftaran ${editingBilling.billingNumber} berhasil diperbarui. Status: BELUM LUNAS. Piutang tercatat di jurnal.`)
+        toast.success(`Data layanan ${editingBilling.billingNumber} (${patientName}) berhasil disimpan. Status: BELUM LUNAS.`)
         setModal(null)
         setEditingBilling(null)
         resetForm()
         return
       }
 
-      // ── KASUS PELUNASAN: Jika billing sebelumnya sudah dicatat sebagai Piutang (status UNPAID) ──
-      if (editingBilling.status === 'UNPAID' && editingBilling.journalEntryId && actionType === 'PAY_NOW') {
-        const settlementEntryId = uuidv4()
-        const eNum = generateEntryNumber('BILLING')
-        const journalItems = []
-
-        const cashAcc = getAccountCode('billing_cash', appSettings, '1-11-002')
-        const transferAcc = getAccountCode('billing_transfer', appSettings, '1-11-005')
-        const qrisAcc = getAccountCode('billing_qris', appSettings, '1-11-004')
-        const piutangPasienAcc = getAccountCode('billing_piutang_pasien', appSettings, '1-12-003')
-        const pph21Acc = getAccountCode('billing_pph21_payable', appSettings, '2-13-001')
-        const docFeePayableAcc = getAccountCode('billing_doctor_fee_payable', appSettings, '2-12-003')
-
-        const paymentAssetAcc = payMethod === 'TRANSFER' ? transferAcc : payMethod === 'QRIS' ? qrisAcc : cashAcc
-
-        // Debet Kas/Bank Penerimaan, Kredit Piutang Pasien
-        if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
-          journalItems.push({
-            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: paymentAssetAcc,
-            description: `Kas/Bank Pelunasan Piutang Pasien — ${editingBilling.billingNumber}`, debit: grandTotal, credit: 0
-          })
-          journalItems.push({
-            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: piutangPasienAcc,
-            description: `Pelunasan Piutang Pasien Umum — ${editingBilling.billingNumber}`, debit: 0, credit: grandTotal
-          })
-        } else if (payMethod === 'BPJS') {
-          if (patientPortion > 0) {
-            journalItems.push({
-              id: uuidv4(), journalEntryId: settlementEntryId, accountCode: cashAcc,
-              description: `Kas Penerimaan Iuran Pasien BPJS — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0
-            })
-            journalItems.push({
-              id: uuidv4(), journalEntryId: settlementEntryId, accountCode: piutangPasienAcc,
-              description: `Pelunasan Piutang Iuran Pasien BPJS — ${editingBilling.billingNumber}`, debit: 0, credit: patientPortion
-            })
-          }
-        } else {
-          if (patientPortion > 0) {
-            journalItems.push({
-              id: uuidv4(), journalEntryId: settlementEntryId, accountCode: cashAcc,
-              description: `Kas Penerimaan Pasien Asuransi — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0
-            })
-            journalItems.push({
-              id: uuidv4(), journalEntryId: settlementEntryId, accountCode: piutangPasienAcc,
-              description: `Pelunasan Piutang Pasien Asuransi — ${editingBilling.billingNumber}`, debit: 0, credit: patientPortion
-            })
-          }
-        }
-
-        // Pengakuan hak bagi hasil jasa medis dokter & PPh 21
-        if (grossDoctorFee > 0 && selectedDoctor) {
-          const docFeeAcc = getAccountCode('billing_doctor_fee', appSettings, '6-12-001')
-          journalItems.push({
-            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: docFeeAcc,
-            description: `Bagi Hasil Jasa Medis ${docName}`, debit: grossDoctorFee, credit: 0
-          })
-          journalItems.push({
-            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: pph21Acc,
-            description: `Utang PPh 21 ${docName}`, debit: 0, credit: pph21Calc.pph21Amount
-          })
-          journalItems.push({
-            id: uuidv4(), journalEntryId: settlementEntryId, accountCode: docFeePayableAcc,
-            description: `Utang Jasa Medis Net ${docName}`, debit: 0, credit: pph21Calc.netToDoctor
-          })
-        }
-
-        const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
-        const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
-
-        await saveJournalDraft({
-          id: settlementEntryId,
-          branchId: activeBranchId,
-          entryNumber: eNum,
-          transactionDate: visitDate,
-          description: `Pelunasan Piutang Billing Pasien ${patientName} — ${editingBilling.billingNumber}`,
-          entryType: 'BILLING',
-          totalDebit: td,
-          totalCredit: tc
-        }, journalItems)
-        await postJournalEntry(settlementEntryId, 'System-Billing')
-
-        // Update billing menjadi LUNAS (PAID)
-        const updatedBillingObj = {
-          id: editingBilling.id,
-          patientName,
-          patientMRN,
-          doctorId: selectedDoctor?.id || null,
-          doctorName: docName,
-          visitDate,
-          paymentMethod: payMethod,
-          bpjsClaimNumber: bpjsClaimNo,
-          subtotalDoctorServices: subService,
-          subtotalLab: subLab,
-          subtotalServices: subService + subLab,
-          subtotalPharmacy,
-          discountAmount: discountAmt,
-          ppnAmount,
-          grandTotal,
-          patientPortion,
-          insurancePortion,
-          status: 'PAID',
-          updatedAt: new Date().toISOString()
-        }
-        await updateBilling(editingBilling.id, updatedBillingObj)
-        await deleteBillingItemsByBilling(editingBilling.id)
-        await insertBillingItems(items)
-
-        // Catat doctor fee record jika ada dokter
-        if (selectedDoctor && grossDoctorFee > 0) {
-          try {
-            await insertDoctorFeeRecord({
-              id: uuidv4(),
-              billingId: editingBilling.id,
-              doctorId: selectedDoctor.id,
-              doctorName: docName,
-              doctorNpwp: selectedDoctor.npwp || selectedDoctor.doctor_npwp || '',
-              grossJasaMedis: grossDoctorFee,
-              dppAmount: pph21Calc.dpp,
-              taxRate: pph21Calc.rate * 100,
-              pph21Amount: pph21Calc.pph21Amount,
-              netToDoctor: pph21Calc.netToDoctor,
-              cumulativeGrossYtd: 0,
-              journalEntryId: settlementEntryId,
-              createdAt: new Date().toISOString()
-            })
-          } catch (dfErr) {
-            console.warn('[handleSaveEditBilling] Doctor fee record insert error:', dfErr.message)
-          }
-        }
-
-        await insertAuditLog({
-          id: uuidv4(), user_id: 'system', user_name: 'Kasir', user_role: 'system',
-          action: 'PAY_BILLING', module: 'BILLING',
-          detail: `Pelunasan piutang tagihan ${editingBilling.billingNumber} (${patientName}) Rp ${grandTotal.toLocaleString('id-ID')}`,
-          ip_address: '127.0.0.1', created_at: new Date().toISOString()
-        }).catch(() => {})
-
-        await refreshAll()
-        toast.success(`Pembayaran billing ${editingBilling.billingNumber} berhasil. Pelunasan piutang pada kas diposting ke jurnal.`)
-        setModal(null)
-        setEditingBilling(null)
-        resetForm()
-        return
-      }
-
-      // ── KASUS LAIN: Billing baru atau belum memiliki jurnal piutang sebelumnya ──
+      // ── KASUS 2: PEMBAYARAN LUNAS (PAY_NOW) ──
+      // Balikkan jurnal piutang/billing lama jika ada
       if (editingBilling.journalEntryId) {
-        await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Billing ${editingBilling.billingNumber}`)
+        await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Pelunasan Lunas Kasir Billing ${editingBilling.billingNumber}`)
       }
 
       await deleteDoctorFeeRecordByBilling(editingBilling.id)
 
-      const newJournalId = uuidv4()
-      const updatedBillingObj = {
-        id: editingBilling.id,
-        patientName,
-        patientMRN,
-        doctorId: selectedDoctor?.id || null,
-        doctorName: docName,
-        visitDate,
-        paymentMethod: payMethod,
-        bpjsClaimNumber: bpjsClaimNo,
-        subtotalDoctorServices: subService,
-        subtotalLab: subLab,
-        subtotalServices: subService + subLab,
-        subtotalPharmacy,
-        discountAmount: discountAmt,
-        ppnAmount,
-        grandTotal,
-        patientPortion,
-        insurancePortion,
-        status: 'PAID',
-        journalEntryId: newJournalId,
-        updatedAt: new Date().toISOString()
-      }
-      await updateBilling(editingBilling.id, updatedBillingObj)
-      await deleteBillingItemsByBilling(editingBilling.id)
-      await insertBillingItems(items)
-
+      // Potong stok obat FIFO untuk seluruh baris farmasi yang terisi
       const hppDebits = {}
       const hppCredits = {}
       for (const line of pharmacyLines.filter(l => l.itemId)) {
         const qtyToDeplete = parseInt(line.qty) || 0
-        const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, editingBilling.billingNumber, activeBranchId)
-        cogsDetails.forEach(d => {
-          const val = d.qty * d.unitCostPrice
-          if (val > 0) {
-            hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
-            hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
-          }
-        })
+        if (qtyToDeplete > 0) {
+          const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, editingBilling.billingNumber, effectiveBranchId)
+          cogsDetails.forEach(d => {
+            const val = d.qty * d.unitCostPrice
+            if (val > 0) {
+              hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
+              hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
+            }
+          })
+        }
       }
 
+      // Buat Jurnal Pembayaran Kasir yang Lengkap dan Balance
+      const newJournalId = uuidv4()
       const eNum = generateEntryNumber('BILLING')
       const journalItems = []
 
       const cashAcc = getAccountCode('billing_cash', appSettings, '1-11-002')
-      const transferAcc = getAccountCode('billing_transfer', appSettings, '1-11-005')
+      const transferAcc = getAccountCode('billing_transfer', appSettings, '1-11-003')
       const qrisAcc = getAccountCode('billing_qris', appSettings, '1-11-004')
       const bpjsAcc = getAccountCode('billing_piutang_bpjs', appSettings, '1-12-001')
       const insAcc = getAccountCode('billing_piutang_asuransi', appSettings, '1-12-002')
@@ -1266,23 +1140,31 @@ export default function BillingPage() {
       if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
         journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: paymentAssetAcc, description: `Kas/Bank Penerimaan Kasir — ${editingBilling.billingNumber}`, debit: grandTotal, credit: 0 })
       } else if (payMethod === 'BPJS') {
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: cashAcc, description: `Bayar Pasien BPJS — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: bpjsAcc, description: `Piutang BPJS — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+        if (patientPortion > 0) {
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: cashAcc, description: `Bayar Pasien BPJS — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
+        }
+        if (insurancePortion > 0) {
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: bpjsAcc, description: `Piutang BPJS — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+        }
       } else {
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: cashAcc, description: `Bayar Pasien Asuransi — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: insAcc, description: `Piutang Asuransi — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+        if (patientPortion > 0) {
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: cashAcc, description: `Bayar Pasien Asuransi — ${editingBilling.billingNumber}`, debit: patientPortion, credit: 0 })
+        }
+        if (insurancePortion > 0) {
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: insAcc, description: `Piutang Asuransi — ${editingBilling.billingNumber}`, debit: insurancePortion, credit: 0 })
+        }
       }
 
       const revenueByAccount = {}
       serviceLines.forEach(l => {
         const defaultActionAcc = getAccountCode('billing_action', appSettings, '4-11-003')
         const accCode = l.revenueAccountCode || defaultActionAcc
-        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (Number(l.qty || 1) * Number(l.price || 0))
       })
       labLines.forEach(l => {
         const defaultLabAcc = getAccountCode('billing_lab', appSettings, '4-12-001')
         const accCode = l.revenueAccountCode || defaultLabAcc
-        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (l.qty * l.price)
+        revenueByAccount[accCode] = (revenueByAccount[accCode] || 0) + (Number(l.qty || 1) * Number(l.price || 0))
       })
       Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
         if (amount > 0) {
@@ -1339,7 +1221,7 @@ export default function BillingPage() {
       const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
       const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
 
-      await saveJournalDraft({ id: newJournalId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${editingBilling.billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
+      await saveJournalDraft({ id: newJournalId, branchId: effectiveBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${editingBilling.billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
       await postJournalEntry(newJournalId, 'System-Billing')
 
       // Record doctor fee and PPh21 to doctor_fee_records
@@ -1365,6 +1247,33 @@ export default function BillingPage() {
         }
       }
 
+      // Update patient_billings ke status PAID
+      const updatedBillingObj = {
+        id: editingBilling.id,
+        patientName,
+        patientMRN,
+        doctorId: selectedDoctor?.id || null,
+        doctorName: docName,
+        visitDate,
+        paymentMethod: payMethod,
+        bpjsClaimNumber: bpjsClaimNo,
+        subtotalDoctorServices: subService,
+        subtotalLab: subLab,
+        subtotalServices: subService + subLab,
+        subtotalPharmacy,
+        discountAmount: discountAmt,
+        ppnAmount,
+        grandTotal,
+        patientPortion,
+        insurancePortion,
+        status: 'PAID',
+        journalEntryId: newJournalId,
+        updatedAt: new Date().toISOString()
+      }
+      await updateBilling(editingBilling.id, updatedBillingObj)
+      await deleteBillingItemsByBilling(editingBilling.id)
+      await insertBillingItems(items)
+
       await insertAuditLog({
         id: uuidv4(), user_id: 'system', user_name: 'Kasir', user_role: 'system',
         action: 'PAY_BILLING', module: 'BILLING',
@@ -1373,7 +1282,7 @@ export default function BillingPage() {
       })
 
       await refreshAll()
-      toast.success(`Pembayaran billing ${editingBilling.billingNumber} berhasil diproses. Status: LUNAS. Jurnal diposting.`)
+      toast.success(`Pembayaran billing ${editingBilling.billingNumber} (${patientName}) berhasil diproses. Status: LUNAS.`)
       setModal(null)
       setEditingBilling(null)
       resetForm()
@@ -1381,6 +1290,7 @@ export default function BillingPage() {
       console.error('[handleSaveEditBilling] Error:', err.message)
       toast.error(`Gagal memproses billing: ${err.message}`)
     } finally {
+      isSubmittingRef.current = false
       setIsSubmitting(false)
     }
   }
@@ -1507,46 +1417,46 @@ export default function BillingPage() {
                 <>
                   <button
                     type="button"
-                    className="px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                    className="px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleRegisterPatient}
                     disabled={isSubmitting}
                     title="Simpan pendaftaran pasien dengan transaksi tertunda (Belum Lunas)"
                   >
                     <UserCheck className="w-4 h-4 text-amber-600" />
-                    Daftar (Belum Lunas)
+                    {isSubmitting ? 'Mendaftarkan...' : 'Daftar (Belum Lunas)'}
                   </button>
                   <button
                     type="button"
-                    className="btn-success px-5 flex items-center gap-1.5"
+                    className="btn-success px-5 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleCheckout}
                     disabled={isSubmitting}
                     title="Proses checkout dan bayar penuh (Status: Lunas)"
                   >
                     <CheckCircle className="w-4 h-4" />
-                    Bayar (Lunas)
+                    {isSubmitting ? 'Memproses...' : 'Bayar (Lunas)'}
                   </button>
                 </>
               ) : (
                 <>
                   <button
                     type="button"
-                    className="px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                    className="px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={() => handleSaveEditBilling('KEEP_UNPAID')}
                     disabled={isSubmitting}
                     title="Simpan perubahan data pendaftaran pasien (Status tetap Belum Lunas)"
                   >
                     <UserCheck className="w-4 h-4 text-amber-600" />
-                    Simpan (Belum Lunas)
+                    {isSubmitting ? 'Menyimpan...' : 'Simpan (Belum Lunas)'}
                   </button>
                   <button
                     type="button"
-                    className="btn-success px-5 flex items-center gap-1.5"
+                    className="btn-success px-5 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={() => handleSaveEditBilling('PAY_NOW')}
                     disabled={isSubmitting}
                     title="Selesaikan transaksi dan proses pembayaran kasir (Status: Lunas)"
                   >
                     <CreditCard className="w-4 h-4" />
-                    Bayar Sekarang (Lunas)
+                    {isSubmitting ? 'Memproses Bayar...' : 'Bayar Sekarang (Lunas)'}
                   </button>
                 </>
               )}

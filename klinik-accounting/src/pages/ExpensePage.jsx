@@ -8,7 +8,7 @@ import { useStore } from '../store/useStore'
 import Modal from '../components/ui/Modal'
 import SearchInput from '../components/ui/SearchInput'
 import { StatusBadge } from '../components/ui/Badge'
-import { fmtIDR, fmtDate, todayISO, paymentMethodLabel } from '../utils/format'
+import { fmtIDR, fmtDate, fmtNum, todayISO, paymentMethodLabel } from '../utils/format'
 import { getAccountCode, EXPENSE_CATEGORY_MAPPING_KEY } from '../utils/accountMapping'
 import SearchableSelect from '../components/ui/SearchableSelect'
 import { fetchBatches, fetchExpenses, upsertExpense, updateFixedAsset } from '../lib/db'
@@ -142,7 +142,7 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
   }
 
   return (
-    <form onSubmit={submit} className="space-y-4 text-xs">
+    <form onSubmit={(e) => handleFormSubmit(e, true)} className="space-y-4 text-xs">
       {/* Top Banner */}
       <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-xs flex items-center justify-between">
         <div>
@@ -1181,6 +1181,7 @@ export default function ExpensePage() {
                 const journalEntryId = uuidv4()
                 const entryNumber = generateEntryNumber('EXP')
                 const totalAmount = Number(data.netAmount || data.grossAmount || 0)
+                const journalTotal = Number(data.grossAmount || 0) + Number(data.ppnAmount || 0)
 
                 const journalHeader = {
                   id: journalEntryId,
@@ -1190,8 +1191,8 @@ export default function ExpensePage() {
                   description: `Pengeluaran Beban: ${data.category} — ${data.description}`,
                   entryType: 'EXPENSE',
                   status: 'POSTED',
-                  totalDebit: totalAmount,
-                  totalCredit: totalAmount,
+                  totalDebit: journalTotal,
+                  totalCredit: journalTotal,
                   createdBy: 'Kasir/Admin',
                   postedBy: 'Admin',
                   postedAt: new Date().toISOString(),
@@ -1214,7 +1215,7 @@ export default function ExpensePage() {
                   journalLines.push({
                     id: uuidv4(),
                     journalEntryId,
-                    accountCode: getAccountCode('billing_ppn_masukan', appSettings, '1-17-001'),
+                    accountCode: getAccountCode('billing_ppn_masukan', appSettings, '1-14-002'),
                     description: `PPN Masukan — ${data.description}`,
                     debit: Number(data.ppnAmount),
                     credit: 0
@@ -1320,9 +1321,18 @@ export default function ExpensePage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                      {effectiveBatches
-                        .filter(b => (b.grnReference || b.grn_reference || '').toUpperCase().trim() === viewingDebtItem.refNumber.toUpperCase().trim())
-                        .map(b => {
+                      {(() => {
+                        const matched = effectiveBatches.filter(b => (b.grnReference || b.grn_reference || '').toUpperCase().trim() === viewingDebtItem.refNumber.toUpperCase().trim())
+                        if (matched.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={6} className="py-6 text-center text-slate-400">
+                                Tidak ada rincian batch/item obat yang terhubung dengan faktur ini.
+                              </td>
+                            </tr>
+                          )
+                        }
+                        return matched.map(b => {
                           const pItem = (pharmacyItems || []).find(p => p.id === (b.itemId || b.item_id))
                           const iName = pItem?.itemName || b.itemName || b.item_name || 'Item Farmasi'
                           const qty = Number(b.quantityReceived ?? b.quantity_received ?? 0)
@@ -1338,7 +1348,8 @@ export default function ExpensePage() {
                               <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">{fmtIDR(subtotal)}</td>
                             </tr>
                           )
-                        })}
+                        })
+                      })()}
                     </tbody>
                     <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
                       <tr>
@@ -1404,25 +1415,92 @@ export default function ExpensePage() {
       )}
 
       {/* MODAL: VIEW DETAIL PENGELUARAN */}
-      <Modal open={modal === 'view'} onClose={() => setModal(null)} title={`Detail Pengeluaran — ${selected?.expenseNumber}`} size="md"
+      <Modal open={modal === 'view'} onClose={() => setModal(null)} title={`Detail Pengeluaran — ${selected?.expenseNumber}`} size={selected?.selectedGrnRefs?.length > 0 || selected?.category?.includes('PBF') ? 'lg' : 'md'}
         footer={<button className="btn-secondary text-xs" onClick={() => setModal(null)}>Tutup</button>}>
         {selected && (
-          <div className="space-y-2.5 text-xs">
-            {[
-              ['No. Pengeluaran', selected.expenseNumber],
-              ['Tanggal Transaksi', fmtDate(selected.expenseDate)],
-              ['Kategori Beban', selected.category],
-              ['Keterangan', selected.description],
-              ['Vendor / Pihak', selected.vendorName || '—'],
-              ['Metode Pembayaran', paymentMethodLabel(selected.paymentMethod)],
-              ['Nominal Pengeluaran', fmtIDR(selected.grossAmount || selected.netAmount)],
-              ['Status Jurnal', selected.status === 'POSTED' ? 'POSTED (Tercatat di Buku Besar)' : 'DRAFT']
-            ].map(([k, v]) => (
-              <div key={k} className="flex justify-between border-b border-slate-100 pb-1.5">
-                <span className="text-slate-500">{k}</span>
-                <span className="font-semibold font-mono text-slate-800">{v}</span>
-              </div>
-            ))}
+          <div className="space-y-3 text-xs">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              {[
+                ['No. Pengeluaran', selected.expenseNumber],
+                ['Tanggal Transaksi', fmtDate(selected.expenseDate)],
+                ['Kategori Beban', selected.category],
+                ['Metode Pembayaran', paymentMethodLabel(selected.paymentMethod)],
+                ['Vendor / Pihak', selected.vendorName || '—'],
+                ['Status Jurnal', selected.status === 'POSTED' ? 'POSTED (Tercatat di Buku Besar)' : 'DRAFT'],
+                ['Keterangan', selected.description],
+                ['Nominal Pengeluaran', fmtIDR(selected.grossAmount || selected.netAmount)]
+              ].map(([k, v]) => (
+                <div key={k} className="border-b border-slate-200/60 pb-1">
+                  <span className="text-slate-500 block text-[10px]">{k}</span>
+                  <span className="font-semibold font-mono text-slate-800 text-xs">{v}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Rincian Item Farmasi / GRN yang Dibayar */}
+            {(() => {
+              const grnRefs = (selected.selectedGrnRefs || []).map(r => String(r).toUpperCase().trim())
+              const matchedBatches = effectiveBatches.filter(b => {
+                const bRef = (b.grnReference || b.grn_reference || '').toUpperCase().trim()
+                return grnRefs.includes(bRef) || (bRef && selected.description && selected.description.toUpperCase().includes(bRef))
+              })
+              if (matchedBatches.length > 0 || grnRefs.length > 0) {
+                return (
+                  <div className="mt-2 pt-2 border-t border-slate-200 space-y-2">
+                    <p className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+                      Rincian Faktur & Item Farmasi yang Dibayar:
+                    </p>
+                    {grnRefs.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                        <span className="text-[11px] text-slate-500 font-medium">No. Faktur GRN Terkait:</span>
+                        {grnRefs.map(ref => (
+                          <span key={ref} className="font-mono text-[11px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-300">
+                            {ref}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {matchedBatches.length > 0 ? (
+                      <div className="overflow-x-auto rounded-xl border border-slate-200 max-h-56">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead className="bg-slate-100 font-bold text-slate-700 text-[11px] uppercase">
+                            <tr>
+                              <th className="py-2 px-3">Item Farmasi / Obat</th>
+                              <th className="py-2 px-3">Batch</th>
+                              <th className="py-2 px-3 text-center">Tgl ED</th>
+                              <th className="py-2 px-3 text-center">Qty</th>
+                              <th className="py-2 px-3 text-right">Harga Satuan</th>
+                              <th className="py-2 px-3 text-right">Subtotal</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 bg-white">
+                            {matchedBatches.map(b => {
+                              const pItem = (pharmacyItems || []).find(p => p.id === (b.itemId || b.item_id))
+                              const iName = pItem?.itemName || b.itemName || b.item_name || 'Item Farmasi'
+                              const qty = Number(b.quantityReceived ?? b.quantity_received ?? 0)
+                              const cost = Number(b.unitCostPrice ?? b.unit_cost_price ?? 0)
+                              return (
+                                <tr key={b.id} className="hover:bg-slate-50">
+                                  <td className="py-1.5 px-3 font-medium text-slate-900">{iName}</td>
+                                  <td className="py-1.5 px-3 font-mono text-slate-700">{b.batchNumber || b.batch_number || '-'}</td>
+                                  <td className="py-1.5 px-3 text-center font-mono text-slate-600">{b.expiryDate ? fmtDate(b.expiryDate) : '-'}</td>
+                                  <td className="py-1.5 px-3 text-center font-bold text-slate-800">{fmtNum(qty)}</td>
+                                  <td className="py-1.5 px-3 text-right font-mono text-slate-700">{fmtIDR(cost)}</td>
+                                  <td className="py-1.5 px-3 text-right font-mono font-bold text-slate-900">{fmtIDR(qty * cost)}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">Data batch detail faktur tidak ditemukan di riwayat inventori.</p>
+                    )}
+                  </div>
+                )
+              }
+              return null
+            })()}
           </div>
         )}
       </Modal>
