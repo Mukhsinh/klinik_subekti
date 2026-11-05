@@ -52,17 +52,31 @@ export default function InventoryItemOpeningBalancePage() {
 
             if (batchesError) throw batchesError
 
-            // Deteksi item yang sudah pernah ada transaksi operasional (GRN, BILLING, OUTFLOW, dll)
-            // Item yang sudah ada mutasi di stock ledger selain SALDO_AWAL tidak boleh diedit saldo awalnya
+            // Deteksi item yang sudah pernah ada transaksi MUTASI KELUAR riil (quantity_out > 0)
+            // Item HANYA terkunci jika sudah ada pengeluaran stok fisik riil yang belum ter-reverse (net mutasi keluar > 0)
             const { data: transData, error: transError } = await supabase
                 .from('stock_ledger_cards')
-                .select('item_id')
+                .select('item_id, transaction_type, quantity_in, quantity_out')
                 .neq('transaction_type', 'SALDO_AWAL')
 
             if (transError) throw transError
 
-            const transSet = new Set((transData || []).map(t => t.item_id).filter(Boolean))
-            setLockedItemIds(transSet)
+            const netOutMap = {}
+            for (const t of (transData || [])) {
+                if (!t.item_id) continue
+                if (!netOutMap[t.item_id]) netOutMap[t.item_id] = 0
+                const qOut = Number(t.quantity_out || 0)
+                const qIn = (t.transaction_type === 'REVISION_RESTORE' || t.transaction_type === 'RETURN') ? Number(t.quantity_in || 0) : 0
+                netOutMap[t.item_id] += (qOut - qIn)
+            }
+
+            const lockedSet = new Set()
+            for (const [itId, netOut] of Object.entries(netOutMap)) {
+                if (netOut > 0) {
+                    lockedSet.add(itId)
+                }
+            }
+            setLockedItemIds(lockedSet)
 
             // Normalize data
             const normalizedItems = (itemsData || []).map(item => ({
@@ -218,11 +232,13 @@ export default function InventoryItemOpeningBalancePage() {
                         if (updateError) throw updateError
 
                         // Periksa apakah sudah ada kartu stok untuk batch ini
-                        const { data: existingLedger } = await supabase
+                        const { data: existingLedgerList } = await supabase
                             .from('stock_ledger_cards')
                             .select('id')
                             .eq('batch_id', existingBatch.id)
-                            .maybeSingle()
+                            .limit(1)
+
+                        const existingLedger = existingLedgerList?.[0]
 
                         if (existingLedger) {
                             await supabase
@@ -363,13 +379,14 @@ export default function InventoryItemOpeningBalancePage() {
 
             // Sinkronkan setiap akun persediaan ke opening_balances
             for (const [accCode, totalVal] of Object.entries(balanceByAccount)) {
-                const { data: existingOB } = await supabase
+                const { data: existingOBList } = await supabase
                     .from('opening_balances')
                     .select('id')
                     .eq('account_code', accCode)
                     .eq('fiscal_year', fiscalYear)
-                    .eq('branch_id', branchId)
-                    .maybeSingle()
+                    .limit(1)
+
+                const existingOB = existingOBList?.[0]
 
                 if (existingOB) {
                     await supabase

@@ -773,16 +773,39 @@ export function useStore() {
     }
 
     if (remaining > 0) {
-      const fallbackCost = item?.purchasePrice || item?.hpp || item?.unitCostPrice || item?.sellingPrice || 0
-      depletedList.push({
-        batchId: uuidv4(),
-        batchNumber: 'DIRECT-BILLING',
-        qty: remaining,
-        unitCostPrice: fallbackCost,
-        expiryDate: new Date().toISOString(),
-        coaCOGSCode,
-        coaInventoryCode,
-      })
+      const fallbackCost = Number(item?.purchasePrice || item?.purchase_price || item?.hpp || item?.unitCostPrice || item?.sellingPrice || 0)
+      let targetBatch = activeBatches[0] || (s.invBatches || []).find(b => b.itemId === itemId)
+      if (!targetBatch) {
+        const newBId = uuidv4()
+        const batchNum = `BTH-${new Date().getFullYear()}-${(item?.itemCode || itemId).slice(0, 8)}`
+        try {
+          await supabase.from('inventory_batches').insert({
+            id: newBId,
+            item_id: itemId,
+            batch_number: batchNum,
+            quantity_received: remaining,
+            quantity_current: 0,
+            unit_cost_price: fallbackCost,
+            expiry_date: `${new Date().getFullYear() + 2}-12-31`,
+            received_at: new Date().toISOString(),
+            created_at: new Date().toISOString()
+          })
+          targetBatch = { id: newBId, batchNumber: batchNum, unitCostPrice: fallbackCost, quantityCurrent: 0 }
+        } catch (_) {}
+      }
+
+      if (targetBatch) {
+        depletedList.push({
+          batchId: targetBatch.id,
+          batchNumber: targetBatch.batchNumber || 'DIRECT-BILLING',
+          qty: remaining,
+          unitCostPrice: fallbackCost || Number(targetBatch.unitCostPrice || 0),
+          expiryDate: targetBatch.expiryDate || new Date().toISOString(),
+          coaCOGSCode,
+          coaInventoryCode,
+        })
+        updatedBatchesMap[targetBatch.id] = Math.max(0, (updatedBatchesMap[targetBatch.id] ?? Number(targetBatch.quantityCurrent || 0)) - remaining)
+      }
     }
 
     // Calculate running balance per item for stock_ledger_cards

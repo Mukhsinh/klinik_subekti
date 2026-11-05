@@ -546,39 +546,10 @@ export default function StockOutflowPage() {
         const purchaseCost = Number(pItem?.purchasePrice || pItem?.purchase_price || pItem?.hpp || 0)
 
         // FIFO valuation
-        const { totalValuation, avgUnitCost, fifoBreakdown } = calculateFifoValuation(itemBatches, item.quantity, purchaseCost)
+        const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, item.quantity, purchaseCost)
         totalHpp += totalValuation
 
-        // FEFO Physical Stock Depletion
-        const physicalUpdates = depleteFefoPhysicalStock(itemBatches, item.quantity)
-        for (const update of physicalUpdates) {
-          if (update.batchId) {
-            await updateBatchQty(update.batchId, update.newQtyCurrent)
-          }
-        }
-
-        // Ledger logging
-        let currentItemBalance = getItemStock(item.itemId)
-        for (const fifoPart of fifoBreakdown) {
-          currentItemBalance -= fifoPart.qty
-          ledgerEntries.push({
-            id: uuidv4(),
-            batchId: fifoPart.batchId,
-            itemId: item.itemId,
-            transactionType: 'BILLING',
-            referenceId: selectedBilling.id,
-            referenceNumber: billingNum,
-            quantityIn: 0,
-            quantityOut: fifoPart.qty,
-            balanceAfter: Math.max(0, currentItemBalance),
-            unitCost: Number(fifoPart.unitCost || 0),
-            totalValue: Number(fifoPart.totalCost || 0),
-            notes: `Obat Pasien: ${patientDisplay} (${billingNum}) [${item.notes || 'Resep Obat'}]`,
-            loggedAt: now,
-          })
-        }
-
-        // Billing Item row
+        // Billing Item row (Obat dimasukkan ke tagihan pasien, stok fisik akan dipotong saat pasien membayar lunas di kasir)
         const lineTotal = Number(item.quantity) * Number(item.sellPrice || 0)
         newBillingItems.push({
           id: uuidv4(),
@@ -627,7 +598,7 @@ export default function StockOutflowPage() {
       // 1. Insert billing items to database
       await insertBillingItems(newBillingItems)
 
-      // 2. Insert stock ledger cards to database
+      // 2. Insert stock ledger cards jika ada (hanya jika pembayaran langsung lunas)
       if (ledgerEntries.length > 0) {
         await insertStockLedger(ledgerEntries)
       }
@@ -1918,10 +1889,9 @@ export default function StockOutflowPage() {
                 <div>
                   <p className="font-bold">Integrasi Otomatis dengan Billing Pasien</p>
                   <p className="mt-0.5 text-blue-600">
-                    Obat yang disimpan akan otomatis: (1) Mengurangi stok fisik dengan metode FEFO, 
-                    (2) Mencatat HPP dengan metode FIFO di Kartu Stok, 
-                    (3) Menambahkan item farmasi ke billing pasien, 
-                    (4) Memperbarui total billing pasien secara real-time.
+                    Obat yang disimpan akan otomatis: (1) Menambahkan item obat dan resep ke billing kasir pasien secara real-time, 
+                    (2) Memperbarui total tagihan pasien, 
+                    (3) Pengurangan stok fisik dan pencatatan HPP di Kartu Stok akan diproses saat pasien melakukan pembayaran (lunas) di kasir.
                   </p>
                 </div>
               </div>

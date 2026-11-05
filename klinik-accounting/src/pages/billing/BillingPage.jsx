@@ -335,27 +335,8 @@ export default function BillingPage() {
         })),
       ]
 
-      // 2. Deplete inventory FIFO untuk obat & catat mutasi stok
-      const hppDebits = {}
-      const hppCredits = {}
-      try {
-        for (const line of pharmacyLines.filter(l => l.itemId)) {
-          const qtyToDeplete = parseInt(line.qty) || 0
-          const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, freshBillingNumber, bId)
-          cogsDetails.forEach(d => {
-            const val = d.qty * d.unitCostPrice
-            if (val > 0) {
-              hppDebits[d.coaCOGSCode] = (hppDebits[d.coaCOGSCode] || 0) + val
-              hppCredits[d.coaInventoryCode] = (hppCredits[d.coaInventoryCode] || 0) + val
-            }
-          })
-        }
-      } catch (err) {
-        toast.error(err.message)
-        return
-      }
-
-      // 3. Jurnal Otomatis Piutang Pendapatan (Belum Lunas)
+      // 2. Jurnal Otomatis Piutang Pendapatan (Belum Lunas - Transaksi Pendaftaran Pasien)
+      // Pada saat pendaftaran / belum bayar: stok obat belum dikeluarkan fisik dan belum dipotong
       const eNum = generateEntryNumber('BILLING')
       const journalItems = []
 
@@ -461,13 +442,6 @@ export default function BillingPage() {
         journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon Billing — ${freshBillingNumber}`, debit: discountAmt, credit: 0 })
       }
 
-      // HPP & Persediaan Obat
-      Object.entries(hppDebits).forEach(([coaCode, val]) => {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `HPP Penjualan Obat — ${freshBillingNumber}`, debit: val, credit: 0 })
-      })
-      Object.entries(hppCredits).forEach(([coaCode, val]) => {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${freshBillingNumber}`, debit: 0, credit: val })
-      })
 
       const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
       const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
@@ -576,7 +550,7 @@ export default function BillingPage() {
       try {
         for (const line of pharmacyLines.filter(l => l.itemId)) {
           const qtyToDeplete = parseInt(line.qty) || 0
-          const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, billingNumber, bId)
+          const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, freshBillingNumber, bId)
           cogsDetails.forEach(d => {
             const val = d.qty * d.unitCostPrice
             if (val > 0) {
@@ -586,6 +560,8 @@ export default function BillingPage() {
           })
         }
       } catch (err) {
+        isSubmittingRef.current = false
+        setIsSubmitting(false)
         toast.error(err.message)
         return
       }
@@ -815,6 +791,8 @@ export default function BillingPage() {
       for (const line of pharmacyLines.filter(l => l.itemId)) {
         const requestedQty = parseInt(line.qty) || 0
         if (requestedQty <= 0) {
+          isSubmittingRef.current = false
+          setIsSubmitting(false)
           toast.error(`Kuantitas obat "${line.name}" harus lebih besar dari 0.`)
           return
         }
@@ -822,6 +800,8 @@ export default function BillingPage() {
           const available = getItemStock(line.itemId)
           const effectiveAvail = (line.availableStock !== undefined) ? line.availableStock : available
           if (requestedQty > effectiveAvail) {
+            isSubmittingRef.current = false
+            setIsSubmitting(false)
             toast.error(`Stok obat "${line.name}" tidak mencukupi. (Tersedia: ${effectiveAvail}, Diminta: ${requestedQty})`)
             return
           }
@@ -900,65 +880,72 @@ export default function BillingPage() {
         await deleteStockOutflowItemByBillingAndItem(editingBilling.id, rmId)
       }
 
-      // 2. Hitung net stock yang pernah keluar untuk billing ini per batch agar tidak terjadi restore dobel
-      const stockLedgers = await fetchStockLedger()
-      const ledgerForThisBill = (stockLedgers || []).filter(l => 
-        l.referenceNumber === editingBilling.billingNumber || l.referenceId === editingBilling.id
-      )
+      // 2. Hanya lakukan restok jika billing ini SEBELUMNYA SUDAH BERSTATUS 'PAID' dan sekarang hendak dibayar ulang
+      // Jika statusnya masih UNPAID / Belum Lunas, stok belum pernah dikeluarkan sehingga TIDAK BOLEH di-restok!
+      if (editingBilling.status === 'PAID') {
+        const stockLedgers = await fetchStockLedger()
+        const ledgerForThisBill = (stockLedgers || []).filter(l => 
+          l.referenceNumber === editingBilling.billingNumber || l.referenceId === editingBilling.id
+        )
 
-      const batchNetDeductions = {}
-      for (const entry of ledgerForThisBill) {
-        if (entry.batchId) {
-          if (!batchNetDeductions[entry.batchId]) {
-            batchNetDeductions[entry.batchId] = {
-              batchId: entry.batchId,
-              itemId: entry.itemId,
-              unitCost: Number(entry.unitCost || 0),
-              netOut: 0
+        const batchNetDeductions = {}
+        for (const entry of ledgerForThisBill) {
+          if (entry.batchId) {
+            if (!batchNetDeductions[entry.batchId]) {
+              batchNetDeductions[entry.batchId] = {
+                batchId: entry.batchId,
+                itemId: entry.itemId,
+                unitCost: Number(entry.unitCost || 0),
+                netOut: 0
+              }
+            }
+            if (entry.quantityOut > 0) {
+              batchNetDeductions[entry.batchId].netOut += Number(entry.quantityOut || 0)
+            }
+            if (entry.quantityIn > 0 && entry.transactionType === 'REVISION_RESTORE') {
+              batchNetDeductions[entry.batchId].netOut -= Number(entry.quantityIn || 0)
             }
           }
-          if (entry.quantityOut > 0) {
-            batchNetDeductions[entry.batchId].netOut += Number(entry.quantityOut || 0)
-          }
-          if (entry.quantityIn > 0 && entry.transactionType === 'REVISION_RESTORE') {
-            batchNetDeductions[entry.batchId].netOut -= Number(entry.quantityIn || 0)
-          }
         }
-      }
 
-      // Kembalikan ke batch hanya sebesar netOut yang benar-benar pernah terpotong (netOut > 0)
-      for (const bId of Object.keys(batchNetDeductions)) {
-        const itemDed = batchNetDeductions[bId]
-        if (itemDed.netOut > 0) {
-          const batch = invBatches.find(b => b.id === itemDed.batchId)
-          if (batch) {
-            const currentQty = Number(batch.quantityCurrent ?? batch.quantity_current ?? 0)
-            const restoredQty = currentQty + itemDed.netOut
-            await updateBatchQty(itemDed.batchId, restoredQty)
-            await insertStockLedger([{
-              id: uuidv4(),
-              batchId: itemDed.batchId,
-              itemId: itemDed.itemId,
-              transactionType: 'REVISION_RESTORE',
-              referenceId: editingBilling.id,
-              referenceNumber: editingBilling.billingNumber,
-              quantityIn: itemDed.netOut,
-              quantityOut: 0,
-              balanceAfter: restoredQty,
-              unitCost: itemDed.unitCost,
-              totalValue: itemDed.netOut * itemDed.unitCost,
-              notes: `Restok revisi billing ${editingBilling.billingNumber}`,
-              loggedAt: new Date().toISOString()
-            }])
+        // Kembalikan ke batch hanya sebesar netOut yang benar-benar pernah terpotong (netOut > 0)
+        for (const bId of Object.keys(batchNetDeductions)) {
+          const itemDed = batchNetDeductions[bId]
+          if (itemDed.netOut > 0) {
+            const batch = invBatches.find(b => b.id === itemDed.batchId)
+            if (batch) {
+              const currentQty = Number(batch.quantityCurrent ?? batch.quantity_current ?? 0)
+              const restoredQty = currentQty + itemDed.netOut
+              await updateBatchQty(itemDed.batchId, restoredQty)
+              await insertStockLedger([{
+                id: uuidv4(),
+                batchId: itemDed.batchId,
+                itemId: itemDed.itemId,
+                transactionType: 'REVISION_RESTORE',
+                referenceId: editingBilling.id,
+                referenceNumber: editingBilling.billingNumber,
+                quantityIn: itemDed.netOut,
+                quantityOut: 0,
+                balanceAfter: restoredQty,
+                unitCost: itemDed.unitCost,
+                totalValue: itemDed.netOut * itemDed.unitCost,
+                notes: `Restok revisi billing ${editingBilling.billingNumber}`,
+                loggedAt: new Date().toISOString()
+              }])
+            }
           }
         }
       }
 
       // ── KASUS 1: SIMPAN SEBAGAI BELUM LUNAS (KEEP_UNPAID) ──
       if (actionType === 'KEEP_UNPAID') {
-        // Balikkan jurnal piutang lama jika sudah ada
+        // Balikkan jurnal piutang lama jika sudah ada (safely)
         if (editingBilling.journalEntryId) {
-          await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Piutang Billing ${editingBilling.billingNumber}`)
+          try {
+            await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Piutang Billing ${editingBilling.billingNumber}`)
+          } catch (rErr) {
+            console.warn('[handleSaveEditBilling] reverseJournal notice:', rErr)
+          }
         }
 
         // Buat jurnal piutang pendapatan baru yang akurat dengan layanan tambahan
@@ -1097,9 +1084,13 @@ export default function BillingPage() {
       }
 
       // ── KASUS 2: PEMBAYARAN LUNAS (PAY_NOW) ──
-      // Balikkan jurnal piutang/billing lama jika ada
+      // Balikkan jurnal piutang/billing lama jika ada (safely)
       if (editingBilling.journalEntryId) {
-        await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Pelunasan Lunas Kasir Billing ${editingBilling.billingNumber}`)
+        try {
+          await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Pelunasan Lunas Kasir Billing ${editingBilling.billingNumber}`)
+        } catch (rErr) {
+          console.warn('[handleSaveEditBilling] reverseJournal notice:', rErr)
+        }
       }
 
       await deleteDoctorFeeRecordByBilling(editingBilling.id)
