@@ -52,8 +52,7 @@ export default function InventoryItemOpeningBalancePage() {
 
             if (batchesError) throw batchesError
 
-            // Deteksi item yang sudah pernah ada transaksi MUTASI KELUAR riil (quantity_out > 0)
-            // Item HANYA terkunci jika sudah ada pengeluaran stok fisik riil yang belum ter-reverse (net mutasi keluar > 0)
+            // Deteksi item yang sudah pernah ada transaksi MUTASI (quantity_in > 0 atau quantity_out > 0 selain SALDO_AWAL di stock_ledger_cards, ATAU batch operasional non-SALDO-AWAL di inventory_batches)
             const { data: transData, error: transError } = await supabase
                 .from('stock_ledger_cards')
                 .select('item_id, transaction_type, quantity_in, quantity_out')
@@ -61,20 +60,19 @@ export default function InventoryItemOpeningBalancePage() {
 
             if (transError) throw transError
 
-            const netOutMap = {}
-            for (const t of (transData || [])) {
-                if (!t.item_id) continue
-                if (!netOutMap[t.item_id]) netOutMap[t.item_id] = 0
-                const qOut = Number(t.quantity_out || 0)
-                const qIn = (t.transaction_type === 'REVISION_RESTORE' || t.transaction_type === 'RETURN') ? Number(t.quantity_in || 0) : 0
-                netOutMap[t.item_id] += (qOut - qIn)
-            }
+            const { data: nonSaBatches, error: batchErr } = await supabase
+                .from('inventory_batches')
+                .select('item_id, batch_number')
+                .not('batch_number', 'like', '%SALDO-AWAL%')
+
+            if (batchErr) throw batchErr
 
             const lockedSet = new Set()
-            for (const [itId, netOut] of Object.entries(netOutMap)) {
-                if (netOut > 0) {
-                    lockedSet.add(itId)
-                }
+            for (const t of (transData || [])) {
+                if (t.item_id) lockedSet.add(t.item_id)
+            }
+            for (const b of (nonSaBatches || [])) {
+                if (b.item_id) lockedSet.add(b.item_id)
             }
             setLockedItemIds(lockedSet)
 
@@ -272,6 +270,7 @@ export default function InventoryItemOpeningBalancePage() {
                     } else {
                         // Create new batch
                         const batchId = uuidv4()
+                        const sellingPrice = Number(pharmacyItem.sellingPrice || pharmacyItem.selling_price || (item.unitCost * 1.25))
                         const { error: batchError } = await supabase
                             .from('inventory_batches')
                             .insert({
@@ -281,6 +280,7 @@ export default function InventoryItemOpeningBalancePage() {
                                 expiry_date: expiryDate,
                                 manufacture_date: openingDate,
                                 unit_cost_price: item.unitCost,
+                                selling_price: sellingPrice,
                                 quantity_received: item.quantity,
                                 quantity_current: item.quantity,
                                 grn_reference: 'SALDO-AWAL',
@@ -292,13 +292,14 @@ export default function InventoryItemOpeningBalancePage() {
                         if (batchError) throw batchError
 
                         // Create stock ledger entry
-                        await supabase
+                        const { error: ledgerErr } = await supabase
                             .from('stock_ledger_cards')
                             .insert({
                                 id: uuidv4(),
                                 batch_id: batchId,
                                 item_id: item.itemId,
                                 transaction_type: 'SALDO_AWAL',
+                                reference_id: batchId,
                                 reference_number: 'SALDO-AWAL',
                                 quantity_in: item.quantity,
                                 quantity_out: 0,
@@ -308,6 +309,7 @@ export default function InventoryItemOpeningBalancePage() {
                                 notes: 'Saldo awal persediaan item',
                                 logged_at: openingIso
                             })
+                        if (ledgerErr) throw ledgerErr
                     }
                     savedCount++
                 } else if (existingBatch) {
@@ -377,41 +379,22 @@ export default function InventoryItemOpeningBalancePage() {
             const fiscalYear = currentYear
             const branchId = activeBranchId || 'f265df27-e277-4775-8b1d-5f28e585599a'
 
-            // Sinkronkan setiap akun persediaan ke opening_balances
+            // Sinkronkan setiap akun persediaan ke opening_balances via upsert
             for (const [accCode, totalVal] of Object.entries(balanceByAccount)) {
-                const { data: existingOBList } = await supabase
+                const { error: obErr } = await supabase
                     .from('opening_balances')
-                    .select('id')
-                    .eq('account_code', accCode)
-                    .eq('fiscal_year', fiscalYear)
-                    .limit(1)
+                    .upsert({
+                        branch_id: branchId,
+                        account_code: accCode,
+                        fiscal_year: fiscalYear,
+                        opening_date: openingDate,
+                        opening_balance: totalVal,
+                        description: 'Saldo awal persediaan farmasi (Otomatis dari Saldo Awal Item)',
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'account_code,branch_id,fiscal_year' })
 
-                const existingOB = existingOBList?.[0]
-
-                if (existingOB) {
-                    await supabase
-                        .from('opening_balances')
-                        .update({
-                            opening_balance: totalVal,
-                            opening_date: openingDate,
-                            description: 'Saldo awal persediaan farmasi (Otomatis dari Saldo Awal Item)',
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('id', existingOB.id)
-                } else {
-                    await supabase
-                        .from('opening_balances')
-                        .insert({
-                            id: uuidv4(),
-                            account_code: accCode,
-                            branch_id: branchId,
-                            fiscal_year: fiscalYear,
-                            opening_date: openingDate,
-                            opening_balance: totalVal,
-                            description: 'Saldo awal persediaan farmasi (Otomatis dari Saldo Awal Item)',
-                            created_by: 'system',
-                            created_at: new Date().toISOString()
-                        })
+                if (obErr) {
+                    console.error('[opening_balances upsert error]:', obErr)
                 }
             }
 
@@ -828,14 +811,21 @@ export default function InventoryItemOpeningBalancePage() {
                                                 {isLocked ? (
                                                     <span
                                                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200"
-                                                        title="Saldo awal terkunci karena item ini sudah memiliki riwayat transaksi (GRN / Outflow / Penjualan)"
+                                                        title="Saldo awal terkunci karena item ini sudah memiliki riwayat transaksi/mutasi operasional (GRN / Outflow / Penjualan)"
                                                     >
-                                                        <Lock className="w-3 h-3 text-amber-600" /> Terkunci
+                                                        <Lock className="w-3 h-3 text-amber-600" /> Terkunci (Ada Mutasi)
+                                                    </span>
+                                                ) : stateVal.quantity > 0 ? (
+                                                    <span
+                                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200"
+                                                        title="Saldo awal telah terisi dan dapat diperbarui sebelum ada mutasi riil."
+                                                    >
+                                                        <CheckCircle className="w-3 h-3 text-blue-600" /> Terisi Saldo
                                                     </span>
                                                 ) : (
                                                     <span
                                                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                                        title="Item belum ada transaksi. Saldo awal dapat diinput atau diperbarui bebas."
+                                                        title="Item belum ada mutasi transaksi. Saldo awal dapat diinput bebas dan disimpan ke sistem."
                                                     >
                                                         <CheckCircle className="w-3 h-3 text-emerald-600" /> Siap Input
                                                     </span>

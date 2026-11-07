@@ -12,6 +12,7 @@ import { fmtIDR, fmtDate, fmtNum, todayISO, paymentMethodLabel } from '../utils/
 import { getAccountCode, EXPENSE_CATEGORY_MAPPING_KEY } from '../utils/accountMapping'
 import SearchableSelect from '../components/ui/SearchableSelect'
 import { fetchBatches, fetchExpenses, upsertExpense, updateFixedAsset } from '../lib/db'
+import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -66,6 +67,20 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
   }))
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleCategoryChange = (val) => {
+    set('category', val)
+    if (val === 'Air (PDAM)') {
+      const pdam = (vendors || []).find(v => (v.name || '').toLowerCase().includes('pdam'))
+      set('vendorName', pdam ? pdam.name : 'PDAM')
+    } else if (val === 'Listrik') {
+      const pln = (vendors || []).find(v => (v.name || '').toLowerCase().includes('pln'))
+      set('vendorName', pln ? pln.name : 'PT. PLN')
+    } else if (val === 'Telepon & Internet') {
+      const telkom = (vendors || []).find(v => (v.name || '').toLowerCase().includes('telkom') || (v.name || '').toLowerCase().includes('indihome'))
+      if (telkom) set('vendorName', telkom.name)
+    }
+  }
 
   const vendorOptions = useMemo(() => {
     const list = []
@@ -173,7 +188,7 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
           <label className="form-label text-xs">Kategori Beban (COA) *</label>
           <SearchableSelect
             value={form.category}
-            onChange={val => set('category', val)}
+            onChange={handleCategoryChange}
             options={EXPENSE_CATEGORIES.map(c => ({ value: c.label, label: `${c.label} [${c.coa}]` }))}
             placeholder="— Pilih Kategori Beban —"
           />
@@ -284,6 +299,37 @@ export default function ExpensePage() {
   const [selected, setSelected] = useState(null)
   const [search, setSearch] = useState('')
   const [catFilter, setCatFilter] = useState('ALL')
+  const [vendorFilter, setVendorFilter] = useState('ALL')
+  const [liveVendors, setLiveVendors] = useState([])
+
+  useEffect(() => {
+    async function loadFreshVendors() {
+      try {
+        const { data, error } = await supabase.from('vendors').select('*').order('name')
+        if (!error && data) {
+          setLiveVendors(data.map(v => ({
+            id: v.id,
+            code: v.code,
+            name: v.name,
+            address: v.address,
+            phone: v.phone,
+            npwp: v.npwp,
+            isActive: v.is_active
+          })))
+        }
+      } catch (err) {
+        console.warn('Could not fetch live vendors:', err)
+      }
+    }
+    loadFreshVendors()
+  }, [])
+
+  const effectiveVendors = useMemo(() => {
+    const map = new Map()
+    ;(vendors || []).forEach(v => { if (v?.name) map.set(v.name.toLowerCase().trim(), v) })
+    ;(liveVendors || []).forEach(v => { if (v?.name) map.set(v.name.toLowerCase().trim(), v) })
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  }, [vendors, liveVendors])
 
   // Debt Tab State
   const [debtSearch, setDebtSearch] = useState('')
@@ -643,9 +689,17 @@ export default function ExpensePage() {
   const filteredExpenses = useMemo(() =>
     effectiveExpenses
       .filter(e => {
-        if (catFilter === 'ALL') return true
-        if (!e.category) return false
-        return e.category === catFilter || e.category.toLowerCase().includes(catFilter.toLowerCase())
+        if (catFilter !== 'ALL') {
+          if (!e.category) return false
+          const matchCat = e.category === catFilter || e.category.toLowerCase().includes(catFilter.toLowerCase())
+          if (!matchCat) return false
+        }
+        if (vendorFilter !== 'ALL') {
+          if (!e.vendorName) return false
+          const matchV = (e.vendorName || '').toLowerCase() === vendorFilter.toLowerCase()
+          if (!matchV) return false
+        }
+        return true
       })
       .filter(e => {
         if (!search) return true
@@ -658,7 +712,7 @@ export default function ExpensePage() {
         )
       })
       .sort((a, b) => new Date(b.expenseDate || b.createdAt || 0) - new Date(a.expenseDate || a.createdAt || 0)),
-    [effectiveExpenses, catFilter, search])
+    [effectiveExpenses, catFilter, vendorFilter, search])
 
   const totalPostedExpense = effectiveExpenses.filter(e => e.status === 'POSTED').reduce((s, e) => s + (e.grossAmount || 0), 0)
   const totalDraftExpense = effectiveExpenses.filter(e => e.status === 'DRAFT').length
@@ -975,6 +1029,14 @@ export default function ExpensePage() {
                   <option value="ALL">Semua Kategori</option>
                   {EXPENSE_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
                 </select>
+                <select className="form-select w-44 text-xs font-medium py-1" value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}>
+                  <option value="ALL">Semua Vendor</option>
+                  {effectiveVendors.map(v => (
+                    <option key={v.id || v.name} value={v.name}>
+                      {v.code ? `${v.code} — ` : ''}{v.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <span className="text-[11px] text-slate-400">{filteredExpenses.length} transaksi ditemukan</span>
             </div>
@@ -1172,7 +1234,7 @@ export default function ExpensePage() {
       {/* MODAL: CATAT PENGELUARAN BARU */}
       <Modal open={modal === 'add'} onClose={() => setModal(null)} title="Catat Pengeluaran Baru" size="lg">
         <ExpenseForm
-          vendors={vendors}
+          vendors={effectiveVendors}
           storeBatches={effectiveBatches}
           storeExpenses={effectiveExpenses}
           onSave={async (data, postNow = true) => {

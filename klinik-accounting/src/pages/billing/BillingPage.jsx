@@ -737,22 +737,29 @@ export default function BillingPage() {
     setSelectedDoctor((doctors || []).find(d => d.id === (b.doctorId || b.doctor_id)) || null)
     setDiscount(b.discountAmount || b.discount_amount || 0)
 
-    const svcs = bItems.filter(i => (i.itemType || i.item_type) === 'SERVICE').map(i => ({
-      id: i.id || uuidv4(),
-      serviceId: i.serviceTariffId || i.service_tariff_id || i.id,
-      name: i.itemName || i.item_name,
-      price: Number(i.unitPrice ?? i.unit_price ?? 0),
-      qty: Number(i.quantity || 1),
-      revenueAccountCode: i.revenueAccountCode || i.revenue_account_code || '4-11-001'
-    }))
-    const labs = bItems.filter(i => (i.itemType || i.item_type) === 'LAB').map(i => ({
-      id: i.id || uuidv4(),
-      serviceId: i.serviceTariffId || i.service_tariff_id || i.id,
-      name: i.itemName || i.item_name,
-      price: Number(i.unitPrice ?? i.unit_price ?? 0),
-      qty: Number(i.quantity || 1),
-      revenueAccountCode: i.revenueAccountCode || i.revenue_account_code || '4-12-001'
-    }))
+    const svcs = bItems.filter(i => (i.itemType || i.item_type) === 'SERVICE').map(i => {
+      const sTariff = (serviceTariffs || []).find(s => s.id === (i.serviceTariffId || i.service_tariff_id) || s.name === (i.itemName || i.item_name))
+      return {
+        id: i.id || uuidv4(),
+        serviceId: sTariff?.id || i.serviceTariffId || i.service_tariff_id || null,
+        name: i.itemName || i.item_name,
+        price: Number(i.unitPrice ?? i.unit_price ?? sTariff?.price ?? 0),
+        qty: Number(i.quantity || 1),
+        revenueAccountCode: sTariff?.revenueAccountCode || sTariff?.revenue_account_code || i.revenueAccountCode || i.revenue_account_code || '4-11-001'
+      }
+    })
+    const labs = bItems.filter(i => (i.itemType || i.item_type) === 'LAB').map(i => {
+      const sTariff = (serviceTariffs || []).find(s => s.id === (i.serviceTariffId || i.service_tariff_id) || s.name === (i.itemName || i.item_name))
+      return {
+        id: i.id || uuidv4(),
+        serviceId: sTariff?.id || i.serviceTariffId || i.service_tariff_id || null,
+        name: i.itemName || i.item_name,
+        price: Number(i.unitPrice ?? i.unit_price ?? sTariff?.price ?? 0),
+        qty: Number(i.quantity || 1),
+        revenueAccountCode: sTariff?.revenueAccountCode || sTariff?.revenue_account_code || i.revenueAccountCode || i.revenue_account_code || '4-12-001'
+      }
+    })
+    const isPaidBefore = (b?.status || '').toUpperCase() === 'PAID'
     const pharms = bItems.filter(i => (i.itemType || i.item_type) === 'PHARMACY').map(i => {
       const itId = i.pharmacyItemId || i.pharmacy_item_id || i.itemId || i.item_id
       const q = Number(i.quantity || 1)
@@ -765,7 +772,7 @@ export default function BillingPage() {
         price: Number(i.unitPrice ?? i.unit_price ?? 0),
         qty: q,
         originalQty: q,
-        availableStock: currentStk + q
+        availableStock: isPaidBefore ? (currentStk + q) : currentStk
       }
     })
 

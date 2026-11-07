@@ -22,36 +22,49 @@ export default function OpeningBalancePage() {
 
   const currentYear = new Date().getFullYear()
 
+  const defaultBranchId = activeBranchId || branches?.[0]?.id || 'f265df27-e277-4775-8b1d-5f28e585599a'
+
   // Form state
   const [fiscalYear, setFiscalYear] = useState(currentYear)
   const [openingDate, setOpeningDate] = useState(`${currentYear}-01-01`)
-  const [selectedBranchId, setSelectedBranchId] = useState(activeBranchId)
+  const [selectedBranchId, setSelectedBranchId] = useState(defaultBranchId)
   const [searchTerm, setSearchTerm] = useState('')
   const [editableBalances, setEditableBalances] = useState({})
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
 
+  // Keep selectedBranchId in sync if activeBranchId changes
+  useEffect(() => {
+    if (activeBranchId && selectedBranchId !== activeBranchId) {
+      setSelectedBranchId(activeBranchId)
+    }
+  }, [activeBranchId])
+
   // Load opening balances when branch or fiscal year changes
   useEffect(() => {
-    if (selectedBranchId && fiscalYear) {
-      refreshOpeningBalances({ branchId: selectedBranchId, fiscalYear })
+    const effectiveBranch = selectedBranchId || defaultBranchId
+    if (effectiveBranch && fiscalYear) {
+      refreshOpeningBalances({ branchId: effectiveBranch, fiscalYear })
     }
-  }, [selectedBranchId, fiscalYear, refreshOpeningBalances])
+  }, [selectedBranchId, defaultBranchId, fiscalYear, refreshOpeningBalances])
 
   // Initialize editable balances from loaded data
   useEffect(() => {
+    const effectiveBranch = selectedBranchId || defaultBranchId
     const balanceMap = {}
     ;(openingBalances || []).forEach(ob => {
-      if (ob.branchId === selectedBranchId && ob.fiscalYear === fiscalYear) {
-        balanceMap[ob.accountCode] = {
+      const matchBranch = !ob.branchId || ob.branchId === effectiveBranch || ob.branch_id === effectiveBranch
+      const matchYear = ob.fiscalYear === fiscalYear || ob.fiscal_year === fiscalYear
+      if (matchBranch && matchYear) {
+        balanceMap[ob.accountCode || ob.account_code] = {
           id: ob.id,
-          openingBalance: ob.openingBalance || 0,
+          openingBalance: Number(ob.openingBalance ?? ob.opening_balance ?? 0),
           description: ob.description || '',
         }
       }
     })
     setEditableBalances(balanceMap)
-  }, [openingBalances, selectedBranchId, fiscalYear])
+  }, [openingBalances, selectedBranchId, defaultBranchId, fiscalYear])
 
   // Filter COA by search term
   const filteredCOA = useMemo(() => {

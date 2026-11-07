@@ -383,37 +383,60 @@ export function useStore() {
   const generateEntryNumber = useCallback((type = 'JU') => {
     const d = new Date()
     const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`
-    const existing = s.journalEntries.filter(j => j.entryNumber?.startsWith(`${type}/`)).length + 1
-    return `${type}/${ym}/${String(existing).padStart(5, '0')}`
+    const prefix = `${type}/${ym}/`
+    let maxSeq = 0
+    ;(s.journalEntries || []).forEach(j => {
+      const eNum = j.entryNumber || j.entry_number || ''
+      if (eNum.startsWith(prefix)) {
+        const parts = eNum.split('/')
+        const seq = parseInt(parts[parts.length - 1], 10)
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq
+      }
+    })
+    return `${prefix}${String(maxSeq + 1).padStart(5, '0')}`
   }, [s.journalEntries])
 
   const saveJournalDraft = useCallback(async (header, items) => {
     const entryId = header.id || uuidv4()
-    const entry = { ...header, id: entryId, status: 'DRAFT', createdAt: header.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() }
+    let entry = { ...header, id: entryId, status: 'DRAFT', createdAt: header.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() }
     const newItems = items.map(it => ({ ...it, id: it.id || uuidv4(), journalEntryId: entryId }))
 
-    // Optimistic update
+    // Persist with collision resolution for entryNumber
+    let attempts = 0
+    while (attempts < 5) {
+      try {
+        await deleteJournalItemsByEntry(entryId)
+        await upsertJournalEntry(entry)
+        if (newItems.length > 0) {
+          await insertJournalItems(newItems)
+        }
+        break
+      } catch (err) {
+        if (err.message && err.message.includes('journal_entries_entry_number_key')) {
+          attempts++
+          console.warn(`[saveJournalDraft] Duplicate entry number ${entry.entryNumber}, resolving next sequence... attempt ${attempts}`)
+          const parts = (entry.entryNumber || '').split('/')
+          if (parts.length >= 3) {
+            const prefix = `${parts[0]}/${parts[1]}/`
+            const curSeq = parseInt(parts[2], 10) || 0
+            entry = { ...entry, entryNumber: `${prefix}${String(curSeq + 1).padStart(5, '0')}` }
+          } else {
+            throw err
+          }
+        } else {
+          console.error('[saveJournalDraft] Error:', err.message, err)
+          throw err
+        }
+      }
+    }
+
+    // Update store state
     setState(prev => ({
       ...prev,
       journalEntries: [...prev.journalEntries.filter(j => j.id !== entryId && j.entryNumber !== entry.entryNumber), entry],
       journalItems: [...prev.journalItems.filter(i => i.journalEntryId !== entryId), ...newItems],
     }))
 
-    // Persist
-    try {
-      await deleteJournalItemsByEntry(entryId)
-      await upsertJournalEntry(entry)
-
-      // Ensure items have all required fields before insert
-      if (newItems.length > 0) {
-        console.log('[saveJournalDraft] Saving items:', newItems.length, 'items')
-        const result = await insertJournalItems(newItems)
-        console.log('[saveJournalDraft] Insert result:', result)
-      }
-    } catch (e) {
-      console.error('[saveJournalDraft] Error:', e.message, e)
-      throw e // Re-throw to allow caller to handle
-    }
     return entryId
   }, [])
 
@@ -786,6 +809,9 @@ export function useStore() {
             quantity_received: remaining,
             quantity_current: 0,
             unit_cost_price: fallbackCost,
+            selling_price: Number(item?.sellingPrice || item?.selling_price || fallbackCost * 1.25),
+            grn_reference: 'DIRECT-BILLING',
+            supplier_name: 'Direct Billing',
             expiry_date: `${new Date().getFullYear() + 2}-12-31`,
             received_at: new Date().toISOString(),
             created_at: new Date().toISOString()
