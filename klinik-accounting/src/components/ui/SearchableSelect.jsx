@@ -20,6 +20,7 @@ export default function SearchableSelect({
   className = '',
   disabled = false,
   hideValue = false,
+  allowCustom = false,
   searchPlaceholder = 'Ketik kata kunci…',
 }) {
   const [open, setOpen] = useState(false)
@@ -29,7 +30,15 @@ export default function SearchableSelect({
   const inputRef = useRef(null)
   const listRef = useRef(null)
 
-  const selected = options.find(o => o.value === value) || null
+  // Prioritas exact match, fallback ke case-insensitive match, fallback ke custom value jika ada
+  const selected = useMemo(() => {
+    if (!value) return null
+    const exact = options.find(o => o.value === value)
+    if (exact) return exact
+    const caseInsensitive = options.find(o => String(o.value || '').trim().toLowerCase() === String(value).trim().toLowerCase())
+    if (caseInsensitive) return caseInsensitive
+    return { value, label: value }
+  }, [options, value])
 
   // Auto-detect if value is a UUID or DB ID (e.g. d0000000-0000-...) -> hide automatically if true
   const isUuid = (val) => typeof val === 'string' && (val.length > 20 || /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(val))
@@ -192,54 +201,78 @@ export default function SearchableSelect({
           {/* Option list */}
           <div ref={listRef} className="overflow-y-auto flex-1 bg-white divide-y divide-slate-100" style={{ maxHeight: '340px' }}>
             {filtered.length === 0 ? (
-              <div className="text-center py-8 text-xs text-slate-400 font-sans">
-                Data item tidak ditemukan
+              <div className="text-center py-6 px-4 text-xs text-slate-500 font-sans space-y-2">
+                <p>Data item tidak ditemukan {query ? `untuk "${query}"` : ''}</p>
+                {allowCustom && query.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => handleSelect(query.trim())}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 text-primary-700 rounded-lg text-xs font-bold hover:bg-primary-100 transition border border-primary-200 cursor-pointer shadow-sm"
+                  >
+                    + Gunakan "{query.trim()}"
+                  </button>
+                )}
               </div>
-            ) : Object.entries(grouped).map(([group, opts]) => (
-              <div key={group}>
-                {group && (
-                  <div className="sticky top-0 px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-100/90 border-b border-slate-200 font-sans">
-                    {group}
+            ) : (
+              <>
+                {Object.entries(grouped).map(([group, opts]) => (
+                  <div key={group}>
+                    {group && (
+                      <div className="sticky top-0 px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-100/90 border-b border-slate-200 font-sans">
+                        {group}
+                      </div>
+                    )}
+                    {opts.map(opt => {
+                      const showOptVal = !hideValue && !isUuid(opt.value)
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          disabled={opt.disabled}
+                          onClick={() => !opt.disabled && handleSelect(opt.value)}
+                          className={`w-full text-left px-3 py-2.5 flex items-center justify-between gap-3 transition-all group font-sans
+                            ${opt.value === value ? 'bg-primary-50 font-bold' : ''}
+                            ${opt.disabled ? 'opacity-45 cursor-not-allowed bg-slate-50/70' : 'hover:bg-primary-50/80 cursor-pointer'}`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            {showOptVal && (
+                              <span className="font-mono text-xs text-primary-700 w-20 flex-shrink-0 font-bold">
+                                {opt.value}
+                              </span>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-bold text-slate-800 group-hover:text-primary-800 truncate leading-snug font-sans">
+                                {opt.label}
+                              </div>
+                              {opt.sub && (
+                                <div className="text-[11px] text-slate-400 block truncate mt-0.5 font-medium">{opt.sub}</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {opt.stockBadge}
+                            {opt.value === value && (
+                              <Check className="w-4 h-4 text-primary-600 flex-shrink-0" />
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
+                {allowCustom && query.trim() && !options.some(o => (o.value || '').toLowerCase() === query.trim().toLowerCase()) && (
+                  <div className="p-2 bg-slate-50 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => handleSelect(query.trim())}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg border border-primary-200 transition"
+                    >
+                      + Gunakan "{query.trim()}"
+                    </button>
                   </div>
                 )}
-                {opts.map(opt => {
-                  const showOptVal = !hideValue && !isUuid(opt.value)
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      disabled={opt.disabled}
-                      onClick={() => !opt.disabled && handleSelect(opt.value)}
-                      className={`w-full text-left px-3 py-2.5 flex items-center justify-between gap-3 transition-all group font-sans
-                        ${opt.value === value ? 'bg-primary-50 font-bold' : ''}
-                        ${opt.disabled ? 'opacity-45 cursor-not-allowed bg-slate-50/70' : 'hover:bg-primary-50/80 cursor-pointer'}`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        {showOptVal && (
-                          <span className="font-mono text-xs text-primary-700 w-20 flex-shrink-0 font-bold">
-                            {opt.value}
-                          </span>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-bold text-slate-800 group-hover:text-primary-800 truncate leading-snug font-sans">
-                            {opt.label}
-                          </div>
-                          {opt.sub && (
-                            <div className="text-[11px] text-slate-400 block truncate mt-0.5 font-medium">{opt.sub}</div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {opt.stockBadge}
-                        {opt.value === value && (
-                          <Check className="w-4 h-4 text-primary-600 flex-shrink-0" />
-                        )}
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            ))}
+              </>
+            )}
           </div>
         </div>
       )}

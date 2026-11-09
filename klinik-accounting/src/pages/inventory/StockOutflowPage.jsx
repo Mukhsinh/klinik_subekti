@@ -63,6 +63,7 @@ export default function StockOutflowPage() {
   // Form states - Pengeluaran Obat Pasien (Apotek / Farmasi)
   const [selectedBillingId, setSelectedBillingId] = useState('')
   const [patientMedItems, setPatientMedItems] = useState([])
+  const [patientMedDate, setPatientMedDate] = useState(todayISO())
   const [isSavingPatientMed, setIsSavingPatientMed] = useState(false)
   const [editingPatientOutflow, setEditingPatientOutflow] = useState(null)
 
@@ -359,6 +360,7 @@ export default function StockOutflowPage() {
   const resetPatientMedForm = () => {
     setEditingPatientOutflow(null)
     setSelectedBillingId('')
+    setPatientMedDate(todayISO())
     setPatientMedItems([{
       id: uuidv4(),
       itemId: '',
@@ -381,6 +383,7 @@ export default function StockOutflowPage() {
     }
 
     setEditingPatientOutflow(outflow)
+    setPatientMedDate(outflow.outflowDate || outflow.outflow_date || todayISO())
     const targetBillingId = billingRecord?.id || outflow.billingId || outflow.billing_id || ''
     setSelectedBillingId(targetBillingId)
 
@@ -540,16 +543,87 @@ export default function StockOutflowPage() {
       const newBillingItems = []
       const newOutflowItems = []
 
+      // If editing existing outflow, cleanly rollback old physical stock before re-inserting
+      if (isEditing) {
+        const prevItems = (itemsByOutflow[outflowId] || editingPatientOutflow.combinedItems || [])
+        for (const pIt of prevItems) {
+          const pId = pIt.itemId || pIt.item_id
+          const pQty = Number(pIt.quantity || 1)
+          const pCost = Number(pIt.unitCost ?? pIt.unit_cost ?? 0)
+          const targetBatch = activeBatches.find(b => (b.itemId === pId || b.item_id === pId))
+          if (targetBatch) {
+            const curQ = Number(targetBatch.quantityCurrent ?? targetBatch.quantity_current ?? 0)
+            const restoredQty = curQ + pQty
+            await updateBatchQty(targetBatch.id, restoredQty)
+            await insertStockLedger([{
+              id: uuidv4(),
+              batchId: targetBatch.id,
+              itemId: pId,
+              transactionType: 'REVISION_RESTORE',
+              referenceId: outflowId,
+              referenceNumber: outNum,
+              quantityIn: pQty,
+              quantityOut: 0,
+              balanceAfter: restoredQty,
+              unitCost: pCost,
+              totalValue: pQty * pCost,
+              notes: `Restok revisi resep: ${outNum}`,
+              loggedAt: now
+            }])
+          }
+        }
+
+        if (Array.isArray(editingPatientOutflow.allOutflowIds) && editingPatientOutflow.allOutflowIds.length > 0) {
+          await supabase.from('stock_outflow_items').delete().in('outflow_id', editingPatientOutflow.allOutflowIds)
+          const extraIds = editingPatientOutflow.allOutflowIds.filter(id => id !== outflowId)
+          if (extraIds.length > 0) {
+            await supabase.from('stock_outflow_entries').delete().in('id', extraIds)
+          }
+        } else {
+          await supabase.from('stock_outflow_items').delete().eq('outflow_id', outflowId)
+        }
+        await supabase.from('billing_items').delete().eq('billing_id', selectedBilling.id).eq('item_type', 'PHARMACY')
+      }
+
       for (const item of validItems) {
         const itemBatches = activeBatches.filter(b => (b.itemId === item.itemId || b.item_id === item.itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
         const pItem = activePharmacyItems.find(p => p.id === item.itemId)
         const purchaseCost = Number(pItem?.purchasePrice || pItem?.purchase_price || pItem?.hpp || 0)
 
-        // FIFO valuation
+        // 1. Physical FEFO Depletion
+        const physicalUpdates = depleteFefoPhysicalStock(itemBatches, item.quantity)
+        for (const update of physicalUpdates) {
+          if (update.batchId) {
+            await updateBatchQty(update.batchId, update.newQtyCurrent)
+          }
+        }
+
+        // 2. FIFO Valuation
         const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, item.quantity, purchaseCost)
         totalHpp += totalValuation
 
-        // Billing Item row (Obat dimasukkan ke tagihan pasien, stok fisik akan dipotong saat pasien membayar lunas di kasir)
+        // 3. Stock Ledger entries for physical outflow (samakan trigger pemotongan stok konsisten di apotek)
+        let currentItemBalance = getItemStock(item.itemId)
+        for (const upd of physicalUpdates) {
+          currentItemBalance -= upd.takenQty
+          ledgerEntries.push({
+            id: uuidv4(),
+            batchId: upd.batchId,
+            itemId: item.itemId,
+            transactionType: 'OUTFLOW',
+            referenceId: outflowId,
+            referenceNumber: outNum,
+            quantityIn: 0,
+            quantityOut: upd.takenQty,
+            balanceAfter: Math.max(0, currentItemBalance),
+            unitCost: upd.unitCostPrice,
+            totalValue: upd.takenQty * upd.unitCostPrice,
+            notes: `Pengeluaran Obat Pasien: ${patientDisplay} (${billingNum})`,
+            loggedAt: (patientMedDate || todayISO()) + 'T' + (now.split('T')[1] || '00:00:00.000Z')
+          })
+        }
+
+        // 4. Billing Item row
         const lineTotal = Number(item.quantity) * Number(item.sellPrice || 0)
         newBillingItems.push({
           id: uuidv4(),
@@ -565,7 +639,7 @@ export default function StockOutflowPage() {
           discountPct: 0
         })
 
-        // Outflow entry item
+        // 5. Outflow entry item
         newOutflowItems.push({
           id: uuidv4(),
           outflowId,
@@ -581,24 +655,10 @@ export default function StockOutflowPage() {
         })
       }
 
-      // If editing existing outflow, cleanly clear old records before re-inserting
-      if (isEditing) {
-        if (Array.isArray(editingPatientOutflow.allOutflowIds) && editingPatientOutflow.allOutflowIds.length > 0) {
-          await supabase.from('stock_outflow_items').delete().in('outflow_id', editingPatientOutflow.allOutflowIds)
-          const extraIds = editingPatientOutflow.allOutflowIds.filter(id => id !== outflowId)
-          if (extraIds.length > 0) {
-            await supabase.from('stock_outflow_entries').delete().in('id', extraIds)
-          }
-        } else {
-          await supabase.from('stock_outflow_items').delete().eq('outflow_id', outflowId)
-        }
-        await supabase.from('billing_items').delete().eq('billing_id', selectedBilling.id).eq('item_type', 'PHARMACY')
-      }
-
       // 1. Insert billing items to database
       await insertBillingItems(newBillingItems)
 
-      // 2. Insert stock ledger cards jika ada (hanya jika pembayaran langsung lunas)
+      // 2. Insert stock ledger cards
       if (ledgerEntries.length > 0) {
         await insertStockLedger(ledgerEntries)
       }
@@ -609,6 +669,7 @@ export default function StockOutflowPage() {
 
       if (isEditing) {
         await updateStockOutflow(outflowId, {
+          outflowDate: patientMedDate || todayISO(),
           totalValue: totalHpp,
           totalSelling: totalSellingVal,
           updatedAt: now,
@@ -618,7 +679,7 @@ export default function StockOutflowPage() {
           id: outflowId,
           branchId: effectiveBranchId,
           outflowNumber: outNum,
-          outflowDate: todayISO(),
+          outflowDate: patientMedDate || todayISO(),
           outflowType: 'PATIENT_MEDICINE',
           description: `Pengeluaran Obat Pasien: ${patientDisplay} (No. Billing: ${billingNum})`,
           totalValue: totalHpp,
@@ -683,6 +744,115 @@ export default function StockOutflowPage() {
       toast.error(`Gagal menyimpan pengeluaran obat: ${err.message}`)
     } finally {
       setIsSavingPatientMed(false)
+    }
+  }
+
+  // ── Handler Pembatalan Pengeluaran Obat (Reversal Event Handler & Stock Rollback) ──
+  const handleCancelPatientOutflow = async (outflow) => {
+    if (!outflow) return
+    const billingRecord = (billings || []).find(b => b.id === (outflow.billingId || outflow.billing_id) || (outflow.prescriptionNo && (b.billingNumber === outflow.prescriptionNo || b.billing_number === outflow.prescriptionNo)))
+    if (billingRecord && (billingRecord.status === 'PAID' || billingRecord.status === 'LUNAS')) {
+      toast.error('Pengeluaran obat tidak dapat dibatalkan karena billing pasien sudah berstatus LUNAS di kasir.')
+      return
+    }
+
+    if (!window.confirm(`Yakin ingin membatalkan pengeluaran obat ${outflow.outflowNumber || ''}? Stok fisik akan dikembalikan (restok) ke kartu stok dan item obat akan dihapus dari tagihan kasir.`)) {
+      return
+    }
+
+    try {
+      const outflowId = outflow.id
+      const outNum = outflow.outflowNumber || outflow.outflow_number || 'OUT-MED'
+      const nowIso = new Date().toISOString()
+
+      // Ambil seluruh rincian item pengeluaran ini
+      let itemsToRestore = itemsByOutflow[outflowId] || outflow.combinedItems || []
+      if (!itemsToRestore.length) {
+        const { data: dbItems } = await supabase.from('stock_outflow_items').select('*').eq('outflow_id', outflowId)
+        if (dbItems && dbItems.length > 0) itemsToRestore = dbItems
+      }
+
+      // Restok fisik obat ke inventory_batches dan catat kartu stok reversi (REVISION_RESTORE)
+      const reversalLedgers = []
+      for (const it of itemsToRestore) {
+        const itId = it.itemId || it.item_id
+        const qty = Number(it.quantity || 1)
+        const unitCost = Number(it.unitCost ?? it.unit_cost ?? 0)
+
+        // Cari batch terkait atau batch aktif pertama untuk item ini
+        const batches = (activeBatches || []).filter(b => (b.itemId === itId || b.item_id === itId))
+        const targetBatch = batches[0]
+        if (targetBatch) {
+          const curQty = Number(targetBatch.quantityCurrent ?? targetBatch.quantity_current ?? 0)
+          const newQty = curQty + qty
+          await updateBatchQty(targetBatch.id, newQty)
+          reversalLedgers.push({
+            id: uuidv4(),
+            batchId: targetBatch.id,
+            itemId: itId,
+            transactionType: 'REVISION_RESTORE',
+            referenceId: outflowId,
+            referenceNumber: outNum,
+            quantityIn: qty,
+            quantityOut: 0,
+            balanceAfter: newQty,
+            unitCost,
+            totalValue: qty * unitCost,
+            notes: `Pembatalan pengeluaran obat resep: ${outNum}`,
+            loggedAt: nowIso
+          })
+        }
+      }
+
+      if (reversalLedgers.length > 0) {
+        await insertStockLedger(reversalLedgers)
+      }
+
+      // Update status outflow menjadi CANCELLED
+      await updateStockOutflow(outflowId, {
+        status: 'CANCELLED',
+        updatedAt: nowIso
+      })
+
+      // Hapus item obat dari billing kasir jika billing ada
+      const targetBillingId = billingRecord?.id || outflow.billingId || outflow.billing_id
+      if (targetBillingId) {
+        await supabase.from('billing_items').delete().eq('billing_id', targetBillingId).eq('item_type', 'PHARMACY')
+
+        // Recalculate billing totals
+        const { data: remainingItems } = await supabase.from('billing_items').select('*').eq('billing_id', targetBillingId)
+        const newItems = remainingItems || []
+        const svcSub = newItems.filter(i => i.item_type !== 'PHARMACY').reduce((s, i) => s + (Number(i.total_price || 0)), 0)
+        const curDiscount = Number(billingRecord?.discountAmount || billingRecord?.discount_amount || 0)
+        const newGrandTotal = Math.max(0, svcSub - curDiscount)
+
+        let pPortion = newGrandTotal
+        let insPortion = 0
+        const payMethod = billingRecord?.paymentMethod || billingRecord?.payment_method || 'TUNAI'
+        if (payMethod === 'BPJS') {
+          insPortion = Math.round(newGrandTotal * 0.8)
+          pPortion = newGrandTotal - insPortion
+        } else if (payMethod === 'ASURANSI') {
+          insPortion = newGrandTotal
+          pPortion = 0
+        }
+
+        await updateBilling(targetBillingId, {
+          subtotal_pharmacy: 0,
+          ppn_amount: 0,
+          grand_total: newGrandTotal,
+          patient_portion: pPortion,
+          insurance_portion: insPortion,
+          updated_at: nowIso
+        })
+      }
+
+      await refreshAll()
+      toast.success(`Pengeluaran obat ${outNum} berhasil dibatalkan. Stok barang otomatis bertambah kembali (rollback) dan tagihan kasir telah dikurangi.`)
+      if (modal === 'view') setModal(null)
+    } catch (err) {
+      console.error('[handleCancelPatientOutflow] Error:', err)
+      toast.error(`Gagal membatalkan pengeluaran: ${err.message}`)
     }
   }
 
@@ -1327,13 +1497,24 @@ export default function StockOutflowPage() {
                                     <Lock className="w-3.5 h-3.5" />
                                   </button>
                                 ) : (
-                                  <button
-                                    className="p-1.5 rounded-lg text-amber-600 hover:text-amber-800 hover:bg-amber-50 transition"
-                                    onClick={() => handleOpenEditPatientMed(o)}
-                                    title="Edit resep obat pasien (tersambung ke kasir)"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </button>
+                                  <>
+                                    <button
+                                      className="p-1.5 rounded-lg text-amber-600 hover:text-amber-800 hover:bg-amber-50 transition"
+                                      onClick={() => handleOpenEditPatientMed(o)}
+                                      title="Edit resep obat pasien (tersambung ke kasir)"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                    {o.status !== 'CANCELLED' && (
+                                      <button
+                                        className="p-1.5 rounded-lg text-red-600 hover:text-red-800 hover:bg-red-50 transition"
+                                        onClick={() => handleCancelPatientOutflow(o)}
+                                        title="Batalkan pengeluaran obat (restok ke kartu stok & kurangi tagihan kasir)"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </>
                                 )
                               )}
                             </div>
@@ -1734,16 +1915,34 @@ export default function StockOutflowPage() {
         size="xl"
       >
         <div className="space-y-5">
-          {/* Step 1: Select Billing */}
-          <div className="space-y-2">
-            <label className="block text-sm font-bold text-slate-700 font-sans">Pilih Data Billing Pasien <span className="text-red-500">*</span></label>
-            <SearchableSelect
-              value={selectedBillingId}
-              onChange={val => setSelectedBillingId(val)}
-              options={patientBillingOptions}
-              placeholder="— Cari billing pasien (Nama / MRN / No. Invoice) —"
-              searchPlaceholder="Ketik nama pasien, MRN, atau nomor invoice..."
-            />
+          {/* Step 1: Select Billing & Outflow Date */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="md:col-span-2 space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 font-sans">Pilih Data Billing Pasien <span className="text-red-500">*</span></label>
+              <SearchableSelect
+                value={selectedBillingId}
+                onChange={val => {
+                  setSelectedBillingId(val)
+                  const b = (billings || []).find(x => x.id === val)
+                  if (b && (b.visitDate || b.visit_date) && !editingPatientOutflow) {
+                    setPatientMedDate(b.visitDate || b.visit_date)
+                  }
+                }}
+                options={patientBillingOptions}
+                placeholder="— Cari billing pasien (Nama / MRN / No. Invoice) —"
+                searchPlaceholder="Ketik nama pasien, MRN, atau nomor invoice..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 font-sans">Tanggal Pengeluaran <span className="text-red-500">*</span></label>
+              <input
+                type="date"
+                value={patientMedDate}
+                onChange={e => setPatientMedDate(e.target.value)}
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-sans bg-white shadow-sm"
+                required
+              />
+            </div>
           </div>
 
           {/* Patient Info Card */}

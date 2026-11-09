@@ -17,6 +17,7 @@ export default function InventoryItemOpeningBalancePage() {
     const [lockedItemIds, setLockedItemIds] = useState(new Set())
     const [searchTerm, setSearchTerm] = useState('')
     const [editableBalances, setEditableBalances] = useState({})
+    const [touchedItemIds, setTouchedItemIds] = useState(new Set())
     const [saving, setSaving] = useState(false)
     const [loading, setLoading] = useState(true)
 
@@ -138,6 +139,7 @@ export default function InventoryItemOpeningBalancePage() {
             toast.error('Item ini sudah memiliki transaksi sehingga saldo awal terkunci dan tidak dapat diubah.')
             return
         }
+        setTouchedItemIds(prev => new Set([...prev, itemId]))
         setEditableBalances(prev => {
             const current = prev[itemId] || { quantity: 0, unitCost: 0 }
             let parsedQty = val
@@ -160,6 +162,7 @@ export default function InventoryItemOpeningBalancePage() {
             toast.error('Item ini sudah memiliki transaksi sehingga HPP saldo awal terkunci.')
             return
         }
+        setTouchedItemIds(prev => new Set([...prev, itemId]))
         setEditableBalances(prev => {
             const current = prev[itemId] || { quantity: 0, unitCost: 0 }
             let parsedCost = val
@@ -336,6 +339,48 @@ export default function InventoryItemOpeningBalancePage() {
                         })
                         .eq('batch_id', existingBatch.id)
                     savedCount++
+                } else if (touchedItemIds.has(item.itemId) || balancesMapToSave !== editableBalances || item.unitCost > 0) {
+                    // Create new batch with 0 balance for unmutated items (validasi sistem mengizinkan penulisan saldo awal bernilai 0)
+                    const batchId = uuidv4()
+                    const sellingPrice = Number(pharmacyItem.sellingPrice || pharmacyItem.selling_price || (item.unitCost * 1.25))
+                    const { error: batchError } = await supabase
+                        .from('inventory_batches')
+                        .insert({
+                            id: batchId,
+                            item_id: item.itemId,
+                            batch_number: `SALDO-AWAL-${pharmacyItem.itemCode || pharmacyItem.id.substring(0, 8)}`,
+                            expiry_date: expiryDate,
+                            manufacture_date: openingDate,
+                            unit_cost_price: item.unitCost,
+                            selling_price: sellingPrice,
+                            quantity_received: 0,
+                            quantity_current: 0,
+                            grn_reference: 'SALDO-AWAL',
+                            supplier_name: 'Saldo Awal Sistem',
+                            received_at: openingIso,
+                            created_at: openingIso
+                        })
+
+                    if (!batchError) {
+                        await supabase
+                            .from('stock_ledger_cards')
+                            .insert({
+                                id: uuidv4(),
+                                batch_id: batchId,
+                                item_id: item.itemId,
+                                transaction_type: 'SALDO_AWAL',
+                                reference_id: batchId,
+                                reference_number: 'SALDO-AWAL',
+                                quantity_in: 0,
+                                quantity_out: 0,
+                                balance_after: 0,
+                                unit_cost: item.unitCost,
+                                total_value: 0,
+                                notes: 'Saldo awal persediaan item (0 unit)',
+                                logged_at: openingIso
+                            })
+                        savedCount++
+                    }
                 }
             }
 
@@ -527,9 +572,9 @@ export default function InventoryItemOpeningBalancePage() {
 
     // Execute Import and auto save to DB
     const executeImport = async () => {
-        const validRows = importRows.filter(r => r.matchedItem && r.quantity > 0)
+        const validRows = importRows.filter(r => r.matchedItem && r.quantity >= 0)
         if (validRows.length === 0) {
-            toast.error('Tidak ada baris saldo awal yang valid dengan Qty > 0 untuk diimpor.')
+            toast.error('Tidak ada baris saldo awal yang valid untuk diimpor.')
             return
         }
 
@@ -597,8 +642,10 @@ export default function InventoryItemOpeningBalancePage() {
     }, [editableBalances])
 
     const filledCount = useMemo(() => {
-        return Object.values(editableBalances).filter(b => (Number(b?.quantity) || 0) > 0).length
-    }, [editableBalances])
+        return Object.entries(editableBalances).filter(([id, b]) => {
+            return (Number(b?.quantity) || 0) > 0 || invBatches.some(ib => ib.itemId === id && ib.batchNumber.includes('SALDO-AWAL'))
+        }).length
+    }, [editableBalances, invBatches])
 
     const totalQty = useMemo(() => {
         return Object.values(editableBalances).reduce((acc, curr) => acc + (Number(curr?.quantity) || 0), 0)
@@ -815,7 +862,7 @@ export default function InventoryItemOpeningBalancePage() {
                                                     >
                                                         <Lock className="w-3 h-3 text-amber-600" /> Terkunci (Ada Mutasi)
                                                     </span>
-                                                ) : stateVal.quantity > 0 ? (
+                                                ) : (stateVal.quantity > 0 || invBatches.some(ib => ib.itemId === item.id && ib.batchNumber.includes('SALDO-AWAL'))) ? (
                                                     <span
                                                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200"
                                                         title="Saldo awal telah terisi dan dapat diperbarui sebelum ada mutasi riil."
@@ -895,11 +942,11 @@ export default function InventoryItemOpeningBalancePage() {
                         <button
                             type="button"
                             className="btn-primary text-xs px-4 py-2 font-bold flex items-center gap-1.5"
-                            disabled={importing || importRows.filter(r => r.matchedItem && r.quantity > 0).length === 0}
+                            disabled={importing || importRows.filter(r => r.matchedItem && r.quantity >= 0).length === 0}
                             onClick={executeImport}
                         >
                             <Upload className="w-3.5 h-3.5" />
-                            {importing ? 'Mengimpor...' : `Impor & Simpan (${importRows.filter(r => r.matchedItem && r.quantity > 0).length} Item)`}
+                            {importing ? 'Mengimpor...' : `Impor & Simpan (${importRows.filter(r => r.matchedItem && r.quantity >= 0).length} Item)`}
                         </button>
                     </>
                 }

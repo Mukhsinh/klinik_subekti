@@ -490,6 +490,9 @@ export async function insertBilling(billing) {
   if (!row.branch_id) {
     row.branch_id = 'f265df27-e277-4775-8b1d-5f28e585599a'
   }
+  if (row.discount !== undefined && row.discount_amount === undefined) {
+    row.discount_amount = Number(row.discount || 0)
+  }
   // Ensure numeric
   ;['subtotal_services', 'subtotal_doctor_services', 'subtotal_lab', 'subtotal_pharmacy', 'discount_amount', 'ppn_amount', 'grand_total', 'patient_portion', 'insurance_portion'].forEach(k => { row[k] = Number(row[k] || 0) })
   const { data, error } = await supabase
@@ -548,12 +551,27 @@ const ALLOWED_BILLING_COLUMNS = new Set([
 
 export async function updateBilling(id, updates) {
   const row = snake(updates)
+  if (row.discount !== undefined && row.discount_amount === undefined) {
+    row.discount_amount = Number(row.discount || 0)
+  }
+  if (row.discount_amount !== undefined) {
+    row.discount_amount = Number(row.discount_amount || 0)
+  }
   const cleanRow = {}
   for (const [k, v] of Object.entries(row)) {
     if (ALLOWED_BILLING_COLUMNS.has(k)) {
       cleanRow[k] = v
     }
   }
+
+  // Lindungi kolom numerik penting dari null / undefined agar tidak melanggar not-null constraint PostgreSQL
+  const numericCols = ['subtotal_services', 'subtotal_doctor_services', 'subtotal_lab', 'subtotal_pharmacy', 'discount_amount', 'ppn_amount', 'grand_total', 'patient_portion', 'insurance_portion']
+  for (const col of numericCols) {
+    if (cleanRow[col] !== undefined) {
+      cleanRow[col] = cleanRow[col] === null ? 0 : Number(cleanRow[col] || 0)
+    }
+  }
+
   cleanRow.updated_at = new Date().toISOString()
   const { data, error } = await supabase
     .from('patient_billings')

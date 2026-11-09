@@ -18,6 +18,7 @@ import {
   calcPPh21Doctor, PPN_RATE, paymentMethodLabel,
 } from '../../utils/format'
 import { getAccountCode } from '../../utils/accountMapping'
+import { supabase } from '../../lib/supabase'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -438,8 +439,8 @@ export default function BillingPage() {
         journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: ppnAcc, description: `Utang PPN 11% — ${freshBillingNumber}`, debit: 0, credit: ppnAmount })
       }
       if (discountAmt > 0) {
-        const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon Billing — ${freshBillingNumber}`, debit: discountAmt, credit: 0 })
+        const discountAcc = getAccountCode('billing_discount', appSettings, '4-14-001')
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: discountAcc, description: `Potongan / Diskon Penjualan — ${freshBillingNumber}`, debit: discountAmt, credit: 0 })
       }
 
 
@@ -581,13 +582,13 @@ export default function BillingPage() {
       const paymentAssetAcc = payMethod === 'TRANSFER' ? transferAcc : payMethod === 'QRIS' ? qrisAcc : cashAcc
 
       if (['TUNAI', 'QRIS', 'TRANSFER', 'MIXED'].includes(payMethod)) {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: paymentAssetAcc, description: `Kas/Bank Penerimaan Kasir — ${billingNumber}`, debit: grandTotal, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: paymentAssetAcc, description: `Kas/Bank Penerimaan Kasir — ${freshBillingNumber}`, debit: grandTotal, credit: 0 })
       } else if (payMethod === 'BPJS') {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: cashAcc, description: `Bayar Pasien BPJS — ${billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: bpjsAcc, description: `Piutang BPJS — ${billingNumber}`, debit: insurancePortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: cashAcc, description: `Bayar Pasien BPJS — ${freshBillingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: bpjsAcc, description: `Piutang BPJS — ${freshBillingNumber}`, debit: insurancePortion, credit: 0 })
       } else {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: cashAcc, description: `Bayar Pasien Asuransi — ${billingNumber}`, debit: patientPortion, credit: 0 })
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: insAcc, description: `Piutang Asuransi — ${billingNumber}`, debit: insurancePortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: cashAcc, description: `Bayar Pasien Asuransi — ${freshBillingNumber}`, debit: patientPortion, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: insAcc, description: `Piutang Asuransi — ${freshBillingNumber}`, debit: insurancePortion, credit: 0 })
       }
 
       // Group revenue by account code from service tariff
@@ -607,7 +608,7 @@ export default function BillingPage() {
       Object.entries(revenueByAccount).forEach(([accCode, amount]) => {
         if (amount > 0) {
           const accDesc = accCode === getAccountCode('billing_action', appSettings, '4-11-003') ? 'Pendapatan Tindakan Medis & BHP' : accCode === getAccountCode('billing_lab', appSettings, '4-12-001') ? 'Pendapatan Laboratorium' : 'Pendapatan Konsultasi Dokter'
-          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `${accDesc} — ${billingNumber}`, debit: 0, credit: amount })
+          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `${accDesc} — ${freshBillingNumber}`, debit: 0, credit: amount })
         }
       })
 
@@ -634,15 +635,14 @@ export default function BillingPage() {
       Object.entries(pharmacyRevAccounts).forEach(([accCode, amount]) => {
         if (amount > 0) {
           const accDesc = accCode === '4-13-003' ? 'Pendapatan Penjualan BHP Medis (DPP)' : accCode === '4-13-002' ? 'Pendapatan Penjualan Obat OTC / Generik (DPP)' : 'Penjualan Obat Etikal (DPP)'
-          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `${accDesc} — ${billingNumber}`, debit: 0, credit: amount })
+          journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: accCode, description: `${accDesc} — ${freshBillingNumber}`, debit: 0, credit: amount })
         }
       })
 
-      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: ppnAcc, description: `Utang PPN 11% — ${billingNumber}`, debit: 0, credit: ppnAmount })
+      if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: ppnAcc, description: `Utang PPN 11% — ${freshBillingNumber}`, debit: 0, credit: ppnAmount })
       if (discountAmt > 0) {
-        // Discount reduces the first revenue account
-        const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: firstRevAccount, description: `Diskon Billing — ${billingNumber}`, debit: discountAmt, credit: 0 })
+        const discountAcc = getAccountCode('billing_discount', appSettings, '4-14-001')
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: discountAcc, description: `Potongan / Diskon Penjualan — ${freshBillingNumber}`, debit: discountAmt, credit: 0 })
       }
       if (grossDoctorFee > 0 && selectedDoctor) {
         const docFeeAcc = getAccountCode('billing_doctor_fee', appSettings, '6-12-001')
@@ -653,16 +653,16 @@ export default function BillingPage() {
 
       // Append consolidated HPP / COGS journal entries
       Object.entries(hppDebits).forEach(([coaCode, val]) => {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `HPP Penjualan Obat — ${billingNumber}`, debit: val, credit: 0 })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `HPP Penjualan Obat — ${freshBillingNumber}`, debit: val, credit: 0 })
       })
       Object.entries(hppCredits).forEach(([coaCode, val]) => {
-        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${billingNumber}`, debit: 0, credit: val })
+        journalItems.push({ id: uuidv4(), journalEntryId: eId, accountCode: coaCode, description: `Persediaan Obat Terjual — ${freshBillingNumber}`, debit: 0, credit: val })
       })
 
       const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
       const tc = journalItems.reduce((s, i) => s + (i.credit || 0), 0)
 
-      await saveJournalDraft({ id: eId, branchId: activeBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${billingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
+      await saveJournalDraft({ id: eId, branchId: effectiveBranchId, entryNumber: eNum, transactionDate: visitDate, description: `Billing ${patientName} — ${freshBillingNumber}`, entryType: 'BILLING', totalDebit: td, totalCredit: tc }, journalItems)
       const savedBilling = await saveBilling(billing, items)
       await postJournalEntry(eId, 'System-Billing')
 
@@ -794,6 +794,23 @@ export default function BillingPage() {
     isSubmittingRef.current = true
     setIsSubmitting(true)
     try {
+      // 0. Ambil informasi obat yang sudah dikeluarkan apotek untuk billing ini
+      const { data: existingOutflows } = await supabase
+        .from('stock_outflow_entries')
+        .select('id, outflow_number, status')
+        .eq('billing_id', editingBilling.id)
+        .neq('status', 'CANCELLED')
+
+      const outflowIds = (existingOutflows || []).map(o => o.id)
+      let dispensedItems = []
+      if (outflowIds.length > 0) {
+        const { data: oItems } = await supabase
+          .from('stock_outflow_items')
+          .select('*')
+          .in('outflow_id', outflowIds)
+        dispensedItems = oItems || []
+      }
+
       // 1. Validasi kuantitas obat jika ada farmasi
       for (const line of pharmacyLines.filter(l => l.itemId)) {
         const requestedQty = parseInt(line.qty) || 0
@@ -804,13 +821,19 @@ export default function BillingPage() {
           return
         }
         if (actionType === 'PAY_NOW') {
-          const available = getItemStock(line.itemId)
-          const effectiveAvail = (line.availableStock !== undefined) ? line.availableStock : available
-          if (requestedQty > effectiveAvail) {
-            isSubmittingRef.current = false
-            setIsSubmitting(false)
-            toast.error(`Stok obat "${line.name}" tidak mencukupi. (Tersedia: ${effectiveAvail}, Diminta: ${requestedQty})`)
-            return
+          const dispensed = dispensedItems.filter(oi => oi.item_id === line.itemId)
+          const alreadyDispensedQty = dispensed.reduce((s, oi) => s + Number(oi.quantity || 0), 0)
+          const additionalNeeded = Math.max(0, requestedQty - alreadyDispensedQty)
+
+          if (additionalNeeded > 0) {
+            const available = getItemStock(line.itemId)
+            const effectiveAvail = (line.availableStock !== undefined) ? line.availableStock : available
+            if (additionalNeeded > effectiveAvail) {
+              isSubmittingRef.current = false
+              setIsSubmitting(false)
+              toast.error(`Stok obat "${line.name}" tidak mencukupi. (Tersedia: ${effectiveAvail}, Tambahan Diminta: ${additionalNeeded})`)
+              return
+            }
           }
         }
       }
@@ -1042,8 +1065,8 @@ export default function BillingPage() {
 
         if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: ppnAcc, description: `Utang PPN 11% — ${editingBilling.billingNumber}`, debit: 0, credit: ppnAmount })
         if (discountAmt > 0) {
-          const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
-          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: firstRevAccount, description: `Diskon Billing — ${editingBilling.billingNumber}`, debit: discountAmt, credit: 0 })
+          const discountAcc = getAccountCode('billing_discount', appSettings, '4-14-001')
+          journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: discountAcc, description: `Potongan / Diskon Penjualan — ${editingBilling.billingNumber}`, debit: discountAmt, credit: 0 })
         }
 
         const td = journalItems.reduce((s, i) => s + (i.debit || 0), 0)
@@ -1068,7 +1091,7 @@ export default function BillingPage() {
           subtotalDoctorServices: subService,
           subtotalLab: subLab,
           subtotalServices: subService + subLab,
-          subtotalPharmacy,
+          subtotalPharmacy: subPharmacy,
           discountAmount: discountAmt,
           ppnAmount,
           grandTotal,
@@ -1102,13 +1125,32 @@ export default function BillingPage() {
 
       await deleteDoctorFeeRecordByBilling(editingBilling.id)
 
-      // Potong stok obat FIFO untuk seluruh baris farmasi yang terisi
+      // Potong stok obat FIFO hanya untuk item/kuantitas yang BELUM dikeluarkan apotek
       const hppDebits = {}
       const hppCredits = {}
       for (const line of pharmacyLines.filter(l => l.itemId)) {
-        const qtyToDeplete = parseInt(line.qty) || 0
-        if (qtyToDeplete > 0) {
-          const cogsDetails = await depleteInventoryFIFO(line.itemId, qtyToDeplete, editingBilling.billingNumber, effectiveBranchId)
+        const requestedQty = parseInt(line.qty) || 0
+        if (requestedQty <= 0) continue
+
+        const dispensed = dispensedItems.filter(oi => oi.item_id === line.itemId)
+        const alreadyDispensedQty = dispensed.reduce((s, oi) => s + Number(oi.quantity || 0), 0)
+        const dispensedCost = dispensed.reduce((s, oi) => s + Number(oi.total_cost || 0), 0)
+
+        // Akun COGS & Persediaan
+        const pItem = pharmacyItems.find(p => p.id === line.itemId)
+        const isBHP = pItem?.category === 'BHP' || pItem?.category === 'PEMAKAIAN BHP' || (pItem?.itemCode || pItem?.item_code || '').startsWith('BHP-')
+        const isOTC = (pItem?.category || pItem?.itemCategory || '').toUpperCase().includes('OTC') || (pItem?.category || pItem?.itemCategory || '').toUpperCase().includes('GENERIK')
+        const cogsCode = (isBHP ? getAccountCode('cogs_bhp', appSettings, '5-11-003') : isOTC ? getAccountCode('cogs_otc', appSettings, '5-11-002') : getAccountCode('cogs_ethical', appSettings, '5-11-001'))
+        const invCode = (isBHP ? getAccountCode('inv_bhp', appSettings, '1-13-003') : isOTC ? getAccountCode('inv_otc', appSettings, '1-13-002') : getAccountCode('inv_ethical', appSettings, '1-13-001'))
+
+        if (dispensedCost > 0) {
+          hppDebits[cogsCode] = (hppDebits[cogsCode] || 0) + dispensedCost
+          hppCredits[invCode] = (hppCredits[invCode] || 0) + dispensedCost
+        }
+
+        const extraToDeplete = Math.max(0, requestedQty - alreadyDispensedQty)
+        if (extraToDeplete > 0) {
+          const cogsDetails = await depleteInventoryFIFO(line.itemId, extraToDeplete, editingBilling.billingNumber, effectiveBranchId)
           cogsDetails.forEach(d => {
             const val = d.qty * d.unitCostPrice
             if (val > 0) {
@@ -1199,8 +1241,8 @@ export default function BillingPage() {
 
       if (ppnAmount > 0) journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: ppnAcc, description: `Utang PPN 11% — ${editingBilling.billingNumber}`, debit: 0, credit: ppnAmount })
       if (discountAmt > 0) {
-        const firstRevAccount = Object.keys(revenueByAccount)[0] || getAccountCode('billing_consultation', appSettings, '4-11-001')
-        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: firstRevAccount, description: `Diskon Billing — ${editingBilling.billingNumber}`, debit: discountAmt, credit: 0 })
+        const discountAcc = getAccountCode('billing_discount', appSettings, '4-14-001')
+        journalItems.push({ id: uuidv4(), journalEntryId: newJournalId, accountCode: discountAcc, description: `Potongan / Diskon Penjualan — ${editingBilling.billingNumber}`, debit: discountAmt, credit: 0 })
       }
       if (grossDoctorFee > 0 && selectedDoctor) {
         const docFeeAcc = getAccountCode('billing_doctor_fee', appSettings, '6-12-001')
@@ -1258,7 +1300,7 @@ export default function BillingPage() {
         subtotalDoctorServices: subService,
         subtotalLab: subLab,
         subtotalServices: subService + subLab,
-        subtotalPharmacy,
+        subtotalPharmacy: subPharmacy,
         discountAmount: discountAmt,
         ppnAmount,
         grandTotal,
@@ -1542,7 +1584,10 @@ export default function BillingPage() {
                           <input type="number" className="form-input text-right text-xs py-1 w-16" value={l.qty} min={1}
                             onChange={e => setServiceLines(ls => ls.map(x => x.id === l.id ? { ...x, qty: parseInt(e.target.value) || 1 } : x))} />
                         </td>
-                        <td className="text-right font-mono text-sm">{fmtIDR(l.price)}</td>
+                        <td className="text-right">
+                          <input type="number" className="form-input text-right text-xs py-1 w-28 font-mono inline-block" value={l.price} min={0} step={1000}
+                            onChange={e => setServiceLines(ls => ls.map(x => x.id === l.id ? { ...x, price: parseFloat(e.target.value) || 0 } : x))} />
+                        </td>
                         <td className="text-right font-mono text-sm font-bold">{fmtIDR(l.qty * l.price)}</td>
                         <td>
                           <button type="button" onClick={() => removeSvc(l.id)} className="p-1 text-slate-300 hover:text-red-500">
@@ -1593,7 +1638,10 @@ export default function BillingPage() {
                           <input type="number" className="form-input text-right text-xs py-1 w-16" value={l.qty} min={1}
                             onChange={e => setLabLines(ls => ls.map(x => x.id === l.id ? { ...x, qty: parseInt(e.target.value) || 1 } : x))} />
                         </td>
-                        <td className="text-right font-mono text-sm">{fmtIDR(l.price)}</td>
+                        <td className="text-right">
+                          <input type="number" className="form-input text-right text-xs py-1 w-28 font-mono inline-block" value={l.price} min={0} step={1000}
+                            onChange={e => setLabLines(ls => ls.map(x => x.id === l.id ? { ...x, price: parseFloat(e.target.value) || 0 } : x))} />
+                        </td>
                         <td className="text-right font-mono text-sm font-bold text-blue-700">{fmtIDR(l.qty * l.price)}</td>
                         <td>
                           <button type="button" onClick={() => removeLab(l.id)} className="p-1 text-slate-300 hover:text-red-500">

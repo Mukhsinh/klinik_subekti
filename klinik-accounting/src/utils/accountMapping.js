@@ -169,6 +169,15 @@ export const DEFAULT_ACCOUNT_MAPPINGS = {
     description: 'Kewajiban klinik membayarkan hak jasa medis bersih kepada dokter pemeriksa',
     targetType: 'LIABILITY'
   },
+  billing_discount: {
+    key: 'billing_discount',
+    module: 'BILLING',
+    moduleLabel: 'Billing Kasir',
+    label: 'Potongan / Diskon Penjualan',
+    defaultCode: '4-14-001',
+    description: 'Akun kontra-pendapatan untuk mencatat potongan atau diskon tagihan pasien',
+    targetType: 'REVENUE'
+  },
 
   // ── 2. MODUL HPP & PERSEDIAAN OBAT ──
   cogs_ethical: {

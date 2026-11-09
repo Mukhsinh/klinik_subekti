@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import {
   Plus, CheckCircle, Eye, CheckSquare, Square, Building2, AlertCircle,
   CreditCard, Receipt, FileText, Check, ArrowRight, RefreshCw, Layers,
@@ -72,13 +72,13 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     set('category', val)
     if (val === 'Air (PDAM)') {
       const pdam = (vendors || []).find(v => (v.name || '').toLowerCase().includes('pdam'))
-      set('vendorName', pdam ? pdam.name : 'PDAM')
+      set('vendorName', pdam ? pdam.name.trim() : 'PDAM')
     } else if (val === 'Listrik') {
       const pln = (vendors || []).find(v => (v.name || '').toLowerCase().includes('pln'))
-      set('vendorName', pln ? pln.name : 'PT. PLN')
+      set('vendorName', pln ? pln.name.trim() : 'PT. PLN')
     } else if (val === 'Telepon & Internet') {
       const telkom = (vendors || []).find(v => (v.name || '').toLowerCase().includes('telkom') || (v.name || '').toLowerCase().includes('indihome'))
-      if (telkom) set('vendorName', telkom.name)
+      if (telkom) set('vendorName', telkom.name.trim())
     }
   }
 
@@ -87,11 +87,12 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
     const nameSet = new Set()
 
     ;(vendors || []).forEach(v => {
-      if (v.name && v.isActive !== false) {
-        const key = v.name.toLowerCase().trim()
+      const vName = (v.name || '').trim()
+      if (vName && v.isActive !== false && v.is_active !== false) {
+        const key = vName.toLowerCase()
         if (!nameSet.has(key)) {
           nameSet.add(key)
-          list.push({ value: v.name, label: `${v.code ? v.code + ' — ' : ''}${v.name}` })
+          list.push({ value: vName, label: `${v.code ? v.code + ' — ' : ''}${vName}` })
         }
       }
     })
@@ -107,8 +108,13 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
       }
     })
 
+    if (form.vendorName && !nameSet.has(form.vendorName.toLowerCase().trim())) {
+      const customV = form.vendorName.trim()
+      list.push({ value: customV, label: customV })
+    }
+
     return list.sort((a, b) => a.label.localeCompare(b.label))
-  }, [vendors, storeBatches])
+  }, [vendors, storeBatches, form.vendorName])
 
   const selectedCat = useMemo(() => {
     const cat = EXPENSE_CATEGORIES.find(c => c.label === form.category) || EXPENSE_CATEGORIES[0]
@@ -216,6 +222,7 @@ function ExpenseForm({ onSave, onClose, generateExpenseNumber, activeBranchId, v
           onChange={val => set('vendorName', val)}
           options={vendorOptions}
           placeholder="— Pilih Vendor / Supplier —"
+          allowCustom={true}
         />
       </div>
 
@@ -302,27 +309,47 @@ export default function ExpensePage() {
   const [vendorFilter, setVendorFilter] = useState('ALL')
   const [liveVendors, setLiveVendors] = useState([])
 
-  useEffect(() => {
-    async function loadFreshVendors() {
-      try {
-        const { data, error } = await supabase.from('vendors').select('*').order('name')
-        if (!error && data) {
-          setLiveVendors(data.map(v => ({
-            id: v.id,
-            code: v.code,
-            name: v.name,
-            address: v.address,
-            phone: v.phone,
-            npwp: v.npwp,
-            isActive: v.is_active
-          })))
-        }
-      } catch (err) {
-        console.warn('Could not fetch live vendors:', err)
+  const loadFreshVendors = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.from('vendors').select('*').order('name')
+      if (!error && data) {
+        setLiveVendors(data.map(v => ({
+          id: v.id,
+          code: v.code,
+          name: v.name,
+          address: v.address,
+          phone: v.phone,
+          npwp: v.npwp,
+          isActive: v.is_active !== false
+        })))
       }
+    } catch (err) {
+      console.warn('Could not fetch live vendors:', err)
     }
-    loadFreshVendors()
   }, [])
+
+  useEffect(() => {
+    loadFreshVendors()
+
+    // Realtime subscription agar daftar vendor otomatis tersinkronisasi saat ditambah/diubah
+    const channel = supabase
+      .channel('vendors-realtime-expense')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vendors' }, () => {
+        loadFreshVendors()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [loadFreshVendors])
+
+  // Re-fetch setiap kali modal pengeluaran dibuka
+  useEffect(() => {
+    if (modal) {
+      loadFreshVendors()
+    }
+  }, [modal, loadFreshVendors])
 
   const effectiveVendors = useMemo(() => {
     const map = new Map()
