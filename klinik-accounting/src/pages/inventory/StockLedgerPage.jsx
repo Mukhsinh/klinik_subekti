@@ -73,12 +73,12 @@ export default function StockLedgerPage() {
 
     // Sesuai prinsip akuntansi & inventori: obat pasien dari farmasi/billing
     // hanya keluar dari stok jika status billing telah PAID (LUNAS).
-    // Transaksi BILLING yang masih UNPAID tidak boleh mengurangi stok di kartu stok.
+    // Transaksi BILLING / OUTFLOW pasien yang masih UNPAID tidak boleh mengurangi stok di kartu stok.
     const list = baseLedger.filter(l => {
-      const isBilling = l.transactionType === 'BILLING' || l.transaction_type === 'BILLING'
-      if (!isBilling) return true
-      const ref = l.referenceNumber || l.reference_number || l.referenceId || l.reference_id
-      const b = billingMap.get(ref) || billingMap.get(l.referenceId || l.reference_id)
+      const notes = String(l.notes || '')
+      const match = notes.match(/INV\/\d+\/\d+/)
+      const billNo = match ? match[0] : (l.referenceNumber || l.reference_number)
+      const b = billingMap.get(billNo) || billingMap.get(l.referenceId || l.reference_id)
       if (b) {
         return b.status === 'PAID'
       }
@@ -86,7 +86,12 @@ export default function StockLedgerPage() {
     })
 
     const processedBillingKeys = new Set(
-      list.filter(l => l.transactionType === 'BILLING').map(l => `${l.referenceNumber}_${l.itemId}`)
+      list.map(l => {
+        const notes = String(l.notes || '')
+        const match = notes.match(/INV\/\d+\/\d+/)
+        const billNo = match ? match[0] : (l.referenceNumber || l.reference_number || '')
+        return `${billNo}_${l.itemId}`
+      })
     )
 
     // Ensure any SALDO-AWAL batches in inventory_batches have a corresponding ledger entry
@@ -250,7 +255,9 @@ export default function StockLedgerPage() {
         const isBOpen = isOpeningBalanceRecord(b)
         if (isAOpen && !isBOpen) return -1
         if (!isAOpen && isBOpen) return 1
-        return new Date(a.loggedAt || a.transactionDate || a.createdAt) - new Date(b.loggedAt || b.transactionDate || b.createdAt)
+        const timeA = new Date(a.loggedAt || a.transactionDate || a.createdAt || 0).getTime()
+        const timeB = new Date(b.loggedAt || b.transactionDate || b.createdAt || 0).getTime()
+        return timeA - timeB
       })
 
     let currentBalance = 0
@@ -259,16 +266,9 @@ export default function StockLedgerPage() {
       const qtyIn = Number(l.quantityIn ?? l.quantity_in) || 0
       const qtyOut = Number(l.quantityOut ?? l.quantity_out) || 0
 
-      let saldoAwal = currentBalance
-      let saldoAkhir = l.balanceAfter !== undefined && l.balanceAfter !== null ? Number(l.balanceAfter) : (saldoAwal + qtyIn - qtyOut)
-
-      if (isOpening) {
-        saldoAwal = qtyIn
-        saldoAkhir = qtyIn
-        currentBalance = qtyIn
-      } else {
-        currentBalance = saldoAkhir
-      }
+      const saldoAwal = currentBalance
+      const saldoAkhir = isOpening ? qtyIn : (saldoAwal + qtyIn - qtyOut)
+      currentBalance = saldoAkhir
 
       return {
         ...l,

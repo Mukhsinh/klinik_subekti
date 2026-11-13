@@ -727,7 +727,7 @@ export function useStore() {
     return 0
   }, [s.invBatches, s.stockLedger])
 
-  const depleteInventoryFIFO = useCallback(async (itemId, qtyNeeded, referenceNumber, branchId) => {
+  const depleteInventoryFIFO = useCallback(async (itemId, qtyNeeded, referenceNumber, branchId, transactionDate) => {
     let item = s.pharmacyItems.find(p => p.id === itemId)
     try {
       const { data: dbItem } = await supabase.from('pharmacy_items').select('*').eq('id', itemId).maybeSingle()
@@ -840,7 +840,9 @@ export function useStore() {
       .reduce((sum, b) => sum + (b.quantityCurrent || 0), 0)
 
     let currentItemBalance = initialItemStock
-    const now = new Date().toISOString()
+    const entryDate = transactionDate
+      ? (transactionDate.includes('T') ? transactionDate : `${transactionDate}T12:00:00.000Z`)
+      : new Date().toISOString()
 
     const ledgerEntries = depletedList.map(dep => {
       currentItemBalance -= dep.qty
@@ -856,7 +858,7 @@ export function useStore() {
         balanceAfter: Math.max(0, currentItemBalance),
         unitCost: dep.unitCostPrice,
         totalValue: dep.qty * dep.unitCostPrice,
-        loggedAt: now,
+        loggedAt: entryDate,
       }
     })
 

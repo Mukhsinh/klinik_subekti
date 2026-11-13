@@ -53,27 +53,17 @@ export default function InventoryItemOpeningBalancePage() {
 
             if (batchesError) throw batchesError
 
-            // Deteksi item yang sudah pernah ada transaksi MUTASI (quantity_in > 0 atau quantity_out > 0 selain SALDO_AWAL di stock_ledger_cards, ATAU batch operasional non-SALDO-AWAL di inventory_batches)
+            // Item terkunci HANYA jika sudah pernah ada transaksi mutasi riil (quantity_out > 0 pada kartu stok)
             const { data: transData, error: transError } = await supabase
                 .from('stock_ledger_cards')
                 .select('item_id, transaction_type, quantity_in, quantity_out')
-                .neq('transaction_type', 'SALDO_AWAL')
+                .gt('quantity_out', 0)
 
             if (transError) throw transError
-
-            const { data: nonSaBatches, error: batchErr } = await supabase
-                .from('inventory_batches')
-                .select('item_id, batch_number')
-                .not('batch_number', 'like', '%SALDO-AWAL%')
-
-            if (batchErr) throw batchErr
 
             const lockedSet = new Set()
             for (const t of (transData || [])) {
                 if (t.item_id) lockedSet.add(t.item_id)
-            }
-            for (const b of (nonSaBatches || [])) {
-                if (b.item_id) lockedSet.add(b.item_id)
             }
             setLockedItemIds(lockedSet)
 
@@ -339,7 +329,7 @@ export default function InventoryItemOpeningBalancePage() {
                         })
                         .eq('batch_id', existingBatch.id)
                     savedCount++
-                } else if (touchedItemIds.has(item.itemId) || balancesMapToSave !== editableBalances || item.unitCost > 0) {
+                } else if (touchedItemIds.has(item.itemId) || balancesMapToSave !== editableBalances || item.unitCost > 0 || item.quantity === 0) {
                     // Create new batch with 0 balance for unmutated items (validasi sistem mengizinkan penulisan saldo awal bernilai 0)
                     const batchId = uuidv4()
                     const sellingPrice = Number(pharmacyItem.sellingPrice || pharmacyItem.selling_price || (item.unitCost * 1.25))
@@ -380,6 +370,8 @@ export default function InventoryItemOpeningBalancePage() {
                                 logged_at: openingIso
                             })
                         savedCount++
+                    } else {
+                        console.warn('[saveToDatabase] Batch insert warning for item:', pharmacyItem.itemName, batchError)
                     }
                 }
             }
@@ -399,8 +391,10 @@ export default function InventoryItemOpeningBalancePage() {
             const validCodes = new Set((validInvCOA || []).map(c => c.account_code))
             const defaultInvCode = validCodes.has('1-13-001') ? '1-13-001' : (Array.from(validCodes)[0] || '1-13-001')
 
-            // Hitung total saldo awal per akun COA persediaan
+            // Hitung total saldo awal per akun COA persediaan (inisialisasi 0 untuk sinkronisasi menyeluruh)
             const balanceByAccount = {}
+            validCodes.forEach(c => { balanceByAccount[c] = 0 })
+
             for (const [itemId, val] of Object.entries(balancesMapToSave)) {
                 const qty = Number(val?.quantity) || 0
                 const cost = Number(val?.unitCost) || 0
@@ -443,6 +437,7 @@ export default function InventoryItemOpeningBalancePage() {
                 }
             }
 
+            setTouchedItemIds(new Set())
             toast.success(`Saldo awal item inventory (${savedCount} item diperbarui, total ${fmtIDR(totalInventoryValue)}) berhasil disimpan (per tanggal 1 Januari ${currentYear}) dan terintegrasi dengan laporan keuangan.`)
 
             // Sinkronkan seluruh data in-memory di useStore
