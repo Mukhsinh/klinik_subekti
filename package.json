@@ -1,10 +1,12 @@
 {
     "name": "aplikasi-klinik-workspace",
     "version": "1.0.0",
+    "type": "module",
     "private": true,
     "scripts": {
         "dev": "npm run dev --prefix klinik-accounting",
         "build": "npm run build --prefix klinik-accounting",
+        "start": "npm run start --prefix klinik-accounting",
         "preview": "npm run preview --prefix klinik-accounting"
     }
 }
