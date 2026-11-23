@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx'
 import { fmtDate, fmtDateTime } from './format'
 
-const DEFAULT_CLINIC = 'KLINIK UTAMA MEDIS ANTIGRAVITY'
+const DEFAULT_CLINIC = 'KLINIK AKUNTANSI AKAPRO'
 const DEFAULT_FOOTER = 'Dokumen laporan ini dihasilkan secara otomatis oleh Sistem Akuntansi Klinik dan sah tanpa tanda tangan basah jika dicetak secara elektronik.'
 function getClinicName(appSettings) { return (appSettings?.companyName || appSettings?.appName || DEFAULT_CLINIC).toUpperCase() }
 function getFooterText(appSettings) { return appSettings?.footerText || DEFAULT_FOOTER }

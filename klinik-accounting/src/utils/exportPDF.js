@@ -3,7 +3,7 @@ import 'jspdf-autotable'
 import { fmtDate, fmtDateTime, fmtIDR } from './format'
 import { resolveBillingItemCategory } from './billingCategory'
 
-const CLINIC_NAME = 'Klinik Medis Antigravity'
+const CLINIC_NAME = 'Klinik Akuntansi Akapro'
 const CLINIC_ADDR = 'Jl. Sudirman No. 1, Jakarta Pusat'
 const CLINIC_PHONE = '(021) 1234-5678'
 

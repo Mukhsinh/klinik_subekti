@@ -43,7 +43,7 @@ export default function LoginPage() {
                 <Activity className="w-7 h-7 text-white" />
               </div>
             )}
-            <h1 className="text-xl font-bold text-white">{appSettings?.appName || 'Klinik Medis Antigravity'}</h1>
+            <h1 className="text-xl font-bold text-white">{appSettings?.appName || 'Klinik Akuntansi Akapro'}</h1>
             <p className="text-primary-200 text-sm mt-1">Sistem Akuntansi & Inventory</p>
           </div>
 

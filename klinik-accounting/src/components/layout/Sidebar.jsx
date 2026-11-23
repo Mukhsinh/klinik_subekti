@@ -144,7 +144,7 @@ export default function Sidebar({ collapsed }) {
           </div>
         )}
         <div className="min-w-0">
-          <p className="text-sm font-bold text-slate-800 truncate">{appSettings?.appName || 'Klinik Antigravity'}</p>
+          <p className="text-sm font-bold text-slate-800 truncate">{appSettings?.appName || 'Klinik Akuntansi Akapro'}</p>
           <p className="text-xs text-slate-400">Sistem Akuntansi</p>
         </div>
       </div>

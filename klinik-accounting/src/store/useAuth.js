@@ -12,12 +12,12 @@ function load(key, fallback) { try { const r = localStorage.getItem(key); return
 
 // ── Defaults ──────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
-  appName: 'Klinik Medis Antigravity',
-  companyName: 'PT Klinik Medis Antigravity',
+  appName: 'Klinik Akuntansi Akapro',
+  companyName: 'Klinik Akuntansi Akapro',
   address: 'Jl. Sudirman No. 1, Jakarta Pusat',
   phone: '(021) 1234-5678',
-  email: 'info@antigravity-klinik.id',
-  website: 'www.antigravity-klinik.id',
+  email: 'info@akapro.id',
+  website: 'kliniksubekti.akapro.id',
   npwp: '01.234.567.8-901.000',
   footerText: 'Terima kasih telah mempercayakan kesehatan Anda kepada kami.',
   logoUrl: '',
