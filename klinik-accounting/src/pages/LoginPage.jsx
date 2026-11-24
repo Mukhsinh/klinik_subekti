@@ -16,8 +16,7 @@ export default function LoginPage() {
     e.preventDefault()
     if (!username.trim() || !password.trim()) { toast.error('Username dan password wajib diisi.'); return }
     setLoading(true)
-    await new Promise(r => setTimeout(r, 400)) // simulate network
-    const result = login(username.trim(), password)
+    const result = await login(username.trim(), password)
     setLoading(false)
     if (result.ok) {
       toast.success('Login berhasil. Selamat bekerja!')

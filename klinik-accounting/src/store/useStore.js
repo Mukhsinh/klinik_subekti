@@ -61,14 +61,7 @@ let _state = {
   stockOutflowItems: [],
   users: [],
   auditLogs: [],
-  appSettings: (() => {
-    try {
-      const stored = localStorage.getItem('appSettings')
-      return stored ? JSON.parse(stored) : {}
-    } catch {
-      return {}
-    }
-  })(),
+  appSettings: {},
   openingBalances: [],
   activeBranchId: null,
   loading: true,
@@ -170,8 +163,9 @@ async function bootstrap() {
         outflowIds.length ? fetchStockOutflowItems(outflowIds).catch(err => { console.warn('[Bootstrap] fetchStockOutflowItems failed:', err.message); return [] }) : Promise.resolve([]),
       ])
 
-      // Active branch persistence
-      const savedBranch = localStorage.getItem('activeBranchId')
+      // Active branch persistence (prioritize database setting)
+      const dbBranch = appSettings?.activeBranchId || appSettings?.active_branch_id || appSettings?.defaultBranchId
+      const savedBranch = dbBranch || (typeof localStorage !== 'undefined' ? localStorage.getItem('activeBranchId') : null)
       const validBranch = finalBranches.find(b => b.id === savedBranch)
       const activeBranchId = validBranch ? savedBranch : (finalBranches[0]?.id || null)
 
@@ -204,9 +198,6 @@ async function bootstrap() {
         initialized: true,
         error: null,
       })
-      try {
-        localStorage.setItem('appSettings', JSON.stringify({ ..._state.appSettings, ...(appSettings || {}) }))
-      } catch (_) {}
       _bootstrapDone = true
     } catch (err) {
       console.error('[Bootstrap] Supabase load failed:', err.message)
@@ -274,8 +265,11 @@ export function useStore() {
 
   // ── Branch ────────────────────────────────────────────────
   const setActiveBranch = useCallback((id) => {
-    localStorage.setItem('activeBranchId', id)
     setState(prev => ({ ...prev, activeBranchId: id }))
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem('activeBranchId', id)
+      saveAllAppSettings({ activeBranchId: id }).catch(err => console.warn('[setActiveBranch DB]', err.message))
+    } catch (_) {}
   }, [])
 
   const getActiveBranch = useCallback(() =>
@@ -858,6 +852,7 @@ export function useStore() {
         balanceAfter: Math.max(0, currentItemBalance),
         unitCost: dep.unitCostPrice,
         totalValue: dep.qty * dep.unitCostPrice,
+        notes: `Pengeluaran Obat Pasien (${referenceNumber}) [Billing Kasir / Farmasi]`,
         loggedAt: entryDate,
       }
     })
@@ -1829,9 +1824,8 @@ export function useStore() {
     const merged = { ...s.appSettings, ...settings }
     setState(prev => ({ ...prev, appSettings: merged }))
     try {
-      try { localStorage.setItem('appSettings', JSON.stringify(merged)) } catch (_) {}
       await saveAllAppSettings(settings)
-      logActivity('UPDATE_SETTINGS', 'SETTINGS', `Updated app settings`)
+      logActivity('UPDATE_SETTINGS', 'SETTINGS', `Updated app settings in database`)
     } catch (e) {
       console.error('[updateAppSettings]', e.message)
       setState(prev => ({ ...prev, appSettings: oldSettings }))

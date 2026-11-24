@@ -806,6 +806,7 @@ export default function StockOutflowPage() {
     })
 
     const now = new Date().toISOString()
+    const transactionIso = outflowDate ? (outflowDate.includes('T') ? outflowDate : `${outflowDate}T12:00:00.000Z`) : now
     const outflowId = uuidv4()
     const journalId = uuidv4()
 
@@ -868,7 +869,7 @@ export default function StockOutflowPage() {
             unitCost: Number(fifoPart.unitCost || 0),
             totalValue: Number(fifoPart.totalCost || 0),
             notes: `Pengeluaran ${outflowType} (${outflowNumber}) [FEFO Physical / FIFO Cost]`,
-            loggedAt: now,
+            loggedAt: transactionIso,
           })
         }
       }

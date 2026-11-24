@@ -53,17 +53,38 @@ export default function InventoryItemOpeningBalancePage() {
 
             if (batchesError) throw batchesError
 
-            // Item terkunci HANYA jika sudah pernah ada transaksi mutasi riil (quantity_out > 0 pada kartu stok)
+            // Item terkunci HANYA jika sudah pernah ada transaksi mutasi riil (quantity_out > 0 pada kartu stok dari transaksi sah)
             const { data: transData, error: transError } = await supabase
                 .from('stock_ledger_cards')
-                .select('item_id, transaction_type, quantity_in, quantity_out')
+                .select('item_id, transaction_type, reference_number, reference_id, quantity_out')
                 .gt('quantity_out', 0)
 
             if (transError) throw transError
 
+            // Fetch paid billings to verify that BILLING transactions are truly completed/paid
+            const { data: paidBillings } = await supabase
+                .from('patient_billings')
+                .select('id, billing_number')
+                .eq('status', 'PAID')
+
+            const paidBillingKeys = new Set()
+            ;(paidBillings || []).forEach(b => {
+                if (b.id) paidBillingKeys.add(b.id)
+                if (b.billing_number) paidBillingKeys.add(b.billing_number)
+            })
+
             const lockedSet = new Set()
             for (const t of (transData || [])) {
-                if (t.item_id) lockedSet.add(t.item_id)
+                if (!t.item_id) continue
+                const transType = (t.transaction_type || '').toUpperCase()
+                if (transType === 'BILLING') {
+                    // Hanya transaksi billing yang berstatus PAID yang mengunci saldo awal item
+                    if (paidBillingKeys.has(t.reference_number) || paidBillingKeys.has(t.reference_id)) {
+                        lockedSet.add(t.item_id)
+                    }
+                } else if (transType === 'OUTFLOW' || transType === 'EXPIRED' || transType === 'DAMAGED' || transType === 'TRANSFER_OUT') {
+                    lockedSet.add(t.item_id)
+                }
             }
             setLockedItemIds(lockedSet)
 
@@ -329,7 +350,7 @@ export default function InventoryItemOpeningBalancePage() {
                         })
                         .eq('batch_id', existingBatch.id)
                     savedCount++
-                } else if (touchedItemIds.has(item.itemId) || balancesMapToSave !== editableBalances || item.unitCost > 0 || item.quantity === 0) {
+                } else if (touchedItemIds.has(item.itemId) || (balancesMapToSave !== editableBalances && item.quantity > 0) || item.unitCost > 0) {
                     // Create new batch with 0 balance for unmutated items (validasi sistem mengizinkan penulisan saldo awal bernilai 0)
                     const batchId = uuidv4()
                     const sellingPrice = Number(pharmacyItem.sellingPrice || pharmacyItem.selling_price || (item.unitCost * 1.25))

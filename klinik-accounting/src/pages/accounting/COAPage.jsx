@@ -727,15 +727,10 @@ export default function COAPage() {
     setIsSaving(true)
     try {
       if (typeof updateAppSettings === 'function') {
-        await updateAppSettings({ [key]: payload }).catch(err => console.warn('[updateAppSettings]', err))
+        await updateAppSettings({ [key]: payload })
+      } else if (typeof saveAppSettings === 'function') {
+        await saveAppSettings({ [key]: payload })
       }
-      if (typeof saveAppSettings === 'function') {
-        await saveAppSettings({ [key]: payload }).catch(err => console.warn('[saveAppSettings]', err))
-      }
-      try {
-        const stored = JSON.parse(localStorage.getItem('appSettings') || '{}')
-        localStorage.setItem('appSettings', JSON.stringify({ ...stored, [key]: payload }))
-      } catch (_) {}
       if (typeof refreshAll === 'function') {
         await refreshAll().catch(err => console.warn('[refreshAll]', err))
       }

@@ -121,30 +121,32 @@ export default function UserManagementPage() {
       .sort((a, b) => a.name.localeCompare(b.name)),
   [users, search])
 
-  const handleSaveUser = (data) => {
+  const handleSaveUser = async (data) => {
     if (modal === 'add') {
-      const result = addUser(data)
+      const result = await addUser(data)
       if (!result.ok) { toast.error(result.error); return }
-      toast.success(`Pengguna ${data.name} berhasil ditambahkan.`)
+      toast.success(`Pengguna ${data.name} berhasil ditambahkan ke database.`)
     } else {
       const update = { name: data.name, role: data.role, email: data.email }
       if (data.password) update.password = data.password
-      updateUser(selected.id, update)
-      toast.success('Data pengguna berhasil diperbarui.')
+      const res = await updateUser(selected.id, update)
+      if (res && !res.ok) { toast.error(res.error); return }
+      toast.success('Data pengguna berhasil diperbarui di database.')
     }
     setModal(null)
   }
 
-  const handleDeactivate = (user) => {
+  const handleDeactivate = async (user) => {
     if (user.id === currentUser?.id) { toast.error('Tidak dapat menonaktifkan akun yang sedang aktif.'); return }
     if (!window.confirm(`Nonaktifkan pengguna ${user.name}?`)) return
-    deactivateUser(user.id)
-    toast.success(`Pengguna ${user.name} dinonaktifkan.`)
+    await deactivateUser(user.id)
+    toast.success(`Pengguna ${user.name} dinonaktifkan di database.`)
   }
 
-  const handleResetPass = (newPass) => {
-    resetPassword(selected.id, newPass)
-    toast.success('Password berhasil direset.')
+  const handleResetPass = async (newPass) => {
+    const res = await resetPassword(selected.id, newPass)
+    if (res && !res.ok) { toast.error(res.error); return }
+    toast.success('Password berhasil direset di database.')
     setModal(null)
   }
 

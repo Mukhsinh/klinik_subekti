@@ -36,7 +36,7 @@ const TRANS_COLORS = {
 
 export default function StockLedgerPage() {
   const {
-    pharmacyItems, invBatches, stockLedger, billingItems, billings,
+    pharmacyItems, invBatches, stockLedger, billingItems, billings, stockOutflows,
     adjustStock, saveJournalDraft, postJournalEntry,
     activeBranchId, generateEntryNumber, refreshAll,
   } = useStore()
@@ -158,8 +158,33 @@ export default function StockLedgerPage() {
         })
     }
 
-    return list
-  }, [stockLedger, billingItems, billings, effectiveBatches])
+    // Map stock outflows by ID and outflowNumber to ensure actual transaction date is used
+    const outflowMap = new Map()
+    ;(stockOutflows || []).forEach(o => {
+      if (o.id) outflowMap.set(o.id, o)
+      const oNum = o.outflowNumber || o.outflow_number
+      if (oNum) outflowMap.set(oNum, o)
+    })
+
+    return list.map(l => {
+      const transType = String(l.transactionType || l.transaction_type || '').toUpperCase()
+      const refNo = String(l.referenceNumber || l.reference_number || '')
+      const refId = String(l.referenceId || l.reference_id || '')
+      if (transType === 'OUTFLOW' || refNo.startsWith('OUT/') || refNo.startsWith('OUT-MED/')) {
+        const of = outflowMap.get(refId) || outflowMap.get(refNo)
+        if (of && (of.outflowDate || of.outflow_date)) {
+          const ofDate = of.outflowDate || of.outflow_date
+          const dateIso = ofDate.includes('T') ? ofDate : `${ofDate}T12:00:00.000Z`
+          return {
+            ...l,
+            loggedAt: dateIso,
+            transactionDate: ofDate
+          }
+        }
+      }
+      return l
+    })
+  }, [stockLedger, billingItems, billings, effectiveBatches, stockOutflows])
 
   const selectOptions = useMemo(() => {
     const list = effectivePharmacyItems

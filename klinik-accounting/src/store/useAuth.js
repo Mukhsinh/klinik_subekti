@@ -4,6 +4,7 @@
  * Audit logs & app settings are synced to Supabase.
  */
 import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import { insertAuditLog, fetchAuditLogs, fetchAppSettings, saveAllAppSettings, fetchUsers, upsertUser, deleteUser } from '../lib/db'
 
 // ── localStorage helpers ──────────────────────────────────────
@@ -53,8 +54,8 @@ function getAuth() {
   if (!_auth) {
     _auth = {
       currentUser: load('currentUser', null),
-      users: load('authUsers', DEFAULT_USERS),
-      appSettings: load('appSettings', DEFAULT_SETTINGS),
+      users: [],
+      appSettings: DEFAULT_SETTINGS,
       auditLogs: [],
       isInitialized: false,
     }
@@ -66,10 +67,8 @@ function setAuth(updater) {
   const prev = getAuth()
   const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater }
   _auth = next
-  // Persist to localStorage
+  // Hanya simpan sesi login pengguna di localStorage
   if (next.currentUser !== prev.currentUser) persist('currentUser', next.currentUser)
-  if (next.users !== prev.users) persist('authUsers', next.users)
-  if (next.appSettings !== prev.appSettings) persist('appSettings', next.appSettings)
   _authListeners.forEach(fn => fn())
 }
 
@@ -146,15 +145,46 @@ export function useAuth() {
 
   const state = getAuth()
 
-  // Login
-  const login = (username, password) => {
+  // Login langsung memverifikasi ke tabel users di Supabase
+  const login = async (username, password) => {
+    try {
+      const { data: dbUser, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', username)
+        .eq('is_active', true)
+        .maybeSingle()
+
+      if (dbUser) {
+        if (dbUser.password === password) {
+          const user = {
+            id: dbUser.id,
+            name: dbUser.name,
+            username: dbUser.username,
+            role: dbUser.role,
+            email: dbUser.email,
+            isActive: dbUser.is_active ?? true
+          }
+          const currentUser = { id: user.id, name: user.name, username: user.username, role: user.role, email: user.email }
+          setAuth(s => ({ ...s, currentUser }))
+          writeAuditLog(user, 'LOGIN', 'Autentikasi', 'Login berhasil dari database')
+          return { ok: true, user }
+        } else {
+          return { ok: false, error: 'Password salah.' }
+        }
+      }
+    } catch (dbErr) {
+      console.warn('[login DB verify error]', dbErr.message)
+    }
+
+    // Fallback ke daftar users di memori
     const user = state.users.find(u =>
-      u.username === username && u.password === password && u.isActive
+      u.username === username && u.password === password && (u.isActive ?? u.is_active ?? true)
     )
     if (!user) return { ok: false, error: 'Username atau password salah.' }
     const currentUser = { id: user.id, name: user.name, username: user.username, role: user.role, email: user.email }
     setAuth(s => ({ ...s, currentUser }))
-    writeAuditLog(user, 'LOGIN', 'Autentikasi', 'Login berhasil dari perangkat web')
+    writeAuditLog(user, 'LOGIN', 'Autentikasi', 'Login berhasil dari memori aplikasi')
     return { ok: true, user }
   }
 
@@ -164,8 +194,8 @@ export function useAuth() {
     setAuth(s => ({ ...s, currentUser: null }))
   }
 
-  // Add user
-  const addUser = (data) => {
+  // Add user — langsung simpan ke Supabase tabel users
+  const addUser = async (data) => {
     if (state.users.find(u => u.username === data.username)) {
       return { ok: false, error: 'Username sudah digunakan.' }
     }
@@ -175,45 +205,66 @@ export function useAuth() {
       isActive: true,
       createdAt: new Date().toISOString(),
     }
-    setAuth(s => ({ ...s, users: [...s.users, newUser] }))
-    upsertUser(newUser).catch(err => console.error('[addUser SB]', err.message))
-    writeAuditLog(state.currentUser, 'TAMBAH_PENGGUNA', 'Manajemen Pengguna',
-      `Menambahkan pengguna: ${data.username} (${data.role})`)
-    return { ok: true, user: newUser }
+    try {
+      const saved = await upsertUser(newUser)
+      const userToAdd = saved || newUser
+      setAuth(s => ({ ...s, users: [...s.users.filter(u => u.id !== userToAdd.id), userToAdd] }))
+      writeAuditLog(state.currentUser, 'TAMBAH_PENGGUNA', 'Manajemen Pengguna',
+        `Menambahkan pengguna: ${data.username} (${data.role}) ke database`)
+      return { ok: true, user: userToAdd }
+    } catch (err) {
+      console.error('[addUser SB]', err)
+      return { ok: false, error: `Gagal menyimpan pengguna ke database: ${err.message}` }
+    }
   }
 
-  // Update user
-  const updateUser = (id, data) => {
+  // Update user — langsung update ke Supabase tabel users
+  const updateUser = async (id, data) => {
     const target = state.users.find(u => u.id === id)
     if (!target) return { ok: false, error: 'User tidak ditemukan.' }
     const updatedUser = { ...target, ...data }
-    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updatedUser : u) }))
-    upsertUser(updatedUser).catch(err => console.error('[updateUser SB]', err.message))
-    writeAuditLog(state.currentUser, 'UBAH_PENGGUNA', 'Manajemen Pengguna', `Mengubah pengguna ID: ${id}`)
-    return { ok: true }
+    try {
+      const saved = await upsertUser(updatedUser)
+      const finalUser = saved || updatedUser
+      setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? finalUser : u) }))
+      writeAuditLog(state.currentUser, 'UBAH_PENGGUNA', 'Manajemen Pengguna', `Mengubah pengguna ID: ${id} di database`)
+      return { ok: true }
+    } catch (err) {
+      console.error('[updateUser SB]', err)
+      return { ok: false, error: `Gagal memperbarui pengguna di database: ${err.message}` }
+    }
   }
 
-  // Deactivate user
-  const deactivateUser = (id) => {
+  // Deactivate user — langsung update ke Supabase tabel users
+  const deactivateUser = async (id) => {
     const target = state.users.find(u => u.id === id)
     if (!target) return
     const updatedUser = { ...target, isActive: false }
-    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updatedUser : u) }))
-    upsertUser(updatedUser).catch(err => console.error('[deactivateUser SB]', err.message))
-    writeAuditLog(state.currentUser, 'NONAKTIFKAN_PENGGUNA', 'Manajemen Pengguna',
-      `Menonaktifkan pengguna: ${target?.username}`)
+    try {
+      await upsertUser(updatedUser)
+      setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updatedUser : u) }))
+      writeAuditLog(state.currentUser, 'NONAKTIFKAN_PENGGUNA', 'Manajemen Pengguna',
+        `Menonaktifkan pengguna: ${target?.username} di database`)
+    } catch (err) {
+      console.error('[deactivateUser SB]', err)
+    }
   }
 
-  // Reset password
-  const resetPassword = (id, newPassword) => {
+  // Reset password — langsung update ke Supabase tabel users
+  const resetPassword = async (id, newPassword) => {
     const target = state.users.find(u => u.id === id)
     if (!target) return { ok: false, error: 'User tidak ditemukan.' }
     const updatedUser = { ...target, password: newPassword }
-    setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updatedUser : u) }))
-    upsertUser(updatedUser).catch(err => console.error('[resetPassword SB]', err.message))
-    writeAuditLog(state.currentUser, 'RESET_PASSWORD', 'Manajemen Pengguna',
-      `Reset password untuk: ${target?.username}`)
-    return { ok: true }
+    try {
+      await upsertUser(updatedUser)
+      setAuth(s => ({ ...s, users: s.users.map(u => u.id === id ? updatedUser : u) }))
+      writeAuditLog(state.currentUser, 'RESET_PASSWORD', 'Manajemen Pengguna',
+        `Reset password untuk: ${target?.username} di database`)
+      return { ok: true }
+    } catch (err) {
+      console.error('[resetPassword SB]', err)
+      return { ok: false, error: `Gagal mereset password di database: ${err.message}` }
+    }
   }
 
   // Save app settings — local + Supabase
