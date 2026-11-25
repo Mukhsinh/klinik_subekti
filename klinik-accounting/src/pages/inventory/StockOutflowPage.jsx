@@ -806,7 +806,8 @@ export default function StockOutflowPage() {
     })
 
     const now = new Date().toISOString()
-    const transactionIso = outflowDate ? (outflowDate.includes('T') ? outflowDate : `${outflowDate}T12:00:00.000Z`) : now
+    const timePart = now.split('T')[1] || '12:00:00.000Z'
+    const transactionIso = outflowDate ? (outflowDate.includes('T') ? outflowDate : `${outflowDate}T${timePart}`) : now
     const outflowId = uuidv4()
     const journalId = uuidv4()
 
@@ -822,7 +823,7 @@ export default function StockOutflowPage() {
         status: 'POSTED',
         journalEntryId: journalId,
         createdBy: 'System',
-        createdAt: now,
+        createdAt: transactionIso,
         updatedAt: now,
       }
 

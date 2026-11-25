@@ -53,10 +53,18 @@ export default function InventoryItemOpeningBalancePage() {
 
             if (batchesError) throw batchesError
 
-            // Item terkunci HANYA jika sudah pernah ada transaksi mutasi riil (quantity_out > 0 pada kartu stok dari transaksi sah)
+            // Petakan batch SALDO-AWAL yang ada per item_id
+            const saldoAwalBatchByItem = {}
+            ;(batchesData || []).forEach(b => {
+                saldoAwalBatchByItem[b.item_id] = b
+            })
+
+            // Item terkunci HANYA jika SUDAH memiliki batch SALDO-AWAL dan batch tersebut
+            // telah mengalami mutasi pengeluaran (quantity_out > 0 pada kartu stok atau quantity_current < quantity_received).
+            // Item yang belum memiliki batch SALDO-AWAL atau batch saldo awalnya belum termutasi TIDAK PERNAH dikunci!
             const { data: transData, error: transError } = await supabase
                 .from('stock_ledger_cards')
-                .select('item_id, transaction_type, reference_number, reference_id, quantity_out')
+                .select('batch_id, item_id, transaction_type, reference_number, reference_id, quantity_out')
                 .gt('quantity_out', 0)
 
             if (transError) throw transError
@@ -74,16 +82,31 @@ export default function InventoryItemOpeningBalancePage() {
             })
 
             const lockedSet = new Set()
+
+            // 1. Kunci jika stok fisik pada batch SALDO-AWAL sudah berkurang (termutasi)
+            for (const b of (batchesData || [])) {
+                if (Number(b.quantity_received ?? 0) > 0 && Number(b.quantity_current ?? 0) < Number(b.quantity_received ?? 0)) {
+                    lockedSet.add(b.item_id)
+                }
+            }
+
+            // 2. Kunci jika terdapat mutasi keluar riil yang spesifik mengambil dari batch SALDO-AWAL
             for (const t of (transData || [])) {
                 if (!t.item_id) continue
-                const transType = (t.transaction_type || '').toUpperCase()
-                if (transType === 'BILLING') {
-                    // Hanya transaksi billing yang berstatus PAID yang mengunci saldo awal item
-                    if (paidBillingKeys.has(t.reference_number) || paidBillingKeys.has(t.reference_id)) {
+                const saBatch = saldoAwalBatchByItem[t.item_id]
+                // Jika item belum punya batch saldo awal, lewati (jangan pernah dikunci!)
+                if (!saBatch) continue
+
+                // Pengeluaran hanya relevan mengunci saldo awal jika terjadi pada batch saldo awal itu sendiri
+                if (t.batch_id === saBatch.id) {
+                    const transType = (t.transaction_type || '').toUpperCase()
+                    if (transType === 'BILLING') {
+                        if (paidBillingKeys.has(t.reference_number) || paidBillingKeys.has(t.reference_id)) {
+                            lockedSet.add(t.item_id)
+                        }
+                    } else if (['OUTFLOW', 'EXPIRED', 'DAMAGED', 'TRANSFER_OUT'].includes(transType)) {
                         lockedSet.add(t.item_id)
                     }
-                } else if (transType === 'OUTFLOW' || transType === 'EXPIRED' || transType === 'DAMAGED' || transType === 'TRANSFER_OUT') {
-                    lockedSet.add(t.item_id)
                 }
             }
             setLockedItemIds(lockedSet)
@@ -874,7 +897,7 @@ export default function InventoryItemOpeningBalancePage() {
                                                 {isLocked ? (
                                                     <span
                                                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200"
-                                                        title="Saldo awal terkunci karena item ini sudah memiliki riwayat transaksi/mutasi operasional (GRN / Outflow / Penjualan)"
+                                                        title="Saldo awal terkunci karena batch saldo awal item ini sudah mengalami mutasi pengeluaran riil"
                                                     >
                                                         <Lock className="w-3 h-3 text-amber-600" /> Terkunci (Ada Mutasi)
                                                     </span>

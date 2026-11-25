@@ -171,10 +171,15 @@ export default function StockLedgerPage() {
       const refNo = String(l.referenceNumber || l.reference_number || '')
       const refId = String(l.referenceId || l.reference_id || '')
       if (transType === 'OUTFLOW' || refNo.startsWith('OUT/') || refNo.startsWith('OUT-MED/')) {
-        const of = outflowMap.get(refId) || outflowMap.get(refNo)
+        const notes = String(l.notes || '')
+        const match = notes.match(/OUT(?:-MED)?\/\d+\/\d+/)
+        const noteRef = match ? match[0] : null
+        const of = outflowMap.get(refId) || outflowMap.get(refNo) || (noteRef ? outflowMap.get(noteRef) : null)
         if (of && (of.outflowDate || of.outflow_date)) {
           const ofDate = of.outflowDate || of.outflow_date
-          const dateIso = ofDate.includes('T') ? ofDate : `${ofDate}T12:00:00.000Z`
+          const orig = l.loggedAt || l.logged_at || ''
+          const timePart = orig.includes('T') ? orig.split('T')[1] : '12:00:00.000Z'
+          const dateIso = ofDate.includes('T') ? ofDate : `${ofDate.split('T')[0]}T${timePart}`
           return {
             ...l,
             loggedAt: dateIso,
