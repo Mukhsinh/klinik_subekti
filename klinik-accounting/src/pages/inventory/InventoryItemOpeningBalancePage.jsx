@@ -11,7 +11,7 @@ import Modal from '../../components/ui/Modal'
 import Alert from '../../components/ui/Alert'
 
 export default function InventoryItemOpeningBalancePage() {
-    const { activeBranchId, appSettings, refreshAll } = useStore()
+    const { activeBranchId, branches, appSettings, refreshAll } = useStore()
     const [pharmacyItems, setPharmacyItems] = useState([])
     const [invBatches, setInvBatches] = useState([])
     const [lockedItemIds, setLockedItemIds] = useState(new Set())
@@ -121,6 +121,7 @@ export default function InventoryItemOpeningBalancePage() {
                 baseUnit: item.base_unit,
                 coaInventoryCode: item.coa_inventory_code,
                 coaCOGSCode: item.coa_cogs_code,
+                sellingPrice: item.selling_price,
                 isActive: item.is_active
             }))
 
@@ -251,7 +252,16 @@ export default function InventoryItemOpeningBalancePage() {
 
                 if (item.quantity > 0) {
                     if (existingBatch) {
-                        // Update existing batch
+                        const isUnchanged =
+                            Number(existingBatch.quantityReceived ?? 0) === item.quantity &&
+                            Number(existingBatch.quantityCurrent ?? 0) === item.quantity &&
+                            Number(existingBatch.unitCostPrice ?? 0) === item.unitCost &&
+                            !touchedItemIds.has(item.itemId) &&
+                            balancesMapToSave === editableBalances
+
+                        if (isUnchanged) continue
+
+                        // Update existing batch (inventory_batches tidak memiliki kolom updated_at)
                         const { error: updateError } = await supabase
                             .from('inventory_batches')
                             .update({
@@ -260,23 +270,24 @@ export default function InventoryItemOpeningBalancePage() {
                                 unit_cost_price: item.unitCost,
                                 manufacture_date: openingDate,
                                 received_at: openingIso,
-                                updated_at: new Date().toISOString()
                             })
                             .eq('id', existingBatch.id)
 
                         if (updateError) throw updateError
 
-                        // Periksa apakah sudah ada kartu stok untuk batch ini
-                        const { data: existingLedgerList } = await supabase
+                        // Periksa apakah sudah ada kartu stok SALDO_AWAL untuk batch ini
+                        const { data: existingLedgerList, error: ledgerLookupErr } = await supabase
                             .from('stock_ledger_cards')
                             .select('id')
                             .eq('batch_id', existingBatch.id)
+                            .eq('transaction_type', 'SALDO_AWAL')
                             .limit(1)
 
+                        if (ledgerLookupErr) throw ledgerLookupErr
                         const existingLedger = existingLedgerList?.[0]
 
                         if (existingLedger) {
-                            await supabase
+                            const { error: ledgerUpdateErr } = await supabase
                                 .from('stock_ledger_cards')
                                 .update({
                                     quantity_in: item.quantity,
@@ -286,14 +297,16 @@ export default function InventoryItemOpeningBalancePage() {
                                     logged_at: openingIso
                                 })
                                 .eq('id', existingLedger.id)
+                            if (ledgerUpdateErr) throw ledgerUpdateErr
                         } else {
-                            await supabase
+                            const { error: ledgerInsertErr } = await supabase
                                 .from('stock_ledger_cards')
                                 .insert({
                                     id: uuidv4(),
                                     batch_id: existingBatch.id,
                                     item_id: item.itemId,
                                     transaction_type: 'SALDO_AWAL',
+                                    reference_id: existingBatch.id,
                                     reference_number: 'SALDO-AWAL',
                                     quantity_in: item.quantity,
                                     quantity_out: 0,
@@ -303,6 +316,7 @@ export default function InventoryItemOpeningBalancePage() {
                                     notes: 'Saldo awal persediaan item',
                                     logged_at: openingIso
                                 })
+                            if (ledgerInsertErr) throw ledgerInsertErr
                         }
                     } else {
                         // Create new batch
@@ -350,8 +364,17 @@ export default function InventoryItemOpeningBalancePage() {
                     }
                     savedCount++
                 } else if (existingBatch) {
+                    const isUnchangedZero =
+                        Number(existingBatch.quantityReceived ?? 0) === 0 &&
+                        Number(existingBatch.quantityCurrent ?? 0) === 0 &&
+                        Number(existingBatch.unitCostPrice ?? 0) === item.unitCost &&
+                        !touchedItemIds.has(item.itemId) &&
+                        balancesMapToSave === editableBalances
+
+                    if (isUnchangedZero) continue
+
                     // Update batch to 0 if previously recorded
-                    await supabase
+                    const { error: zeroBatchErr } = await supabase
                         .from('inventory_batches')
                         .update({
                             quantity_received: 0,
@@ -359,19 +382,24 @@ export default function InventoryItemOpeningBalancePage() {
                             unit_cost_price: item.unitCost,
                             manufacture_date: openingDate,
                             received_at: openingIso,
-                            updated_at: new Date().toISOString()
                         })
                         .eq('id', existingBatch.id)
 
-                    await supabase
+                    if (zeroBatchErr) throw zeroBatchErr
+
+                    const { error: zeroLedgerErr } = await supabase
                         .from('stock_ledger_cards')
                         .update({
                             quantity_in: 0,
                             balance_after: 0,
+                            unit_cost: item.unitCost,
                             total_value: 0,
                             logged_at: openingIso
                         })
                         .eq('batch_id', existingBatch.id)
+                        .eq('transaction_type', 'SALDO_AWAL')
+
+                    if (zeroLedgerErr) throw zeroLedgerErr
                     savedCount++
                 } else if (touchedItemIds.has(item.itemId) || (balancesMapToSave !== editableBalances && item.quantity > 0) || item.unitCost > 0) {
                     // Create new batch with 0 balance for unmutated items (validasi sistem mengizinkan penulisan saldo awal bernilai 0)
@@ -395,28 +423,27 @@ export default function InventoryItemOpeningBalancePage() {
                             created_at: openingIso
                         })
 
-                    if (!batchError) {
-                        await supabase
-                            .from('stock_ledger_cards')
-                            .insert({
-                                id: uuidv4(),
-                                batch_id: batchId,
-                                item_id: item.itemId,
-                                transaction_type: 'SALDO_AWAL',
-                                reference_id: batchId,
-                                reference_number: 'SALDO-AWAL',
-                                quantity_in: 0,
-                                quantity_out: 0,
-                                balance_after: 0,
-                                unit_cost: item.unitCost,
-                                total_value: 0,
-                                notes: 'Saldo awal persediaan item (0 unit)',
-                                logged_at: openingIso
-                            })
-                        savedCount++
-                    } else {
-                        console.warn('[saveToDatabase] Batch insert warning for item:', pharmacyItem.itemName, batchError)
-                    }
+                    if (batchError) throw batchError
+
+                    const { error: zeroLedgerInsertErr } = await supabase
+                        .from('stock_ledger_cards')
+                        .insert({
+                            id: uuidv4(),
+                            batch_id: batchId,
+                            item_id: item.itemId,
+                            transaction_type: 'SALDO_AWAL',
+                            reference_id: batchId,
+                            reference_number: 'SALDO-AWAL',
+                            quantity_in: 0,
+                            quantity_out: 0,
+                            balance_after: 0,
+                            unit_cost: item.unitCost,
+                            total_value: 0,
+                            notes: 'Saldo awal persediaan item (0 unit)',
+                            logged_at: openingIso
+                        })
+                    if (zeroLedgerInsertErr) throw zeroLedgerInsertErr
+                    savedCount++
                 }
             }
 
@@ -460,7 +487,7 @@ export default function InventoryItemOpeningBalancePage() {
             }
 
             const fiscalYear = currentYear
-            const branchId = activeBranchId || 'f265df27-e277-4775-8b1d-5f28e585599a'
+            const branchId = activeBranchId || branches?.[0]?.id || 'f265df27-e277-4775-8b1d-5f28e585599a'
 
             // Sinkronkan setiap akun persediaan ke opening_balances via upsert
             for (const [accCode, totalVal] of Object.entries(balanceByAccount)) {
@@ -478,6 +505,7 @@ export default function InventoryItemOpeningBalancePage() {
 
                 if (obErr) {
                     console.error('[opening_balances upsert error]:', obErr)
+                    throw obErr
                 }
             }
 

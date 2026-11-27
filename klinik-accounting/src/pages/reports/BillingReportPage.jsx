@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useStore } from '../../store/useStore'
-import { fetchDoctors, fetchBillings, fetchAllBillingItems } from '../../lib/db'
+import { fetchDoctors, fetchBillings, fetchAllBillingItems, fetchStockOutflows, fetchStockOutflowItems } from '../../lib/db'
 import {
   Calendar, TrendingUp, Users, Wallet, Download,
   Filter, BarChart3, FileText, FileSpreadsheet, Activity, ShoppingBag,
@@ -23,7 +23,7 @@ const QUARTERS = ['Triwulan 1', 'Triwulan 2', 'Triwulan 3', 'Triwulan 4']
 const SEMESTERS = ['Semester 1', 'Semester 2']
 
 export default function BillingReportPage() {
-  const { billings, billingItems, branches, activeBranchId, doctors, appSettings } = useStore()
+  const { billings, billingItems, stockOutflows, stockOutflowItems, branches, activeBranchId, doctors, appSettings } = useStore()
   const [filterType, setFilterType] = useState('ALL')
   const [showCharts, setShowCharts] = useState(false)
   const [startDate, setStartDate] = useState(todayISO())
@@ -38,6 +38,8 @@ export default function BillingReportPage() {
   const [dbDoctors, setDbDoctors] = useState([])
   const [dbBillings, setDbBillings] = useState([])
   const [dbBillingItems, setDbBillingItems] = useState([])
+  const [dbStockOutflows, setDbStockOutflows] = useState([])
+  const [dbStockOutflowItems, setDbStockOutflowItems] = useState([])
 
   // Modal states for Detail & Receipt PDF
   const [selectedBilling, setSelectedBilling] = useState(null)
@@ -47,15 +49,19 @@ export default function BillingReportPage() {
     let isMounted = true
     const loadData = async () => {
       try {
-        const [docData, billData, itemsData] = await Promise.all([
+        const [docData, billData, itemsData, outflowsData, outflowItemsData] = await Promise.all([
           fetchDoctors(),
           fetchBillings(),
           fetchAllBillingItems().catch(() => []),
+          fetchStockOutflows().catch(() => []),
+          fetchStockOutflowItems().catch(() => []),
         ])
         if (isMounted) {
           if (Array.isArray(docData)) setDbDoctors(docData)
           if (Array.isArray(billData)) setDbBillings(billData)
           if (Array.isArray(itemsData)) setDbBillingItems(itemsData)
+          if (Array.isArray(outflowsData)) setDbStockOutflows(outflowsData)
+          if (Array.isArray(outflowItemsData)) setDbStockOutflowItems(outflowItemsData)
         }
       } catch (err) {
         console.warn('[BillingReportPage] Error loading live DB:', err.message)
@@ -68,8 +74,68 @@ export default function BillingReportPage() {
   const activeBranch = branches.find(b => b.id === activeBranchId) || branches[0]
 
   const effectiveDoctors = dbDoctors.length > 0 ? dbDoctors : (doctors || [])
-  const effectiveBillings = dbBillings.length > 0 ? dbBillings : (billings || [])
-  const effectiveBillingItems = dbBillingItems.length > 0 ? dbBillingItems : (billingItems || [])
+  const rawBillings = dbBillings.length > 0 ? dbBillings : (billings || [])
+  const rawBillingItems = dbBillingItems.length > 0 ? dbBillingItems : (billingItems || [])
+  const rawOutflows = dbStockOutflows.length > 0 ? dbStockOutflows : (stockOutflows || [])
+  const rawOutflowItems = dbStockOutflowItems.length > 0 ? dbStockOutflowItems : (stockOutflowItems || [])
+
+  // Sinkronkan pengeluaran obat pasien (/stock-outflow) ke billing & laporan jika belum tercantum di billing_items
+  const { effectiveBillings, effectiveBillingItems } = useMemo(() => {
+    const outflowByBilling = new Map()
+    ;(rawOutflows || []).forEach(o => {
+      const isMed = o.outflowType === 'PATIENT_MEDICINE' || (o.description || '').toLowerCase().includes('obat pasien')
+      if (!isMed || o.status === 'CANCELLED') return
+      const oItems = (rawOutflowItems || []).filter(oi => (oi.outflowId || oi.outflow_id) === o.id)
+      if (oItems.length === 0) return
+      const bId = o.billingId || o.billing_id
+      const pNo = o.prescriptionNo || o.prescription_no
+      if (bId) outflowByBilling.set(bId, [...(outflowByBilling.get(bId) || []), ...oItems])
+      if (pNo && pNo !== '—') outflowByBilling.set(pNo, [...(outflowByBilling.get(pNo) || []), ...oItems])
+    })
+
+    const mergedItems = [...rawBillingItems]
+    const mergedBillings = (rawBillings || []).map(b => {
+      const existingItems = rawBillingItems.filter(i => (i.billingId || i.billing_id) === b.id)
+      const hasPharm = existingItems.some(i => (i.itemType || i.item_type) === 'PHARMACY')
+      const linkedOutItems = outflowByBilling.get(b.id) || outflowByBilling.get(b.billingNumber || b.billing_number) || []
+
+      if (!hasPharm && linkedOutItems.length > 0) {
+        let addPharmSub = 0
+        linkedOutItems.forEach(oi => {
+          const qty = Number(oi.quantity || 1)
+          const unitPrice = Number(oi.sellingPrice ?? oi.selling_price ?? 0)
+          const totalPrice = Number(oi.subtotalSale ?? oi.subtotal_sale ?? (qty * unitPrice))
+          addPharmSub += totalPrice
+          mergedItems.push({
+            id: `SO-${oi.id}`,
+            billingId: b.id,
+            itemType: 'PHARMACY',
+            pharmacyItemId: oi.itemId || oi.item_id,
+            itemName: oi.itemName || oi.item_name || 'Obat Farmasi',
+            quantity: qty,
+            unitPrice,
+            totalPrice,
+          })
+        })
+        const prevPharm = Number(b.subtotalPharmacy ?? b.subtotal_pharmacy ?? 0)
+        if (prevPharm === 0 && addPharmSub > 0) {
+          const svcSub = Number(b.subtotalServices ?? b.subtotal_services ?? 0)
+          const disc = Number(b.discountAmount ?? b.discount_amount ?? 0)
+          const ppn = Math.round(addPharmSub * 0.11)
+          const gt = Math.max(0, svcSub + addPharmSub + ppn - disc)
+          return {
+            ...b,
+            subtotalPharmacy: addPharmSub,
+            ppnAmount: ppn,
+            grandTotal: gt,
+          }
+        }
+      }
+      return b
+    })
+
+    return { effectiveBillings: mergedBillings, effectiveBillingItems: mergedItems }
+  }, [rawBillings, rawBillingItems, rawOutflows, rawOutflowItems])
 
   // Consolidate doctor options strictly from master doctors in settings & billing history
   const doctorOptions = useMemo(() => {

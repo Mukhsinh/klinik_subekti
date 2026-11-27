@@ -107,6 +107,7 @@ function NavItem({ item, userRole, depth = 0 }) {
   return (
     <NavLink
       to={item.to}
+      end
       className={({ isActive }) =>
         `flex items-center gap-2.5 ${pl} py-2 text-sm rounded-lg transition-colors ` +
         (isActive

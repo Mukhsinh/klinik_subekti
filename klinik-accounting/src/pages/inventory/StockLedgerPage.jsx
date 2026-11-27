@@ -36,7 +36,7 @@ const TRANS_COLORS = {
 
 export default function StockLedgerPage() {
   const {
-    pharmacyItems, invBatches, stockLedger, billingItems, billings, stockOutflows,
+    pharmacyItems, invBatches, stockLedger, billingItems, billings, stockOutflows, stockOutflowItems,
     adjustStock, saveJournalDraft, postJournalEntry,
     activeBranchId, generateEntryNumber, refreshAll,
   } = useStore()
@@ -148,14 +148,66 @@ export default function StockLedgerPage() {
               referenceId: bi.id,
               referenceNumber: refNo,
               quantityIn: 0,
-              quantityOut: bi.quantity || 1,
+              quantityOut: Number(bi.quantity) || 0,
               balanceAfter: 0,
-              unitCost: bi.unitPrice || 0,
-              totalValue: (bi.quantity || 1) * (bi.unitPrice || 0),
+              unitCost: Number(bi.unitPrice) || 0,
+              totalValue: (Number(bi.quantity) || 0) * (Number(bi.unitPrice) || 0),
+              notes: `Pengeluaran Obat Pasien (${refNo}) [Billing Kasir]`,
               loggedAt: billing?.visitDate || billing?.createdAt || new Date().toISOString(),
             })
           }
         })
+    }
+
+    // Sinkronkan pengeluaran obat pasien (stock_outflow_entries + stock_outflow_items) untuk billing PAID
+    // yang belum tercatat di stock_ledger_cards maupun billing_items
+    if (Array.isArray(stockOutflows) && Array.isArray(stockOutflowItems) && stockOutflowItems.length > 0) {
+      const paidPatientOutflows = new Map()
+      stockOutflows.forEach(o => {
+        const isMedOutflow = o.outflowType === 'PATIENT_MEDICINE' || (o.description || '').toLowerCase().includes('obat pasien')
+        if (!isMedOutflow || o.status === 'CANCELLED') return
+        const bId = o.billingId || o.billing_id
+        const pNo = o.prescriptionNo || o.prescription_no
+        const b = billingMap.get(bId) || billingMap.get(pNo)
+        if (b && (b.status || '').toUpperCase() === 'PAID') {
+          paidPatientOutflows.set(o.id, { outflow: o, billing: b })
+        }
+      })
+
+      stockOutflowItems.forEach(oi => {
+        const oId = oi.outflowId || oi.outflow_id
+        const match = paidPatientOutflows.get(oId)
+        if (!match) return
+
+        const itemId = oi.itemId || oi.item_id
+        const qty = Number(oi.quantity) || 0
+        if (!itemId || qty <= 0) return
+
+        const { outflow, billing } = match
+        const refNo = billing.billingNumber || billing.billing_number || outflow.prescriptionNo || outflow.outflowNumber
+        const key = `${refNo}_${itemId}`
+
+        if (!processedBillingKeys.has(key)) {
+          processedBillingKeys.add(key)
+          const unitCost = Number(oi.unitCost ?? oi.unit_cost ?? 0)
+          const totalCost = Number(oi.totalCost ?? oi.total_cost ?? (qty * unitCost))
+          list.push({
+            id: `OUTFLOW-MED-${oi.id}`,
+            batchId: 'DIRECT-BILLING',
+            itemId,
+            transactionType: 'BILLING',
+            referenceId: outflow.id,
+            referenceNumber: refNo,
+            quantityIn: 0,
+            quantityOut: qty,
+            balanceAfter: 0,
+            unitCost,
+            totalValue: totalCost,
+            notes: oi.notes || `Pengeluaran Obat Pasien: ${outflow.patientName || billing.patientName || '-'} (${refNo})`,
+            loggedAt: billing.visitDate || billing.visit_date || outflow.outflowDate || outflow.createdAt || new Date().toISOString(),
+          })
+        }
+      })
     }
 
     // Map stock outflows by ID and outflowNumber to ensure actual transaction date is used
@@ -189,7 +241,7 @@ export default function StockLedgerPage() {
       }
       return l
     })
-  }, [stockLedger, billingItems, billings, effectiveBatches, stockOutflows])
+  }, [stockLedger, billingItems, billings, effectiveBatches, stockOutflows, stockOutflowItems])
 
   const selectOptions = useMemo(() => {
     const list = effectivePharmacyItems

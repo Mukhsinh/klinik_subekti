@@ -648,8 +648,16 @@ export default function StockOutflowPage() {
       }
       await insertStockOutflowItems(newOutflowItems)
 
-      // 4. Update patient_billings totals in database
-      const updatedPharmSubtotal = newBillingItems.reduce((sum, it) => sum + (it.totalPrice || 0), 0)
+      // 4. Update patient_billings totals in database (hitung ulang dari seluruh item PHARMACY pada billing ini)
+      const { data: allPharmBillingItems } = await supabase
+        .from('billing_items')
+        .select('total_price')
+        .eq('billing_id', selectedBilling.id)
+        .eq('item_type', 'PHARMACY')
+
+      const updatedPharmSubtotal = (allPharmBillingItems && allPharmBillingItems.length > 0)
+        ? allPharmBillingItems.reduce((sum, it) => sum + (Number(it.total_price) || 0), 0)
+        : newBillingItems.reduce((sum, it) => sum + (it.totalPrice || 0), 0)
       const currentDoctorSvc = Number(selectedBilling.subtotalDoctorServices || selectedBilling.subtotal_doctor_services || 0)
       const currentLab = Number(selectedBilling.subtotalLab || selectedBilling.subtotal_lab || 0)
       const currentSvcSubtotal = Number(selectedBilling.subtotalServices || selectedBilling.subtotal_services || (currentDoctorSvc + currentLab))
@@ -697,38 +705,119 @@ export default function StockOutflowPage() {
     }
   }
 
-  // ── Handler Pembatalan Pengeluaran Obat ──
+  // ── Handler Pembatalan / Penghapusan Pengeluaran Obat Pasien ──
   const handleCancelPatientOutflow = async (outflow) => {
     if (!outflow) return
-    const billingRecord = (billings || []).find(b => b.id === (outflow.billingId || outflow.billing_id) || (outflow.prescriptionNo && (b.billingNumber === outflow.prescriptionNo || b.billing_number === outflow.prescriptionNo)))
-    if (billingRecord && (billingRecord.status === 'PAID' || billingRecord.status === 'LUNAS')) {
+    const billingRecord = (billings || []).find(
+      b =>
+        b.id === (outflow.billingId || outflow.billing_id) ||
+        (outflow.prescriptionNo && outflow.prescriptionNo !== '—' && (b.billingNumber === outflow.prescriptionNo || b.billing_number === outflow.prescriptionNo))
+    )
+    const billingStatus = (billingRecord?.status || '').toUpperCase()
+    if (billingRecord && (billingStatus === 'PAID' || billingStatus === 'LUNAS')) {
       toast.error('Pengeluaran obat tidak dapat dibatalkan karena billing pasien sudah berstatus LUNAS di kasir.')
       return
     }
 
-    if (!window.confirm(`Yakin ingin membatalkan pengeluaran obat ${outflow.outflowNumber || ''}? Item obat akan dibatalkan dan dihapus dari tagihan kasir.`)) {
+    const targetOutflowIds = (Array.isArray(outflow.allOutflowIds) && outflow.allOutflowIds.length > 0)
+      ? outflow.allOutflowIds
+      : [outflow.id].filter(Boolean)
+    const targetOutflowNumbers = (Array.isArray(outflow.allOutflowNumbers) && outflow.allOutflowNumbers.length > 0)
+      ? outflow.allOutflowNumbers.filter(Boolean)
+      : [outflow.outflowNumber || outflow.outflow_number].filter(Boolean)
+    const outNum = targetOutflowNumbers.join(', ') || outflow.outflowNumber || outflow.outflow_number || 'Pengeluaran Obat'
+
+    if (!window.confirm(`Yakin ingin membatalkan dan menghapus pengeluaran obat ${outNum}? Item obat akan dihapus dari pengeluaran stok dan tagihan kasir.`)) {
       return
     }
 
     try {
-      const outflowId = outflow.id
       const nowIso = new Date().toISOString()
 
-      // Update status outflow menjadi CANCELLED
-      await updateStockOutflow(outflowId, {
-        status: 'CANCELLED',
-        updatedAt: nowIso
-      })
+      // 1. Rollback kartu stok & batch fisik jika ada mutasi legacy yang sempat tercatat sebelum billing lunas
+      const ledgerQueries = []
+      if (targetOutflowIds.length > 0) {
+        ledgerQueries.push(
+          supabase
+            .from('stock_ledger_cards')
+            .select('id, batch_id, quantity_out')
+            .in('reference_id', targetOutflowIds)
+            .gt('quantity_out', 0)
+        )
+      }
+      if (targetOutflowNumbers.length > 0) {
+        ledgerQueries.push(
+          supabase
+            .from('stock_ledger_cards')
+            .select('id, batch_id, quantity_out')
+            .in('reference_number', targetOutflowNumbers)
+            .gt('quantity_out', 0)
+        )
+      }
+      const ledgerResults = await Promise.all(ledgerQueries)
+      const legacyLedgerMap = new Map()
+      for (const res of ledgerResults) {
+        for (const row of (res.data || [])) {
+          legacyLedgerMap.set(row.id, row)
+        }
+      }
+      if (legacyLedgerMap.size > 0) {
+        const restoreByBatch = {}
+        const ledgerIdsToDelete = []
+        for (const row of legacyLedgerMap.values()) {
+          ledgerIdsToDelete.push(row.id)
+          if (row.batch_id) {
+            restoreByBatch[row.batch_id] = (restoreByBatch[row.batch_id] || 0) + Number(row.quantity_out || 0)
+          }
+        }
+        for (const [batchId, restoreQty] of Object.entries(restoreByBatch)) {
+          if (restoreQty <= 0) continue
+          const { data: batchRow } = await supabase
+            .from('inventory_batches')
+            .select('quantity_current')
+            .eq('id', batchId)
+            .single()
+          if (batchRow) {
+            await updateBatchQty(batchId, Number(batchRow.quantity_current || 0) + restoreQty)
+          }
+        }
+        await supabase.from('stock_ledger_cards').delete().in('id', ledgerIdsToDelete)
+      }
 
-      // Hapus item obat dari billing kasir jika billing ada
+      // 2. Hapus rincian item & header pengeluaran obat pasien dari database
+      const { error: delItemsErr } = await supabase
+        .from('stock_outflow_items')
+        .delete()
+        .in('outflow_id', targetOutflowIds)
+      if (delItemsErr) throw delItemsErr
+
+      const { error: delEntriesErr } = await supabase
+        .from('stock_outflow_entries')
+        .delete()
+        .in('id', targetOutflowIds)
+      if (delEntriesErr) throw delEntriesErr
+
+      // 3. Hapus item obat dari billing kasir & hitung ulang total tagihan jika billing ada
       const targetBillingId = billingRecord?.id || outflow.billingId || outflow.billing_id
       if (targetBillingId) {
-        await supabase.from('billing_items').delete().eq('billing_id', targetBillingId).eq('item_type', 'PHARMACY')
+        const { error: delBillingItemsErr } = await supabase
+          .from('billing_items')
+          .delete()
+          .eq('billing_id', targetBillingId)
+          .eq('item_type', 'PHARMACY')
+        if (delBillingItemsErr) throw delBillingItemsErr
 
         // Recalculate billing totals
-        const { data: remainingItems } = await supabase.from('billing_items').select('*').eq('billing_id', targetBillingId)
+        const { data: remainingItems, error: remErr } = await supabase
+          .from('billing_items')
+          .select('*')
+          .eq('billing_id', targetBillingId)
+        if (remErr) throw remErr
+
         const newItems = remainingItems || []
-        const svcSub = newItems.filter(i => i.item_type !== 'PHARMACY').reduce((s, i) => s + (Number(i.total_price || 0)), 0)
+        const svcSub = newItems
+          .filter(i => i.item_type !== 'PHARMACY')
+          .reduce((s, i) => s + (Number(i.total_price || 0)), 0)
         const curDiscount = Number(billingRecord?.discountAmount || billingRecord?.discount_amount || 0)
         const newGrandTotal = Math.max(0, svcSub - curDiscount)
 
@@ -754,8 +843,11 @@ export default function StockOutflowPage() {
       }
 
       await refreshAll()
-      toast.success(`Pengeluaran obat ${outNum} berhasil dibatalkan. Stok barang otomatis bertambah kembali (rollback) dan tagihan kasir telah dikurangi.`)
-      if (modal === 'view') setModal(null)
+      toast.success(`Pengeluaran obat ${outNum} berhasil dibatalkan dan dihapus. Tagihan kasir telah diperbarui.`)
+      if (modal === 'view') {
+        setModal(null)
+        setSelected(null)
+      }
     } catch (err) {
       console.error('[handleCancelPatientOutflow] Error:', err)
       toast.error(`Gagal membatalkan pengeluaran: ${err.message}`)
@@ -977,7 +1069,8 @@ export default function StockOutflowPage() {
 
     list.forEach(o => {
       const bRef = o.prescriptionNo || (o.description?.match(/No\. Billing:\s*([^)]+)/)?.[1]?.trim()) || ''
-      const billKey = o.billingId || o.billing_id || bRef || `${o.patientName || 'UMUM'}_${(o.outflowDate || '').split('T')[0]}`
+      const baseKey = o.billingId || o.billing_id || bRef || `${o.patientName || 'UMUM'}_${(o.outflowDate || '').split('T')[0]}`
+      const billKey = o.status === 'CANCELLED' ? `CANCELLED_${o.id}` : baseKey
 
       if (!groupMap.has(billKey)) {
         groupMap.set(billKey, {
@@ -1085,14 +1178,22 @@ export default function StockOutflowPage() {
     return []
   }, [outflowItems, selected])
 
+  const activeOutflowIds = useMemo(() => {
+    return new Set((outflows || []).filter(o => o.status !== 'CANCELLED').map(o => o.id))
+  }, [outflows])
+
   const totalQtyOut = useMemo(() => {
-    const manualQty = (outflowItems || []).reduce((sum, i) => sum + (parseFloat(i.quantity) || 0), 0)
+    const manualQty = (outflowItems || [])
+      .filter(i => activeOutflowIds.has(i.outflowId || i.outflow_id))
+      .reduce((sum, i) => sum + (parseFloat(i.quantity) || 0), 0)
     const billingQty = (billingOutflows || []).reduce((sum, i) => sum + (parseFloat(i.quantity) || 0), 0)
     return manualQty + billingQty
-  }, [outflowItems, billingOutflows])
+  }, [outflowItems, activeOutflowIds, billingOutflows])
 
   const totalValueOut = useMemo(() => {
-    const manualVal = (outflows || []).reduce((sum, o) => sum + (parseFloat(o.totalValue) || 0), 0)
+    const manualVal = (outflows || [])
+      .filter(o => o.status !== 'CANCELLED')
+      .reduce((sum, o) => sum + (parseFloat(o.totalValue) || 0), 0)
     const billingVal = (billingOutflows || []).reduce((sum, o) => sum + (parseFloat(o.totalValue) || 0), 0)
     return manualVal + billingVal
   }, [outflows, billingOutflows])
@@ -1300,8 +1401,14 @@ export default function StockOutflowPage() {
                     filtered.map(o => {
                       const isMed = o.outflowType === 'PATIENT_MEDICINE' || (o.description || '').toLowerCase().includes('obat pasien')
                       const curItems = (Array.isArray(o.combinedItems) && o.combinedItems.length > 0) ? o.combinedItems : (itemsByOutflow[o.id] || [])
-                      const billingRecord = (billings || []).find(b => b.id === (o.billingId || o.billing_id) || (o.prescriptionNo && (b.billingNumber === o.prescriptionNo || b.billing_number === o.prescriptionNo)))
-                      const isPaid = billingRecord ? (billingRecord.status === 'PAID') : (o.status === 'POSTED')
+                      const billingRecord = (billings || []).find(
+                        b =>
+                          b.id === (o.billingId || o.billing_id) ||
+                          (o.prescriptionNo && o.prescriptionNo !== '—' && (b.billingNumber === o.prescriptionNo || b.billing_number === o.prescriptionNo))
+                      )
+                      const isPaid = isMed
+                        ? Boolean(billingRecord && ['PAID', 'LUNAS'].includes((billingRecord.status || '').toUpperCase()))
+                        : (o.status === 'POSTED')
                       
                       const computedSelling = Number(o.totalSelling || o.total_selling || curItems.reduce((s, it) => s + Number(it.subtotalSale || it.subtotal_sale || (Number(it.quantity) * Number(it.sellingPrice || it.selling_price || 0))), 0) || 0)
 
@@ -1373,7 +1480,11 @@ export default function StockOutflowPage() {
                           </td>
                           <td className="py-2.5 px-3 text-center whitespace-nowrap">
                             {isMed ? (
-                              isPaid ? (
+                              o.status === 'CANCELLED' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-red-100 text-red-700 border border-red-300 shadow-xs">
+                                  ✕ DIBATALKAN
+                                </span>
+                              ) : isPaid ? (
                                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
                                   ✓ LUNAS
                                 </span>
@@ -1400,28 +1511,28 @@ export default function StockOutflowPage() {
                                   <button
                                     className="p-1.5 rounded-lg text-slate-300 cursor-not-allowed bg-slate-50 opacity-50"
                                     disabled
-                                    title="Tagihan sudah lunas di kasir, resep terkunci dan tidak dapat diedit"
+                                    title="Tagihan sudah lunas di kasir, resep terkunci dan tidak dapat diedit atau dibatalkan"
                                   >
                                     <Lock className="w-3.5 h-3.5" />
                                   </button>
                                 ) : (
                                   <>
-                                    <button
-                                      className="p-1.5 rounded-lg text-amber-600 hover:text-amber-800 hover:bg-amber-50 transition"
-                                      onClick={() => handleOpenEditPatientMed(o)}
-                                      title="Edit resep obat pasien (tersambung ke kasir)"
-                                    >
-                                      <Pencil className="w-3.5 h-3.5" />
-                                    </button>
                                     {o.status !== 'CANCELLED' && (
                                       <button
-                                        className="p-1.5 rounded-lg text-red-600 hover:text-red-800 hover:bg-red-50 transition"
-                                        onClick={() => handleCancelPatientOutflow(o)}
-                                        title="Batalkan pengeluaran obat (restok ke kartu stok & kurangi tagihan kasir)"
+                                        className="p-1.5 rounded-lg text-amber-600 hover:text-amber-800 hover:bg-amber-50 transition"
+                                        onClick={() => handleOpenEditPatientMed(o)}
+                                        title="Edit resep obat pasien (tersambung ke kasir)"
                                       >
-                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <Pencil className="w-3.5 h-3.5" />
                                       </button>
                                     )}
+                                    <button
+                                      className="p-1.5 rounded-lg text-red-600 hover:text-red-800 hover:bg-red-50 transition"
+                                      onClick={() => handleCancelPatientOutflow(o)}
+                                      title={o.status === 'CANCELLED' ? 'Hapus riwayat pengeluaran obat yang dibatalkan' : 'Batalkan & hapus pengeluaran obat (kurangi tagihan kasir)'}
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
                                   </>
                                 )
                               )}
@@ -1660,11 +1771,43 @@ export default function StockOutflowPage() {
         onClose={() => setModal(null)}
         title={`Detail Pengeluaran — ${selected?.outflowNumber}`}
         size="lg"
+        footer={(() => {
+          if (!selected) return null
+          const isMedView = selected.outflowType === 'PATIENT_MEDICINE' || (selected.description || '').toLowerCase().includes('obat pasien')
+          const billingRec = (billings || []).find(
+            b =>
+              b.id === (selected.billingId || selected.billing_id) ||
+              (selected.prescriptionNo && selected.prescriptionNo !== '—' && (b.billingNumber === selected.prescriptionNo || b.billing_number === selected.prescriptionNo))
+          )
+          const isPaidView = isMedView
+            ? Boolean(billingRec && ['PAID', 'LUNAS'].includes((billingRec.status || '').toUpperCase()))
+            : (selected.status === 'POSTED')
+
+          return (
+            <>
+              <button className="btn-secondary" onClick={() => setModal(null)}>Tutup</button>
+              {isMedView && !isPaidView && (
+                <button
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition"
+                  onClick={() => handleCancelPatientOutflow(selected)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Batalkan & Hapus Pengeluaran
+                </button>
+              )}
+            </>
+          )
+        })()}
       >
         {selected && (() => {
           const isMed = selected.outflowType === 'PATIENT_MEDICINE' || (selected.description || '').toLowerCase().includes('obat pasien')
-          const billingRecord = (billings || []).find(b => b.id === (selected.billingId || selected.billing_id) || (selected.prescriptionNo && (b.billingNumber === selected.prescriptionNo || b.billing_number === selected.prescriptionNo)))
-          const isPaid = billingRecord ? (billingRecord.status === 'PAID') : (selected.status === 'POSTED')
+          const billingRecord = (billings || []).find(
+            b =>
+              b.id === (selected.billingId || selected.billing_id) ||
+              (selected.prescriptionNo && selected.prescriptionNo !== '—' && (b.billingNumber === selected.prescriptionNo || b.billing_number === selected.prescriptionNo))
+          )
+          const isPaid = isMed
+            ? Boolean(billingRecord && ['PAID', 'LUNAS'].includes((billingRecord.status || '').toUpperCase()))
+            : (selected.status === 'POSTED')
 
           const totalSelling = selectedItems.reduce((sum, it) => sum + Number(it.subtotalSale || it.subtotal_sale || (Number(it.quantity) * Number(it.sellingPrice || it.selling_price || 0))), 0) || Number(selected.totalSelling || 0)
           const totalHpp = Number(selected.totalValue || selectedItems.reduce((s, it) => s + Number(it.totalCost || it.total_cost || 0), 0) || 0)

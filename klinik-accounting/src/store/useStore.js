@@ -755,7 +755,8 @@ export function useStore() {
     const coaCOGSCode = (itemCogs && !['5-11-001', '5-11-002', '5-11-003'].includes(itemCogs)) ? itemCogs : mappedCogs
     const coaInventoryCode = (itemInv && !['1-13-001', '1-13-002', '1-13-003'].includes(itemInv)) ? itemInv : mappedInv
 
-    const activeBatches = [...s.invBatches]
+    const latestBatches = getState().invBatches || s.invBatches || []
+    const activeBatches = [...latestBatches]
       .filter(b => (b.itemId === itemId || b.item_id === itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
       .sort((a, b) => {
         const expA = new Date(a.expiryDate || a.expiry_date || '2099-12-31').getTime()
@@ -829,9 +830,9 @@ export function useStore() {
     }
 
     // Calculate running balance per item for stock_ledger_cards
-    const initialItemStock = (s.invBatches || [])
-      .filter(b => b.itemId === itemId)
-      .reduce((sum, b) => sum + (b.quantityCurrent || 0), 0)
+    const initialItemStock = latestBatches
+      .filter(b => (b.itemId === itemId || b.item_id === itemId))
+      .reduce((sum, b) => sum + (Number(b.quantityCurrent ?? b.quantity_current) || 0), 0)
 
     let currentItemBalance = initialItemStock
     const entryDate = transactionDate

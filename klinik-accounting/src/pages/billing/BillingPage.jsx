@@ -1,9 +1,9 @@
 import { useState, useMemo, useRef } from 'react'
-import { Plus, Eye, CheckCircle, Trash2, Stethoscope, Package, Printer, Pencil, UserCheck, CreditCard, Lock, Info, Pill } from 'lucide-react'
+import { Plus, Eye, CheckCircle, Trash2, Stethoscope, Package, Printer, Pencil, UserCheck, CreditCard, Lock, Info, Pill, XCircle, Search } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
-import { StatusBadge } from '../../components/ui/Badge'
+import Badge, { StatusBadge } from '../../components/ui/Badge'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import { exportBillingReceiptPDF } from '../../utils/exportPDF'
 import { resolveBillingItemCategory, getBillingCategoryBadgeClass } from '../../utils/billingCategory'
@@ -26,7 +26,7 @@ const BPJS_RATIO = 0.80
 
 export default function BillingPage() {
   const {
-    pharmacyItems, invBatches, billings, billingItems, doctors, serviceTariffs,
+    pharmacyItems, invBatches, billings, billingItems, stockOutflows, stockOutflowItems, doctors, serviceTariffs,
     generateBillingNumber, saveBilling,
     activeBranchId, saveJournalDraft, postJournalEntry, reverseJournal, generateEntryNumber,
     getItemStock, depleteInventoryFIFO, refreshAll, appSettings,
@@ -67,31 +67,160 @@ export default function BillingPage() {
 
   const [modalItems, setModalItems] = useState([])
   const [loadingItems, setLoadingItems] = useState(false)
+  const [patientSuggestField, setPatientSuggestField] = useState(null) // 'name' | 'mrn' | null
+
+  // Database pasien otomatis dari seluruh riwayat pendaftaran/billing
+  const patientDatabase = useMemo(() => {
+    const map = new Map()
+    const sorted = [...(billings || [])].sort(
+      (a, b) => new Date(b.visitDate || b.createdAt || 0) - new Date(a.visitDate || a.createdAt || 0)
+    )
+    sorted.forEach(b => {
+      const name = String(b.patientName || b.patient_name || '').trim()
+      const mrn = String(b.patientMRN || b.patient_mrn || '').trim()
+      if (!name && !mrn) return
+      const key = mrn ? `mrn:${mrn.toLowerCase()}` : `name:${name.toLowerCase()}`
+      const existing = map.get(key)
+      if (!existing) {
+        map.set(key, {
+          key,
+          name: name || mrn,
+          mrn,
+          lastVisit: b.visitDate || b.visit_date || b.createdAt || '',
+          visitCount: 1,
+          lastPayMethod: b.paymentMethod || b.payment_method || 'TUNAI',
+        })
+      } else {
+        existing.visitCount += 1
+        if (!existing.mrn && mrn) existing.mrn = mrn
+        if (!existing.name && name) existing.name = name
+      }
+    })
+    return Array.from(map.values())
+  }, [billings])
+
+  const patientSuggestions = useMemo(() => {
+    if (!patientSuggestField) return []
+    const q = (patientSuggestField === 'mrn' ? patientMRN : patientName).trim().toLowerCase()
+    if (!q) return patientDatabase.slice(0, 8)
+    return patientDatabase
+      .filter(p => p.name.toLowerCase().includes(q) || (p.mrn || '').toLowerCase().includes(q))
+      .slice(0, 10)
+  }, [patientDatabase, patientSuggestField, patientName, patientMRN])
+
+  const handleSelectPatientFromDb = (p) => {
+    setPatientName(p.name)
+    if (p.mrn) setPatientMRN(p.mrn)
+    setPatientSuggestField(null)
+  }
+
+  // Petakan pengeluaran obat pasien (/stock-outflow) aktif per billing untuk sinkronisasi otomatis ke /billing
+  const outflowPharmByBilling = useMemo(() => {
+    const map = new Map()
+    ;(stockOutflows || []).forEach(o => {
+      const isMed = o.outflowType === 'PATIENT_MEDICINE' || (o.description || '').toLowerCase().includes('obat pasien')
+      if (!isMed || o.status === 'CANCELLED') return
+      const oItems = (stockOutflowItems || []).filter(oi => (oi.outflowId || oi.outflow_id) === o.id)
+      if (oItems.length === 0) return
+      const bId = o.billingId || o.billing_id
+      const pNo = o.prescriptionNo || o.prescription_no
+      const synth = oItems.map(oi => {
+        const qty = Number(oi.quantity || 1)
+        const unitPrice = Number(oi.sellingPrice ?? oi.selling_price ?? 0)
+        return {
+          id: `SO-${oi.id}`,
+          billingId: bId,
+          itemType: 'PHARMACY',
+          pharmacyItemId: oi.itemId || oi.item_id,
+          itemName: oi.itemName || oi.item_name || 'Obat Farmasi',
+          quantity: qty,
+          unitPrice,
+          totalPrice: Number(oi.subtotalSale ?? oi.subtotal_sale ?? (qty * unitPrice)),
+        }
+      })
+      if (bId) map.set(bId, [...(map.get(bId) || []), ...synth])
+      if (pNo && pNo !== '—') map.set(pNo, [...(map.get(pNo) || []), ...synth])
+    })
+    return map
+  }, [stockOutflows, stockOutflowItems])
+
+  const getEffectiveBilling = (b) => {
+    if (!b) return b
+    const existingItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+    const hasPharm = existingItems.some(i => (i.itemType || i.item_type) === 'PHARMACY')
+    const linkedOutItems = outflowPharmByBilling.get(b.id) || outflowPharmByBilling.get(b.billingNumber || b.billing_number) || []
+
+    if (!hasPharm && linkedOutItems.length > 0 && Number(b.subtotalPharmacy ?? b.subtotal_pharmacy ?? 0) === 0) {
+      const addPharmSub = linkedOutItems.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0)
+      if (addPharmSub > 0) {
+        const svcSub = Number(b.subtotalServices ?? b.subtotal_services ?? 0)
+        const disc = Number(b.discountAmount ?? b.discount_amount ?? 0)
+        const ppn = Math.round(addPharmSub * PPN_RATE)
+        const gt = Math.max(0, svcSub + addPharmSub + ppn - disc)
+        const method = b.paymentMethod || b.payment_method || 'TUNAI'
+        let pPortion = gt
+        let iPortion = 0
+        if (method === 'BPJS') {
+          iPortion = Math.round(gt * BPJS_RATIO)
+          pPortion = gt - iPortion
+        } else if (method === 'ASURANSI') {
+          iPortion = gt
+          pPortion = 0
+        }
+        return {
+          ...b,
+          subtotalPharmacy: addPharmSub,
+          ppnAmount: ppn,
+          grandTotal: gt,
+          patientPortion: pPortion,
+          insurancePortion: iPortion,
+        }
+      }
+    }
+    return b
+  }
 
   const handleOpenViewModal = async (b) => {
-    setSelected(b)
+    const effB = getEffectiveBilling(b)
+    setSelected(effB)
     setModal('view')
-    const inStore = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
-    if (inStore.length > 0) {
-      setModalItems(inStore)
-    } else {
-      setLoadingItems(true)
-      try {
-        const fetched = await fetchBillingItems([b.id])
-        setModalItems(fetched || [])
-      } catch (e) {
-        console.warn('Failed to fetch modal billing items:', e)
-      } finally {
-        setLoadingItems(false)
+    setLoadingItems(true)
+    try {
+      let fetched = await fetchBillingItems([b.id])
+      let itemsList = Array.isArray(fetched) && fetched.length > 0
+        ? fetched
+        : (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+
+      const hasPharm = itemsList.some(i => (i.itemType || i.item_type) === 'PHARMACY')
+      if (!hasPharm) {
+        const linkedOut = outflowPharmByBilling.get(b.id) || outflowPharmByBilling.get(b.billingNumber || b.billing_number) || []
+        if (linkedOut.length > 0) {
+          itemsList = [...itemsList, ...linkedOut]
+        }
       }
+      setModalItems(itemsList)
+    } catch (e) {
+      console.warn('Failed to fetch modal billing items:', e)
+      const fallback = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+      const hasPharm = fallback.some(i => (i.itemType || i.item_type) === 'PHARMACY')
+      const linkedOut = !hasPharm ? (outflowPharmByBilling.get(b.id) || outflowPharmByBilling.get(b.billingNumber || b.billing_number) || []) : []
+      setModalItems([...fallback, ...linkedOut])
+    } finally {
+      setLoadingItems(false)
     }
   }
 
   const viewItems = useMemo(() => {
     if (!selected) return []
+    if (modalItems.length > 0) return modalItems
     const fromStore = (billingItems || []).filter(i => (i.billingId || i.billing_id) === selected.id)
-    return fromStore.length > 0 ? fromStore : modalItems
-  }, [billingItems, selected, modalItems])
+    const hasPharm = fromStore.some(i => (i.itemType || i.item_type) === 'PHARMACY')
+    if (!hasPharm) {
+      const linkedOut = outflowPharmByBilling.get(selected.id) || outflowPharmByBilling.get(selected.billingNumber || selected.billing_number) || []
+      if (linkedOut.length > 0) return [...fromStore, ...linkedOut]
+    }
+    return fromStore
+  }, [billingItems, selected, modalItems, outflowPharmByBilling])
 
   const billingNumber = useMemo(() => generateBillingNumber(), [billings])
   const activeDoctors = useMemo(() =>
@@ -878,31 +1007,157 @@ export default function BillingPage() {
   }
 
   const handlePrintReceipt = async (b) => {
-    let bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
-    if (bItems.length === 0) {
-      try {
-        const fetched = await fetchBillingItems([b.id])
-        if (fetched && fetched.length > 0) bItems = fetched
-      } catch (e) {
-        console.warn('Could not fetch billing items for PDF:', e)
-      }
+    const effB = getEffectiveBilling(b)
+    let bItems = []
+    try {
+      const fetched = await fetchBillingItems([b.id])
+      if (fetched && fetched.length > 0) bItems = fetched
+    } catch (e) {
+      console.warn('Could not fetch billing items for PDF:', e)
     }
-    exportBillingReceiptPDF(b, bItems, appSettings, { serviceTariffs, pharmacyItems })
+    if (bItems.length === 0) {
+      bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+    }
+    const hasPharm = bItems.some(i => (i.itemType || i.item_type) === 'PHARMACY')
+    if (!hasPharm) {
+      const linkedOut = outflowPharmByBilling.get(b.id) || outflowPharmByBilling.get(b.billingNumber || b.billing_number) || []
+      if (linkedOut.length > 0) bItems = [...bItems, ...linkedOut]
+    }
+    exportBillingReceiptPDF(effB, bItems, appSettings, { serviceTariffs, pharmacyItems })
+  }
+
+  // ── Handler Batal Periksa (tetap tercatat di riwayat dengan status CANCELLED / Batal Periksa) ──
+  const handleCancelExam = async (b) => {
+    if (!b) return
+    const st = (b.status || '').toUpperCase()
+    if (st === 'PAID') {
+      toast.error('Billing sudah berstatus LUNAS dan tidak dapat dibatalkan.')
+      return
+    }
+    if (st === 'CANCELLED') {
+      toast.error('Pendaftaran pasien ini sudah berstatus Batal Periksa.')
+      return
+    }
+    if (!window.confirm(`Yakin ingin membatalkan pemeriksaan untuk pasien "${b.patientName}" (${b.billingNumber})? Data akan tetap muncul di riwayat dengan status "Batal Periksa".`)) {
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const nowIso = new Date().toISOString()
+
+      // 1. Hapus pengeluaran obat pasien (unpaid) yang terhubung ke pendaftaran ini agar tidak menggantung di /stock-outflow
+      const { data: linkedOutflows } = await supabase
+        .from('stock_outflow_entries')
+        .select('id')
+        .eq('billing_id', b.id)
+
+      const outIds = (linkedOutflows || []).map(o => o.id)
+      if (outIds.length > 0) {
+        await supabase.from('stock_outflow_items').delete().in('outflow_id', outIds)
+        await supabase.from('stock_outflow_entries').delete().in('id', outIds)
+      }
+
+      // 2. Balikkan jurnal piutang pendaftaran (jika ada jurnal POSTED dari pendaftaran)
+      const jId = b.journalEntryId || b.journal_entry_id
+      if (jId && typeof reverseJournal === 'function') {
+        try {
+          await reverseJournal(jId, 'Kasir', `Batal Periksa — ${b.billingNumber} (${b.patientName})`)
+        } catch (revErr) {
+          console.warn('[handleCancelExam] Reverse journal notice:', revErr?.message)
+        }
+      }
+
+      // 3. Perbarui status billing menjadi CANCELLED (Batal Periksa) agar tetap muncul di riwayat
+      await updateBilling(b.id, {
+        status: 'CANCELLED',
+        updated_at: nowIso
+      })
+
+      await insertAuditLog({
+        id: uuidv4(),
+        user_id: 'system',
+        user_name: 'Kasir',
+        user_role: 'system',
+        action: 'CANCEL_BILLING',
+        module: 'BILLING',
+        detail: `Batal Periksa untuk billing ${b.billingNumber} (${b.patientName}). Status: CANCELLED`,
+        created_at: nowIso
+      })
+
+      await refreshAll()
+      toast.success(`Pendaftaran pasien "${b.patientName}" (${b.billingNumber}) telah dibatalkan (Status: Batal Periksa).`)
+      if (modal === 'edit') {
+        setModal(null)
+        setEditingBilling(null)
+        resetForm()
+      }
+    } catch (err) {
+      console.error('[handleCancelExam] Error:', err)
+      toast.error(`Gagal membatalkan pemeriksaan: ${err.message}`)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleOpenEditModal = async (b) => {
-    if ((b?.status || '').toUpperCase() === 'PAID') {
+    const st = (b?.status || '').toUpperCase()
+    if (st === 'PAID') {
       toast.error('Billing sudah berstatus LUNAS dan tidak dapat diedit.')
       return
     }
+    if (st === 'CANCELLED') {
+      toast.error('Pendaftaran ini sudah berstatus Batal Periksa dan tidak dapat diedit.')
+      return
+    }
     setEditingBilling(b)
-    let bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+    // Selalu ambil billing_items terbaru dari Supabase agar obat yang baru diinput dari /stock-outflow tidak tertimpa cache lama
+    let bItems = []
+    try {
+      const fetched = await fetchBillingItems([b.id])
+      if (Array.isArray(fetched) && fetched.length > 0) {
+        bItems = fetched
+      }
+    } catch (e) {
+      console.warn('Could not fetch fresh billing items for edit:', e)
+    }
     if (bItems.length === 0) {
+      bItems = (billingItems || []).filter(i => (i.billingId || i.billing_id) === b.id)
+    }
+
+    // Jika billing_items belum memiliki item PHARMACY, cek stock_outflow_entries/items aktif untuk billing ini sebagai sinkronisasi
+    const hasPharmInBilling = bItems.some(i => (i.itemType || i.item_type) === 'PHARMACY')
+    if (!hasPharmInBilling) {
       try {
-        const fetched = await fetchBillingItems([b.id])
-        if (fetched && fetched.length > 0) bItems = fetched
+        const { data: activeOutflows } = await supabase
+          .from('stock_outflow_entries')
+          .select('id')
+          .eq('billing_id', b.id)
+          .neq('status', 'CANCELLED')
+
+        const outIds = (activeOutflows || []).map(o => o.id)
+        if (outIds.length > 0) {
+          const { data: outItems } = await supabase
+            .from('stock_outflow_items')
+            .select('*')
+            .in('outflow_id', outIds)
+
+          if (Array.isArray(outItems) && outItems.length > 0) {
+            const synthPharm = outItems.map(oi => ({
+              id: oi.id || uuidv4(),
+              billingId: b.id,
+              itemType: 'PHARMACY',
+              pharmacyItemId: oi.item_id,
+              itemName: oi.item_name,
+              quantity: Number(oi.quantity || 1),
+              unitPrice: Number(oi.selling_price || 0),
+              totalPrice: Number(oi.subtotal_sale || (Number(oi.quantity || 1) * Number(oi.selling_price || 0))),
+            }))
+            bItems = [...bItems, ...synthPharm]
+          }
+        }
       } catch (e) {
-        console.warn('Could not fetch billing items for edit:', e)
+        console.warn('Could not check active stock_outflow_items for edit:', e)
       }
     }
 
@@ -1472,13 +1727,13 @@ export default function BillingPage() {
           branchId: effectiveBranchId,
           visitDate,
           pharmacyLines,
-          status: 'COMPLETED',
+          status: 'POSTED',
           cogsTotal: totalMedHpp
         })
       } else if (outflowIds.length > 0) {
         await supabase
           .from('stock_outflow_entries')
-          .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
+          .update({ status: 'POSTED', updated_at: new Date().toISOString() })
           .in('id', outflowIds)
       }
 
@@ -1690,7 +1945,7 @@ export default function BillingPage() {
             <option value="UNPAID">Belum Lunas (Tertunda)</option>
             <option value="PAID">Lunas (Selesai)</option>
             <option value="DRAFT">Draft</option>
-            <option value="CANCELLED">Batal</option>
+            <option value="CANCELLED">Batal Periksa</option>
           </select>
           <span className="ml-auto text-sm text-slate-400">{filtered.length} transaksi</span>
         </div>
@@ -1710,16 +1965,29 @@ export default function BillingPage() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-12 text-slate-400">Belum ada transaksi billing</td></tr>
-              ) : filtered.map(b => (
-                <tr key={b.id}>
+              ) : filtered.map(rawB => {
+                const b = getEffectiveBilling(rawB)
+                const isCancelled = (b.status || '').toUpperCase() === 'CANCELLED'
+                const isPaid = (b.status || '').toUpperCase() === 'PAID'
+                return (
+                <tr key={b.id} className={isCancelled ? 'bg-red-50/40 opacity-80' : ''}>
                   <td className="font-mono text-xs text-primary-700 font-bold">{b.billingNumber}</td>
                   <td className="text-sm">{fmtDate(b.visitDate)}</td>
-                  <td className="font-bold text-sm text-slate-800">{b.patientName}</td>
+                  <td className="font-bold text-sm text-slate-800">
+                    <div>{b.patientName}</div>
+                    {b.patientMRN && <div className="text-[10px] font-mono font-normal text-slate-400">RM: {b.patientMRN}</div>}
+                  </td>
                   <td className="text-sm text-slate-500">{b.doctorName || '—'}</td>
                   <td><span className="badge badge-blue">{paymentMethodLabel(b.paymentMethod)}</span></td>
                   <td className="text-right font-mono text-sm font-bold">{fmtIDR(b.grandTotal)}</td>
                   <td className="text-right font-mono text-sm">{fmtIDR(b.patientPortion)}</td>
-                  <td><StatusBadge status={b.status} /></td>
+                  <td>
+                    {isCancelled ? (
+                      <Badge label="Batal Periksa" variant="red" />
+                    ) : (
+                      <StatusBadge status={b.status} />
+                    )}
+                  </td>
                   <td className="text-center">
                     <div className="flex items-center justify-center gap-1.5">
                       <button className="btn-action-edit" onClick={() => handleOpenViewModal(b)} title="Lihat Rincian & Nota">
@@ -1728,11 +1996,11 @@ export default function BillingPage() {
                       <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors" onClick={() => handlePrintReceipt(b)} title="Cetak Kuitansi Nota (PDF 1/2 A4)">
                         <Printer className="w-3.5 h-3.5" />
                       </button>
-                      {b.status === 'PAID' ? (
+                      {isPaid || isCancelled ? (
                         <button
                           className="p-1.5 text-slate-300 rounded cursor-not-allowed opacity-40"
                           disabled
-                          title="Billing sudah lunas, tidak dapat diedit"
+                          title={isPaid ? 'Billing sudah lunas, tidak dapat diedit' : 'Pendaftaran sudah dibatalkan (Batal Periksa)'}
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
@@ -1755,20 +2023,46 @@ export default function BillingPage() {
                           Bayar
                         </button>
                       )}
+                      {!isPaid && !isCancelled && (
+                        <button
+                          className="px-2 py-1 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded flex items-center gap-1 transition-colors"
+                          onClick={() => handleCancelExam(b)}
+                          disabled={isSubmitting}
+                          title="Batalkan pendaftaran pemeriksaan pasien (Status: Batal Periksa)"
+                        >
+                          <XCircle className="w-3 h-3" />
+                          Batal Periksa
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
       {/* ── New / Edit Billing Modal ─────────────────────────── */}
-      <Modal open={modal === 'new' || modal === 'edit'} onClose={() => { setModal(null); setEditingBilling(null) }} title={modal === 'edit' ? `Edit & Revisi Billing — ${editingBilling?.billingNumber}` : `Billing Baru — ${billingNumber}`} size="xl"
+      <Modal open={modal === 'new' || modal === 'edit'} onClose={() => { setModal(null); setEditingBilling(null); setPatientSuggestField(null) }} title={modal === 'edit' ? `Edit & Revisi Billing — ${editingBilling?.billingNumber}` : `Billing Baru — ${billingNumber}`} size="xl"
         footer={
           <div className="flex items-center justify-between w-full">
-            <button className="btn-secondary" onClick={() => { setModal(null); setEditingBilling(null) }}>Batal</button>
+            <div className="flex items-center gap-2">
+              <button className="btn-secondary" onClick={() => { setModal(null); setEditingBilling(null); setPatientSuggestField(null) }}>Tutup</button>
+              {modal === 'edit' && editingBilling && editingBilling.status !== 'PAID' && editingBilling.status !== 'CANCELLED' && (
+                <button
+                  type="button"
+                  className="px-3.5 py-2 text-sm font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  onClick={() => handleCancelExam(editingBilling)}
+                  disabled={isSubmitting}
+                  title="Batalkan pendaftaran pemeriksaan pasien ini"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Batal Periksa
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               {modal === 'new' ? (
                 <>
@@ -1824,13 +2118,101 @@ export default function BillingPage() {
         <div className="space-y-5">
           {/* Pasien + Dokter */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="lg:col-span-2">
-              <label className="form-label">Nama Pasien *</label>
-              <input className="form-input" value={patientName} onChange={e => setPatientName(e.target.value)} placeholder="Nama lengkap pasien…" />
+            <div className="lg:col-span-2 relative">
+              <label className="form-label flex items-center justify-between">
+                <span>Nama Pasien *</span>
+                <span className="text-[10px] font-normal text-slate-400">
+                  Database: {patientDatabase.length} pasien terdaftar
+                </span>
+              </label>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  className="form-input pl-8"
+                  value={patientName}
+                  onFocus={() => setPatientSuggestField('name')}
+                  onBlur={() => setTimeout(() => setPatientSuggestField(prev => prev === 'name' ? null : prev), 180)}
+                  onKeyDown={e => { if (e.key === 'Escape') setPatientSuggestField(null) }}
+                  onChange={e => { setPatientName(e.target.value); setPatientSuggestField('name') }}
+                  placeholder="Ketik nama pasien untuk mencari di database…"
+                  autoComplete="off"
+                />
+              </div>
+              {patientSuggestField === 'name' && (
+                <div className="absolute z-40 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                  {patientSuggestions.length > 0 ? (
+                    <ul className="divide-y divide-slate-100">
+                      {patientSuggestions.map(p => (
+                        <li
+                          key={p.key}
+                          onMouseDown={e => { e.preventDefault(); handleSelectPatientFromDb(p) }}
+                          className="px-3 py-2 hover:bg-primary-50 cursor-pointer flex items-center justify-between gap-2 text-xs transition-colors"
+                        >
+                          <div>
+                            <div className="font-bold text-slate-800">{p.name}</div>
+                            <div className="text-[10px] text-slate-500 font-mono">
+                              RM: {p.mrn || '—'} • Terakhir: {p.lastVisit ? fmtDate(p.lastVisit) : '—'}
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                            {p.visitCount}× periksa
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : patientName.trim().length >= 1 ? (
+                    <div className="px-3 py-2.5 text-xs text-slate-500 flex items-center gap-2">
+                      <Info className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span>Pasien <strong>"{patientName.trim()}"</strong> tidak ditemukan di database — akan didaftarkan sebagai pasien baru.</span>
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2.5 text-xs text-slate-400">Belum ada data pasien di database.</div>
+                  )}
+                </div>
+              )}
             </div>
-            <div>
+            <div className="relative">
               <label className="form-label">No. MRN / RM</label>
-              <input className="form-input" value={patientMRN} onChange={e => setPatientMRN(e.target.value)} />
+              <input
+                className="form-input"
+                value={patientMRN}
+                onFocus={() => setPatientSuggestField('mrn')}
+                onBlur={() => setTimeout(() => setPatientSuggestField(prev => prev === 'mrn' ? null : prev), 180)}
+                onKeyDown={e => { if (e.key === 'Escape') setPatientSuggestField(null) }}
+                onChange={e => { setPatientMRN(e.target.value); setPatientSuggestField('mrn') }}
+                placeholder="Cari / input No. RM…"
+                autoComplete="off"
+              />
+              {patientSuggestField === 'mrn' && (
+                <div className="absolute z-40 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto min-w-[240px]">
+                  {patientSuggestions.length > 0 ? (
+                    <ul className="divide-y divide-slate-100">
+                      {patientSuggestions.map(p => (
+                        <li
+                          key={p.key}
+                          onMouseDown={e => { e.preventDefault(); handleSelectPatientFromDb(p) }}
+                          className="px-3 py-2 hover:bg-primary-50 cursor-pointer flex items-center justify-between gap-2 text-xs transition-colors"
+                        >
+                          <div>
+                            <div className="font-mono font-bold text-primary-700">{p.mrn || 'Tanpa RM'}</div>
+                            <div className="text-[11px] font-semibold text-slate-800">{p.name}</div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                            {p.visitCount}×
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : patientMRN.trim().length >= 1 ? (
+                    <div className="px-3 py-2.5 text-xs text-slate-500 flex items-center gap-2">
+                      <Info className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span>No. RM <strong>"{patientMRN.trim()}"</strong> tidak ditemukan di database.</span>
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2.5 text-xs text-slate-400">Belum ada data RM di database.</div>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <label className="form-label">Tanggal Kunjungan</label>
@@ -2146,8 +2528,12 @@ export default function BillingPage() {
                   <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-50 border-2 border-emerald-500 text-emerald-700 font-extrabold text-sm rounded-lg shadow-sm">
                     ✓ LUNAS
                   </span>
-                ) : (
+                ) : selected.status === 'CANCELLED' ? (
                   <span className="inline-flex items-center gap-1 px-3 py-1 bg-red-50 border-2 border-red-500 text-red-700 font-extrabold text-sm rounded-lg shadow-sm">
+                    ✕ BATAL PERIKSA
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 bg-amber-50 border-2 border-amber-500 text-amber-700 font-extrabold text-sm rounded-lg shadow-sm">
                     ⚠ BELUM LUNAS
                   </span>
                 )}
