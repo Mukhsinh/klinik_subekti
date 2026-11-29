@@ -45,7 +45,7 @@ export default function CashFlowPage() {
   const postedItems = useMemo(() => {
     const ids = new Set(
       journalEntries
-        .filter(j => j.status === 'POSTED' && j.transactionDate >= dateFrom && j.transactionDate <= dateTo && (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter))
+        .filter(j => (j.status === 'POSTED' || j.status === 'REVERSED') && j.transactionDate >= dateFrom && j.transactionDate <= dateTo && (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter))
         .map(j => j.id)
     )
     return journalItems.filter(i => ids.has(i.journalEntryId))
@@ -72,13 +72,13 @@ export default function CashFlowPage() {
     return acc?.accountType === 'EXPENSE'
   })
 
-  const totalRevenue = revenueItems.reduce((s, i) => s + parseFloat(i.credit || 0), 0)
-  const totalExpense = expenseItems.reduce((s, i) => s + parseFloat(i.debit || 0), 0)
+  const totalRevenue = revenueItems.reduce((s, i) => s + parseFloat(i.credit || 0) - parseFloat(i.debit || 0), 0)
+  const totalExpense = expenseItems.reduce((s, i) => s + parseFloat(i.debit || 0) - parseFloat(i.credit || 0), 0)
   const netProfit = totalRevenue - totalExpense
 
   // Non-cash adjustments: depreciation
   const depreciationItems = postedItems.filter(i => i.accountCode?.startsWith('6-15'))
-  const totalDepreciation = depreciationItems.reduce((s, i) => s + parseFloat(i.debit || 0), 0)
+  const totalDepreciation = depreciationItems.reduce((s, i) => s + parseFloat(i.debit || 0) - parseFloat(i.credit || 0), 0)
 
   // Changes in working capital (simplified)
   const receivableChange = postedItems.filter(i => i.accountCode?.startsWith('1-12'))
@@ -109,7 +109,7 @@ export default function CashFlowPage() {
   const priorCashMovements = useMemo(() => {
     const priorIds = new Set(
       journalEntries
-        .filter(j => j.status === 'POSTED' && j.transactionDate >= `${fiscalYear}-01-01` && j.transactionDate < dateFrom && (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter))
+        .filter(j => (j.status === 'POSTED' || j.status === 'REVERSED') && j.transactionDate >= `${fiscalYear}-01-01` && j.transactionDate < dateFrom && (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter))
         .map(j => j.id)
     )
     return journalItems

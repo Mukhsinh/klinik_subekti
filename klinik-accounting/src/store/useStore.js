@@ -37,6 +37,7 @@ import {
 import { initialCOA } from '../data/initialCOA'
 import { initialBranches } from '../data/initialData'
 import { getAccountCode } from '../utils/accountMapping'
+import { getEligibleBatchesForDate } from '../lib/inventoryEngine'
 
 // ── Singleton state ───────────────────────────────────────────
 let _state = {
@@ -458,17 +459,17 @@ export function useStore() {
     return { ok: true }
   }, [])
 
-  const reverseJournal = useCallback(async (entryId, reversedBy = 'System', reason = '') => {
+  const reverseJournal = useCallback(async (entryId, reversedBy = 'System', reason = '', reversalDate = null) => {
     const latestState = getState()
     const entry = latestState.journalEntries.find(j => j.id === entryId)
     if (!entry || entry.status !== 'POSTED') return { ok: false, error: 'Hanya jurnal POSTED yang dapat dibalik.' }
 
     const origItems = latestState.journalItems.filter(i => i.journalEntryId === entryId)
     const revId = uuidv4()
-    const revEntry = {
+    let revEntry = {
       id: revId, branchId: entry.branchId,
       entryNumber: generateEntryNumber('PEMBALIK'),
-      transactionDate: new Date().toISOString().split('T')[0],
+      transactionDate: reversalDate || entry.transactionDate || new Date().toISOString().split('T')[0],
       description: `[PEMBALIK] ${entry.description} — ${reason}`,
       entryType: 'REVERSAL', status: 'POSTED',
       reversalOf: entryId,
@@ -482,16 +483,39 @@ export function useStore() {
       debit: it.credit, credit: it.debit,
     }))
 
+    try {
+      await updateJournalStatus(entryId, 'REVERSED')
+      let attempts = 0
+      while (attempts < 5) {
+        try {
+          await upsertJournalEntry(revEntry)
+          break
+        } catch (err) {
+          if (err.message && err.message.includes('journal_entries_entry_number_key')) {
+            attempts++
+            const parts = (revEntry.entryNumber || '').split('/')
+            if (parts.length >= 3) {
+              const prefix = `${parts[0]}/${parts[1]}/`
+              const curSeq = parseInt(parts[2], 10) || 0
+              revEntry = { ...revEntry, entryNumber: `${prefix}${String(curSeq + 1).padStart(5, '0')}` }
+            } else {
+              throw err
+            }
+          } else {
+            throw err
+          }
+        }
+      }
+      if (revItems.length > 0) {
+        await insertJournalItems(revItems)
+      }
+    } catch (e) { console.error('[reverseJournal]', e.message) }
+
     setState(prev => ({
       ...prev,
       journalEntries: [...prev.journalEntries.map(j => j.id === entryId ? { ...j, status: 'REVERSED' } : j), revEntry],
       journalItems: [...prev.journalItems, ...revItems],
     }))
-    try {
-      await updateJournalStatus(entryId, 'REVERSED')
-      await upsertJournalEntry(revEntry)
-      await insertJournalItems(revItems)
-    } catch (e) { console.error('[reverseJournal]', e.message) }
     return { ok: true, reversalId: revId }
   }, [generateEntryNumber])
 
@@ -549,8 +573,11 @@ export function useStore() {
     return batches
   }, [s.invBatches])
 
-  const saveInventoryOpeningBalance = useCallback(async (itemsData) => {
+  const saveInventoryOpeningBalance = useCallback(async (itemsData, fiscalYear = new Date().getFullYear()) => {
     const now = new Date().toISOString()
+    const targetYear = Number(fiscalYear) || new Date().getFullYear()
+    const openingIso = `${targetYear}-01-01T00:00:00.000Z`
+    const defaultExpiryDate = `${targetYear}-12-31`
     const latestState = getState()
 
     const batchesToInsert = []
@@ -559,7 +586,8 @@ export function useStore() {
     const ledgerToUpdate = []
 
     for (const data of itemsData) {
-      const { itemId, quantity, unitCost } = data
+      const { itemId, quantity, unitCost, expiryDate } = data
+      const resolvedExpiry = expiryDate || defaultExpiryDate
       const existingBatch = latestState.invBatches.find(
         b => b.itemId === itemId && b.batchNumber === 'SALDO-AWAL'
       )
@@ -573,6 +601,7 @@ export function useStore() {
           quantityReceived: quantity,
           quantityCurrent: newQtyCurrent,
           unitCostPrice: unitCost,
+          expiryDate: expiryDate || existingBatch.expiryDate || defaultExpiryDate,
         }
         batchesToUpdate.push(updatedB)
 
@@ -603,7 +632,7 @@ export function useStore() {
             unitCost: unitCost,
             totalValue: quantity * unitCost,
             notes: 'Saldo Awal',
-            loggedAt: now,
+            loggedAt: openingIso,
           })
         }
       } else {
@@ -612,14 +641,14 @@ export function useStore() {
           id: batchId,
           itemId,
           batchNumber: 'SALDO-AWAL',
-          expiryDate: '2035-12-31',
-          manufactureDate: null,
+          expiryDate: resolvedExpiry,
+          manufactureDate: `${targetYear}-01-01`,
           unitCostPrice: unitCost,
           quantityReceived: quantity,
           quantityCurrent: quantity,
           grnReference: 'SALDO-AWAL',
           supplierName: 'Saldo Awal',
-          receivedAt: now,
+          receivedAt: openingIso,
           createdAt: now,
         }
         batchesToInsert.push(newB)
@@ -637,7 +666,7 @@ export function useStore() {
           unitCost: unitCost,
           totalValue: quantity * unitCost,
           notes: 'Saldo Awal',
-          loggedAt: now,
+          loggedAt: openingIso,
         })
       }
     }
@@ -756,16 +785,10 @@ export function useStore() {
     const coaInventoryCode = (itemInv && !['1-13-001', '1-13-002', '1-13-003'].includes(itemInv)) ? itemInv : mappedInv
 
     const latestBatches = getState().invBatches || s.invBatches || []
-    const activeBatches = [...latestBatches]
-      .filter(b => (b.itemId === itemId || b.item_id === itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
-      .sort((a, b) => {
-        const expA = new Date(a.expiryDate || a.expiry_date || '2099-12-31').getTime()
-        const expB = new Date(b.expiryDate || b.expiry_date || '2099-12-31').getTime()
-        if (expA !== expB) return expA - expB
-        const dateA = new Date(a.receivedAt || a.received_at || a.createdAt || a.created_at || 0).getTime()
-        const dateB = new Date(b.receivedAt || b.received_at || b.createdAt || b.created_at || 0).getTime()
-        return dateA - dateB
-      })
+    const itemBatchesAll = latestBatches.filter(b => (b.itemId === itemId || b.item_id === itemId))
+    // Gunakan seleksi kronologis: hanya batch yang sudah ada pada/sebelum transactionDate,
+    // diurutkan FEFO (expiryDate ASC) lalu FIFO (effectiveDate ASC)
+    const activeBatches = getEligibleBatchesForDate(itemBatchesAll, transactionDate || null)
 
     let remaining = qtyNeeded
     const depletedList = []

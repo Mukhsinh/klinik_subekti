@@ -7,7 +7,8 @@ import {
   Eye, Printer
 } from 'lucide-react'
 import { fmtIDR, fmtDate, todayISO, paymentMethodLabel } from '../../utils/format'
-import { exportBillingReceiptPDF } from '../../utils/exportPDF'
+import { exportBillingReceiptPDF, exportCancelledPatientsPDF } from '../../utils/exportPDF'
+import { exportCancelledPatientsExcel } from '../../utils/exportExcel'
 import Modal from '../../components/ui/Modal'
 import { StatusBadge } from '../../components/ui/Badge'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
@@ -23,7 +24,7 @@ const QUARTERS = ['Triwulan 1', 'Triwulan 2', 'Triwulan 3', 'Triwulan 4']
 const SEMESTERS = ['Semester 1', 'Semester 2']
 
 export default function BillingReportPage() {
-  const { billings, billingItems, stockOutflows, stockOutflowItems, branches, activeBranchId, doctors, appSettings } = useStore()
+  const { billings, billingItems, stockOutflows, stockOutflowItems, branches, activeBranchId, doctors, serviceTariffs, pharmacyItems, appSettings } = useStore()
   const [filterType, setFilterType] = useState('ALL')
   const [showCharts, setShowCharts] = useState(false)
   const [startDate, setStartDate] = useState(todayISO())
@@ -233,6 +234,70 @@ export default function BillingReportPage() {
         return paid
     }
   }, [effectiveBillings, filterType, startDate, endDate, selectedMonth, selectedYear, selectedQuarter, selectedSemester, selectedDoctor, doctorOptions])
+
+  // Filter pasien batal periksa (CANCELLED) mengikuti filter periode & dokter yang sama
+  const filteredCancelledBillings = useMemo(() => {
+    let cancelled = (effectiveBillings || []).filter(b => (b.status || '').toUpperCase() === 'CANCELLED')
+
+    if (selectedDoctor !== 'ALL') {
+      const selectedDocObj = doctorOptions.find(d => d.value === selectedDoctor || d.name === selectedDoctor)
+      const docId = selectedDoctor
+      const docName = selectedDocObj?.name
+      const docRawName = selectedDocObj?.rawName
+
+      cancelled = cancelled.filter(b => {
+        if (b.doctorId && b.doctorId === docId) return true
+        if (docName && b.doctorName === docName) return true
+        if (docRawName && b.doctorName && b.doctorName.toLowerCase().includes(docRawName.toLowerCase())) return true
+        return false
+      })
+    }
+
+    switch (filterType) {
+      case 'DAILY':
+        if (!startDate && !endDate) return cancelled
+        if (startDate && !endDate) return cancelled.filter(b => b.visitDate >= startDate)
+        if (!startDate && endDate) return cancelled.filter(b => b.visitDate <= endDate)
+        if (startDate === endDate) return cancelled.filter(b => b.visitDate === startDate)
+        return cancelled.filter(b => b.visitDate >= startDate && b.visitDate <= endDate)
+      case 'MONTHLY':
+        return cancelled.filter(b => {
+          const d = new Date(b.visitDate)
+          return d.getFullYear() === selectedYear && d.getMonth() + 1 === selectedMonth
+        })
+      case 'QUARTERLY':
+        return cancelled.filter(b => {
+          const d = new Date(b.visitDate)
+          const quarter = Math.floor(d.getMonth() / 3) + 1
+          return d.getFullYear() === selectedYear && quarter === selectedQuarter
+        })
+      case 'SEMESTER':
+        return cancelled.filter(b => {
+          const d = new Date(b.visitDate)
+          const semester = d.getMonth() < 6 ? 1 : 2
+          return d.getFullYear() === selectedYear && semester === selectedSemester
+        })
+      case 'YEARLY':
+        return cancelled.filter(b => new Date(b.visitDate).getFullYear() === selectedYear)
+      default:
+        return cancelled
+    }
+  }, [effectiveBillings, filterType, startDate, endDate, selectedMonth, selectedYear, selectedQuarter, selectedSemester, selectedDoctor, doctorOptions])
+
+  const activePeriodLabel = useMemo(() => {
+    if (filterType === 'ALL') return 'Semua Periode'
+    if (filterType === 'DAILY') return startDate === endDate ? fmtDate(startDate) : `${fmtDate(startDate)} s/d ${fmtDate(endDate)}`
+    if (filterType === 'MONTHLY') return `${MONTHS[selectedMonth - 1]} ${selectedYear}`
+    if (filterType === 'QUARTERLY') return `${QUARTERS[selectedQuarter - 1]} ${selectedYear}`
+    if (filterType === 'SEMESTER') return `${SEMESTERS[selectedSemester - 1]} ${selectedYear}`
+    return `Tahun ${selectedYear}`
+  }, [filterType, startDate, endDate, selectedMonth, selectedYear, selectedQuarter, selectedSemester])
+
+  const activeDoctorLabel = useMemo(() => {
+    if (selectedDoctor === 'ALL') return 'Semua Dokter'
+    const doc = doctorOptions.find(d => d.value === selectedDoctor || d.name === selectedDoctor)
+    return doc?.name || selectedDoctor
+  }, [selectedDoctor, doctorOptions])
 
   // Calculate KPIs
   const kpis = useMemo(() => {
@@ -473,7 +538,7 @@ export default function BillingReportPage() {
         b.billingNumber,
         fmtDate(b.visitDate),
         b.patientName,
-        b.patientMRN || '-',
+        b.patientMRN || b.patientMrn || b.patient_mrn || '-',
         b.doctorName || '-',
         { TUNAI: 'Tunai', QRIS: 'QRIS', TRANSFER: 'Transfer', BPJS: 'BPJS', ASURANSI: 'Asuransi', MIXED: 'Mixed' }[b.paymentMethod] || b.paymentMethod,
         b.subtotalServices || 0,
@@ -665,7 +730,12 @@ export default function BillingReportPage() {
                   <tr key={b.id}>
                     <td className="font-mono text-xs text-primary-700">{b.billingNumber}</td>
                     <td className="text-sm">{fmtDate(b.visitDate)}</td>
-                    <td className="font-medium text-sm">{b.patientName}</td>
+                    <td className="font-medium text-sm">
+                      <div>{b.patientName}</div>
+                      {(b.patientMRN || b.patientMrn || b.patient_mrn) && (
+                        <div className="text-[10px] font-mono text-slate-400">RM: {b.patientMRN || b.patientMrn || b.patient_mrn}</div>
+                      )}
+                    </td>
                     <td className="text-sm text-slate-500">{b.doctorName || '—'}</td>
                     <td>
                       <span className="badge badge-blue text-xs">
@@ -689,7 +759,7 @@ export default function BillingReportPage() {
                           title="Cetak PDF Nota (1/2 A4)"
                           onClick={() => {
                             const items = effectiveBillingItems.filter(i => i.billingId === b.id || i.billing_id === b.id)
-                            exportBillingReceiptPDF(b, items, appSettings)
+                            exportBillingReceiptPDF(b, items, appSettings, { serviceTariffs, pharmacyItems })
                             toast.success(`Nota ${b.billingNumber} berhasil dicetak.`)
                           }}
                         >
@@ -712,6 +782,92 @@ export default function BillingReportPage() {
                 </tr>
               </tfoot>
             )}
+          </table>
+        </div>
+      </div>
+
+      {/* Laporan Pasien Batal Periksa */}
+      <div className="card border-red-100">
+        <div className="card-body border-b border-red-100 bg-red-50/40 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-red-900">Laporan Pasien Batal Periksa</h3>
+            <span className="px-2 py-0.5 text-xs font-bold bg-red-100 text-red-700 rounded-full">
+              {filteredCancelledBillings.length} Pasien
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="btn-secondary text-xs py-1.5 px-3 border-red-200 text-red-700 hover:bg-red-50"
+              onClick={() => {
+                exportCancelledPatientsPDF({
+                  cancelledBillings: filteredCancelledBillings,
+                  periodLabel: activePeriodLabel,
+                  doctorLabel: activeDoctorLabel,
+                  branchName: activeBranch?.entityName || '',
+                  appSettings
+                })
+                toast.success('Laporan PDF Pasien Batal Periksa berhasil diunduh')
+              }}
+            >
+              <FileText className="w-3.5 h-3.5 text-red-600" />PDF Batal Periksa
+            </button>
+            <button
+              type="button"
+              className="btn-success text-xs py-1.5 px-3"
+              onClick={() => {
+                exportCancelledPatientsExcel({
+                  cancelledBillings: filteredCancelledBillings,
+                  periodLabel: activePeriodLabel,
+                  doctorLabel: activeDoctorLabel,
+                  branchName: activeBranch?.entityName || '',
+                  appSettings
+                })
+                toast.success('Laporan Excel Pasien Batal Periksa berhasil diunduh')
+              }}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />Excel Batal Periksa
+            </button>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="table-base">
+            <thead>
+              <tr>
+                <th>No. Billing</th>
+                <th>Tanggal</th>
+                <th>Pasien</th>
+                <th>No. RM</th>
+                <th>Dokter</th>
+                <th>Metode</th>
+                <th className="text-right">Total Dibatalkan</th>
+                <th className="text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredCancelledBillings.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center py-8 text-slate-400 text-sm">
+                    Tidak ada pasien batal periksa pada periode yang dipilih
+                  </td>
+                </tr>
+              ) : (
+                filteredCancelledBillings.map(b => (
+                  <tr key={b.id} className="bg-red-50/20">
+                    <td className="font-mono text-xs text-primary-700">{b.billingNumber}</td>
+                    <td className="text-sm">{fmtDate(b.visitDate)}</td>
+                    <td className="font-medium text-sm">{b.patientName}</td>
+                    <td className="font-mono text-xs text-slate-600">{b.patientMRN || b.patientMrn || b.patient_mrn || '—'}</td>
+                    <td className="text-sm text-slate-500">{b.doctorName || '—'}</td>
+                    <td><span className="badge badge-blue text-xs">{paymentMethodLabel(b.paymentMethod)}</span></td>
+                    <td className="text-right font-mono text-sm font-bold text-red-700">{fmtIDR(b.grandTotal || 0)}</td>
+                    <td className="text-center">
+                      <span className="px-2 py-0.5 text-xs font-semibold bg-red-100 text-red-700 rounded-full">Batal Periksa</span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
           </table>
         </div>
       </div>
@@ -834,6 +990,7 @@ export default function BillingReportPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm bg-slate-50 p-3 rounded-lg border border-slate-200">
               <div><span className="text-slate-500">Pasien:</span><strong className="ml-2">{selectedBilling.patientName}</strong></div>
+              <div><span className="text-slate-500">No. RM:</span><span className="ml-2 font-mono font-semibold text-primary-700">{selectedBilling.patientMRN || selectedBilling.patientMrn || selectedBilling.patient_mrn || '—'}</span></div>
               <div><span className="text-slate-500">Tanggal Visit:</span><span className="ml-2">{fmtDate(selectedBilling.visitDate)}</span></div>
               <div><span className="text-slate-500">Dokter:</span><span className="ml-2">{selectedBilling.doctorName || '—'}</span></div>
               <div><span className="text-slate-500">Metode Bayar:</span><span className="ml-2">{paymentMethodLabel(selectedBilling.paymentMethod)}</span></div>
@@ -884,7 +1041,7 @@ export default function BillingReportPage() {
                 className="btn-primary flex items-center gap-2"
                 onClick={() => {
                   const items = effectiveBillingItems.filter(i => i.billingId === selectedBilling.id || i.billing_id === selectedBilling.id)
-                  exportBillingReceiptPDF(selectedBilling, items, appSettings)
+                  exportBillingReceiptPDF(selectedBilling, items, appSettings, { serviceTariffs, pharmacyItems })
                   toast.success(`Nota ${selectedBilling.billingNumber} berhasil dicetak.`)
                 }}
               >

@@ -40,7 +40,7 @@ export default function LedgerPage() {
     // Calculate movements prior to dateFrom in the same fiscal year
     const priorEntries = (journalEntries || []).filter(j =>
       j &&
-      j.status === 'POSTED' &&
+      (j.status === 'POSTED' || j.status === 'REVERSED') &&
       j.transactionDate >= `${fiscalYear}-01-01` &&
       j.transactionDate < dateFrom &&
       (activeBranchId ? j.branchId === activeBranchId : true)
@@ -60,7 +60,7 @@ export default function LedgerPage() {
 
     const relevantEntries = (journalEntries || []).filter(j =>
       j &&
-      j.status === 'POSTED' &&
+      (j.status === 'POSTED' || j.status === 'REVERSED') &&
       j.transactionDate >= dateFrom &&
       j.transactionDate <= dateTo &&
       (activeBranchId ? j.branchId === activeBranchId : true)

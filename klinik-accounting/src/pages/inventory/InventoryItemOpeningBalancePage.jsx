@@ -16,6 +16,7 @@ export default function InventoryItemOpeningBalancePage() {
     const [invBatches, setInvBatches] = useState([])
     const [lockedItemIds, setLockedItemIds] = useState(new Set())
     const [searchTerm, setSearchTerm] = useState('')
+    const [fiscalYear, setFiscalYear] = useState(new Date().getFullYear())
     const [editableBalances, setEditableBalances] = useState({})
     const [touchedItemIds, setTouchedItemIds] = useState(new Set())
     const [saving, setSaving] = useState(false)
@@ -139,6 +140,7 @@ export default function InventoryItemOpeningBalancePage() {
             setInvBatches(normalizedBatches)
 
             // Initialize editable balances
+            const defaultYearEndExpiry = `${fiscalYear}-12-31`
             const balanceMap = {}
             normalizedItems.forEach(item => {
                 const match = normalizedBatches.find(
@@ -147,6 +149,7 @@ export default function InventoryItemOpeningBalancePage() {
                 balanceMap[item.id] = {
                     quantity: match ? match.quantityReceived : 0,
                     unitCost: match ? match.unitCostPrice : 0,
+                    expiryDate: match?.expiryDate ? String(match.expiryDate).split('T')[0] : defaultYearEndExpiry,
                 }
             })
             setEditableBalances(balanceMap)
@@ -215,15 +218,51 @@ export default function InventoryItemOpeningBalancePage() {
         })
     }
 
+    const handleFiscalYearChange = (newYear) => {
+        const yr = Number(newYear) || new Date().getFullYear()
+        const newDefaultExpiry = `${yr}-12-31`
+        setFiscalYear(yr)
+        // Perbarui tanggal ED default menjadi 31 Desember tahun terpilih untuk item yang belum terkunci & belum memiliki batch tersimpan
+        setEditableBalances(prev => {
+            const next = { ...prev }
+            Object.keys(next).forEach(itemId => {
+                if (lockedItemIds.has(itemId)) return
+                const hasExistingBatch = invBatches.some(b => b.itemId === itemId && b.batchNumber.includes('SALDO-AWAL'))
+                if (!hasExistingBatch) {
+                    next[itemId] = { ...next[itemId], expiryDate: newDefaultExpiry }
+                }
+            })
+            return next
+        })
+    }
+
+    const handleExpiryChange = (itemId, val) => {
+        if (lockedItemIds.has(itemId)) {
+            toast.error('Item ini sudah memiliki transaksi sehingga tanggal kadaluarsa saldo awal terkunci.')
+            return
+        }
+        setTouchedItemIds(prev => new Set([...prev, itemId]))
+        setEditableBalances(prev => {
+            const current = prev[itemId] || { quantity: 0, unitCost: 0, expiryDate: `${fiscalYear}-12-31` }
+            return {
+                ...prev,
+                [itemId]: {
+                    ...current,
+                    expiryDate: val || `${fiscalYear}-12-31`,
+                },
+            }
+        })
+    }
+
     // Save functionality for current state or explicit data
     const saveToDatabase = async (balancesMapToSave = editableBalances) => {
         setSaving(true)
         try {
-            // Otomatis tanggal 1 Januari pada tahun berjalan
-            const currentYear = new Date().getFullYear()
-            const openingDate = `${currentYear}-01-01`
-            const openingIso = `${currentYear}-01-01T00:00:00.000Z`
-            const expiryDate = `${currentYear + 10}-12-31`
+            // Otomatis tanggal 1 Januari pada tahun fiskal terpilih & default kadaluarsa 31 Desember tahun yang sama
+            const targetYear = Number(fiscalYear) || new Date().getFullYear()
+            const openingDate = `${targetYear}-01-01`
+            const openingIso = `${targetYear}-01-01T00:00:00.000Z`
+            const defaultExpiryDate = `${targetYear}-12-31`
 
             // Item yang sudah ada mutasi operasional tidak boleh diubah
             const entries = Object.entries(balancesMapToSave)
@@ -232,6 +271,7 @@ export default function InventoryItemOpeningBalancePage() {
                     itemId,
                     quantity: Number(val?.quantity) || 0,
                     unitCost: Number(val?.unitCost) || 0,
+                    expiryDate: val?.expiryDate || defaultExpiryDate,
                 }))
 
             if (entries.length === 0) {
@@ -256,6 +296,7 @@ export default function InventoryItemOpeningBalancePage() {
                             Number(existingBatch.quantityReceived ?? 0) === item.quantity &&
                             Number(existingBatch.quantityCurrent ?? 0) === item.quantity &&
                             Number(existingBatch.unitCostPrice ?? 0) === item.unitCost &&
+                            String(existingBatch.expiryDate || '').split('T')[0] === String(item.expiryDate || defaultExpiryDate).split('T')[0] &&
                             !touchedItemIds.has(item.itemId) &&
                             balancesMapToSave === editableBalances
 
@@ -268,6 +309,7 @@ export default function InventoryItemOpeningBalancePage() {
                                 quantity_received: item.quantity,
                                 quantity_current: item.quantity,
                                 unit_cost_price: item.unitCost,
+                                expiry_date: item.expiryDate || defaultExpiryDate,
                                 manufacture_date: openingDate,
                                 received_at: openingIso,
                             })
@@ -328,7 +370,7 @@ export default function InventoryItemOpeningBalancePage() {
                                 id: batchId,
                                 item_id: item.itemId,
                                 batch_number: `SALDO-AWAL-${pharmacyItem.itemCode || pharmacyItem.id.substring(0, 8)}`,
-                                expiry_date: expiryDate,
+                                expiry_date: item.expiryDate || defaultExpiryDate,
                                 manufacture_date: openingDate,
                                 unit_cost_price: item.unitCost,
                                 selling_price: sellingPrice,
@@ -411,7 +453,7 @@ export default function InventoryItemOpeningBalancePage() {
                             id: batchId,
                             item_id: item.itemId,
                             batch_number: `SALDO-AWAL-${pharmacyItem.itemCode || pharmacyItem.id.substring(0, 8)}`,
-                            expiry_date: expiryDate,
+                            expiry_date: item.expiryDate || defaultExpiryDate,
                             manufacture_date: openingDate,
                             unit_cost_price: item.unitCost,
                             selling_price: sellingPrice,
@@ -829,7 +871,7 @@ export default function InventoryItemOpeningBalancePage() {
 
             {/* Action Bar & Search Filter */}
             <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4 font-sans">
-                <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+                <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[240px]">
                     <div className="relative w-full max-w-sm">
                         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
@@ -839,6 +881,19 @@ export default function InventoryItemOpeningBalancePage() {
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
+                    </div>
+                    <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5">
+                        <span className="text-[11px] font-bold text-blue-800 whitespace-nowrap">Tahun Saldo Awal:</span>
+                        <select
+                            className="bg-white border border-blue-200 rounded px-2 py-0.5 text-xs font-bold text-blue-900"
+                            value={fiscalYear}
+                            onChange={(e) => handleFiscalYearChange(e.target.value)}
+                            title="Default tanggal kadaluarsa saldo awal otomatis 31 Desember pada tahun terpilih"
+                        >
+                            {[2024, 2025, 2026, 2027, 2028].map(yr => (
+                                <option key={yr} value={yr}>{yr} (ED: 31 Des {yr})</option>
+                            ))}
+                        </select>
                     </div>
                 </div>
 
@@ -889,6 +944,7 @@ export default function InventoryItemOpeningBalancePage() {
                                 <th className="py-3 px-3" style={{ width: '100px' }}>Kategori</th>
                                 <th className="py-3 px-3 text-center" style={{ width: '80px' }}>Satuan</th>
                                 <th className="py-3 px-3 text-center" style={{ width: '130px' }}>Status Saldo</th>
+                                <th className="py-3 px-3 text-center" style={{ width: '135px' }}>Tgl Kadaluarsa (ED)</th>
                                 <th className="py-3 px-3 text-right" style={{ width: '120px' }}>Kuantitas (Qty)</th>
                                 <th className="py-3 px-3 text-right" style={{ width: '150px' }}>HPP / Unit (Rp)</th>
                                 <th className="py-3 px-3 text-right" style={{ width: '150px' }}>Total Nilai (Rp)</th>
@@ -897,7 +953,7 @@ export default function InventoryItemOpeningBalancePage() {
                         <tbody className="divide-y divide-slate-100 bg-white text-xs font-sans">
                             {filteredItems.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="text-center py-12 text-slate-400 font-sans">
+                                    <td colSpan={9} className="text-center py-12 text-slate-400 font-sans">
                                         <Package className="w-8 h-8 mx-auto mb-2 opacity-20" />
                                         <p className="text-xs">{searchTerm ? 'Item tidak ditemukan' : 'Belum ada master item / data kosong'}</p>
                                     </td>
@@ -944,6 +1000,20 @@ export default function InventoryItemOpeningBalancePage() {
                                                         <CheckCircle className="w-3 h-3 text-emerald-600" /> Siap Input
                                                     </span>
                                                 )}
+                                            </td>
+                                            <td className="py-2.5 px-3">
+                                                <input
+                                                    type="date"
+                                                    disabled={isLocked}
+                                                    className={`form-input text-center font-mono text-xs py-1 px-2 ${
+                                                        isLocked
+                                                            ? 'bg-slate-100/90 text-slate-400 border-slate-200 cursor-not-allowed select-none'
+                                                            : 'focus:ring-primary-500'
+                                                    }`}
+                                                    value={stateVal.expiryDate || `${fiscalYear}-12-31`}
+                                                    onChange={(e) => handleExpiryChange(item.id, e.target.value)}
+                                                    title={isLocked ? 'Tanggal kadaluarsa terkunci karena item ini sudah memiliki transaksi berjalan' : `Default akhir tahun: 31 Des ${fiscalYear} (dapat diubah sebelum ada transaksi)`}
+                                                />
                                             </td>
                                             <td className="py-2.5 px-3">
                                                 <input

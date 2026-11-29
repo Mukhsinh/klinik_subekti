@@ -26,7 +26,7 @@ export default function Dashboard() {
   const expenseCodes = useMemo(() => new Set(coa.filter(a => a.accountType === 'EXPENSE' && !a.isHeader).map(a => a.accountCode)), [coa])
 
   const postedEntries = useMemo(() =>
-    journalEntries.filter(j => j.status === 'POSTED' && (activeBranchId ? j.branchId === activeBranchId : true)),
+    journalEntries.filter(j => (j.status === 'POSTED' || j.status === 'REVERSED') && (activeBranchId ? j.branchId === activeBranchId : true)),
     [journalEntries, activeBranchId])
 
   const thisMonthEntryIds = useMemo(() =>
@@ -37,14 +37,14 @@ export default function Dashboard() {
     journalItems.filter(i => thisMonthEntryIds.has(i.journalEntryId)),
     [journalItems, thisMonthEntryIds])
 
-  const totalRevenue = useMemo(() => thisMonthItems.filter(i => revenueCodes.has(i.accountCode)).reduce((s, i) => s + parseFloat(i.credit || 0), 0), [thisMonthItems, revenueCodes])
-  const totalExpense = useMemo(() => thisMonthItems.filter(i => expenseCodes.has(i.accountCode)).reduce((s, i) => s + parseFloat(i.debit || 0), 0), [thisMonthItems, expenseCodes])
+  const totalRevenue = useMemo(() => thisMonthItems.filter(i => revenueCodes.has(i.accountCode)).reduce((s, i) => s + parseFloat(i.credit || 0) - parseFloat(i.debit || 0), 0), [thisMonthItems, revenueCodes])
+  const totalExpense = useMemo(() => thisMonthItems.filter(i => expenseCodes.has(i.accountCode)).reduce((s, i) => s + parseFloat(i.debit || 0) - parseFloat(i.credit || 0), 0), [thisMonthItems, expenseCodes])
   const netProfit = totalRevenue - totalExpense
 
   // ── Billing stats ──────────────────────────────────────────
   const todayBillings = billings.filter(b => b.visitDate === today && b.status === 'PAID')
   const todayRevenue = todayBillings.reduce((s, b) => s + parseFloat(b.grandTotal || 0), 0)
-  const pendingBilling = billings.filter(b => b.status === 'DRAFT').length
+  const pendingBilling = billings.filter(b => b.status === 'DRAFT' || b.status === 'UNPAID').length
 
   // ── Stock alerts ───────────────────────────────────────────
   const criticalStock = useMemo(() => {

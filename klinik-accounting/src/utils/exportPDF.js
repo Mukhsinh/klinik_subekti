@@ -314,8 +314,10 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null,
   doc.setTextColor(4, 100, 199)
   doc.text('BUKTI PEMBAYARAN / NOTA RAWAT JALAN', pageW - 12, 13, { align: 'right' })
 
-  // Status Stamp (Only display BELUM LUNAS in header badge; LUNAS becomes a large center watermark)
-  const isPaid = (billing.status || '').toUpperCase() === 'PAID'
+  // Status Stamp (Only display BELUM LUNAS / BATAL PERIKSA in header badge; LUNAS becomes a large center watermark)
+  const statusUpper = (billing.status || '').toUpperCase()
+  const isPaid = statusUpper === 'PAID'
+  const isCancelled = statusUpper === 'CANCELLED'
   if (!isPaid) {
     doc.setFillColor(254, 242, 242)
     doc.setDrawColor(220, 38, 38)
@@ -323,7 +325,7 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null,
     doc.setFontSize(8)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(220, 38, 38)
-    doc.text('⚠ BELUM LUNAS', pageW - 33.5, 21, { align: 'center' })
+    doc.text(isCancelled ? 'BATAL PERIKSA' : '⚠ BELUM LUNAS', pageW - 33.5, 21, { align: 'center' })
   }
 
   // Double separator line
@@ -337,42 +339,55 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null,
   // 2. METADATA SECTION (Compact 2 columns)
   doc.setFillColor(248, 250, 252)
   doc.setDrawColor(226, 232, 240)
-  doc.roundedRect(12, 28, pageW - 24, 17, 1.5, 1.5, 'FD')
+  doc.roundedRect(12, 28, pageW - 24, 21, 1.5, 1.5, 'FD')
 
   doc.setFontSize(7.5)
   doc.setTextColor(51, 65, 85)
+
+  const resolvedMRN = billing.patientMRN || billing.patientMrn || billing.patient_mrn || '—'
+  const resolvedPatientName = billing.patientName || billing.patient_name || '—'
+  const resolvedDoctorName = billing.doctorName || billing.doctor_name || '—'
+  const resolvedPayMethod = billing.paymentMethod || billing.payment_method || 'TUNAI'
+  const resolvedBpjsClaim = billing.bpjsClaimNumber || billing.bpjs_claim_number || ''
 
   // Column 1
   doc.setFont('helvetica', 'bold')
   doc.text('No. Billing', 16, 33)
   doc.setFont('helvetica', 'normal')
-  doc.text(`: ${billing.billingNumber || '—'}`, 36, 33)
+  doc.text(`: ${billing.billingNumber || billing.billing_number || '—'}`, 40, 33)
 
   doc.setFont('helvetica', 'bold')
-  doc.text('Nama Pasien', 16, 38)
-  doc.setFont('helvetica', 'normal')
-  doc.text(`: ${billing.patientName || '—'} (RM: ${billing.patientMRN || '—'})`, 36, 38)
+  doc.text('No. Rekam Medis', 16, 37.5)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(4, 100, 199)
+  doc.text(`: ${resolvedMRN}`, 40, 37.5)
+  doc.setTextColor(51, 65, 85)
 
   doc.setFont('helvetica', 'bold')
-  doc.text('Tanggal Visit', 16, 43)
+  doc.text('Nama Pasien', 16, 42)
   doc.setFont('helvetica', 'normal')
-  doc.text(`: ${fmtDate(billing.visitDate)}`, 36, 43)
+  doc.text(`: ${resolvedPatientName}`, 40, 42)
+
+  doc.setFont('helvetica', 'bold')
+  doc.text('Tanggal Visit', 16, 46.5)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`: ${fmtDate(billing.visitDate || billing.visit_date)}`, 40, 46.5)
 
   // Column 2
   doc.setFont('helvetica', 'bold')
   doc.text('Dokter Pemeriksa', 115, 33)
   doc.setFont('helvetica', 'normal')
-  doc.text(`: ${billing.doctorName || '—'}`, 145, 33)
+  doc.text(`: ${resolvedDoctorName}`, 145, 33)
 
   doc.setFont('helvetica', 'bold')
-  doc.text('Metode Pembayaran', 115, 38)
+  doc.text('Metode Pembayaran', 115, 37.5)
   doc.setFont('helvetica', 'normal')
-  doc.text(`: ${billing.paymentMethod || 'TUNAI'}`, 145, 38)
+  doc.text(`: ${resolvedPayMethod}`, 145, 37.5)
 
   doc.setFont('helvetica', 'bold')
-  doc.text('Penjamin / Klaim', 115, 43)
+  doc.text('Penjamin / Klaim', 115, 42)
   doc.setFont('helvetica', 'normal')
-  doc.text(`: ${billing.bpjsClaimNumber || (billing.paymentMethod === 'BPJS' ? 'BPJS Kesehatan' : 'Umum / Mandiri')}`, 145, 43)
+  doc.text(`: ${resolvedBpjsClaim || (resolvedPayMethod === 'BPJS' ? 'BPJS Kesehatan' : 'Umum / Mandiri')}`, 145, 42)
 
   // 3. ITEMS TABLE
   const body = (items || []).map((it, idx) => {
@@ -391,7 +406,7 @@ export function exportBillingReceiptPDF(billing, items = [], appSettings = null,
   })
 
   doc.autoTable({
-    startY: 47,
+    startY: 51,
     head: [['No', 'Uraian Layanan Medis / Tindakan / Obat', 'Kategori', 'Qty', 'Tarif / Harga (Rp)', 'Subtotal (Rp)']],
     body: body.length > 0 ? body : [['—', 'Tidak ada rincian item', '—', '—', '—', '—']],
     styles: { font: 'helvetica', fontSize: 7, cellPadding: 1.2 },
@@ -809,7 +824,7 @@ export function exportPPh21ReportPDF({
     fmtDate(d.visitDate),
     d.doctorName || '—',
     d.doctorNpwp || '00.000.000.0-000.000',
-    `${d.patientName || '—'} (${d.patientMRN || '—'})`,
+    `${d.patientName || '—'} (${d.patientMRN || d.patientMrn || d.patient_mrn || '—'})`,
     fmtIDR(d.grossAmount),
     fmtIDR(d.dpp),
     `${(d.rate * 100).toFixed(0)}%`,
@@ -1025,4 +1040,261 @@ export function exportCashFlowPDF(cashFlowData, period, branchName, appSettings 
   addSignatureBlock(doc, finalY)
   addFooter(doc, appSettings)
   doc.save(`Laporan_Arus_Kas_${period.replace(/\s+/g, '_')}.pdf`)
+}
+
+// ─── Laporan Pasien Batal Periksa PDF (Profesional dengan Kop & Footer) ───
+export function exportCancelledPatientsPDF({
+  cancelledBillings = [],
+  periodLabel = 'Semua Periode',
+  doctorLabel = 'Semua Dokter',
+  branchName = '',
+  appSettings = null
+}) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const pageW = doc.internal.pageSize.getWidth()
+
+  const subtitle = `Periode: ${periodLabel} | Dokter: ${doctorLabel}`
+  let startY = addHeader(doc, 'LAPORAN PASIEN BATAL PERIKSA', subtitle, branchName, appSettings)
+
+  const totalCount = (cancelledBillings || []).length
+  const totalServices = (cancelledBillings || []).reduce((s, b) => s + Number(b.subtotalServices ?? b.subtotal_services ?? 0), 0)
+  const totalPharmacy = (cancelledBillings || []).reduce((s, b) => s + Number(b.subtotalPharmacy ?? b.subtotal_pharmacy ?? 0), 0)
+  const totalGrand = (cancelledBillings || []).reduce((s, b) => s + Number(b.grandTotal ?? b.grand_total ?? 0), 0)
+
+  const payMethodMap = {
+    TUNAI: 'Tunai',
+    QRIS: 'QRIS',
+    TRANSFER: 'Transfer',
+    BPJS: 'BPJS',
+    ASURANSI: 'Asuransi',
+    MIXED: 'Mixed'
+  }
+
+  // Ringkasan Box
+  doc.setFillColor(254, 242, 242)
+  doc.setDrawColor(252, 165, 165)
+  doc.roundedRect(14, startY + 1, pageW - 28, 18, 2, 2, 'FD')
+
+  doc.setFontSize(8.5)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(153, 27, 27)
+  doc.text('RINGKASAN PASIEN BATAL PERIKSA', 18, startY + 6.5)
+
+  doc.setFontSize(8)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(51, 65, 85)
+  doc.text(`Total Pasien Batal Periksa : ${totalCount} pasien`, 18, startY + 12.5)
+  doc.text(`Nilai Jasa Dibatalkan      : ${fmtIDR(totalServices)}`, 105, startY + 12.5)
+  doc.text(`Nilai Farmasi Dibatalkan   : ${fmtIDR(totalPharmacy)}`, 175, startY + 12.5)
+
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(185, 28, 28)
+  doc.text(`Total Estimasi Dibatalkan: ${fmtIDR(totalGrand)}`, pageW - 18, startY + 12.5, { align: 'right' })
+
+  doc.setFontSize(7)
+  doc.setFont('helvetica', 'italic')
+  doc.setTextColor(100, 116, 139)
+  doc.text('* Seluruh transaksi batal periksa telah dibalikkan jurnal piutang/pendapatannya sesuai kaidah akuntansi (saldo bersih Rp 0).', 18, startY + 17)
+
+  const tableStartY = startY + 23
+
+  const rows = (cancelledBillings || []).map((b, idx) => {
+    const mrn = b.patientMRN || b.patientMrn || b.patient_mrn || '—'
+    const pName = b.patientName || b.patient_name || '—'
+    const docName = b.doctorName || b.doctor_name || '—'
+    const method = b.paymentMethod || b.payment_method || 'TUNAI'
+    const subSvc = Number(b.subtotalServices ?? b.subtotal_services ?? 0)
+    const subPharm = Number(b.subtotalPharmacy ?? b.subtotal_pharmacy ?? 0)
+    const gt = Number(b.grandTotal ?? b.grand_total ?? 0)
+
+    return [
+      idx + 1,
+      b.billingNumber || b.billing_number || '—',
+      fmtDate(b.visitDate || b.visit_date),
+      mrn,
+      pName,
+      docName,
+      payMethodMap[method] || method,
+      fmtIDR(subSvc),
+      fmtIDR(subPharm),
+      fmtIDR(gt),
+      'Batal Periksa'
+    ]
+  })
+
+  doc.autoTable({
+    startY: tableStartY,
+    head: [['No', 'No. Billing', 'Tgl Visit', 'No. RM', 'Nama Pasien', 'Dokter Pemeriksa', 'Metode', 'Jasa Medis', 'Farmasi', 'Total Dibatalkan', 'Status']],
+    body: rows.length > 0 ? rows : [['—', '—', '—', '—', 'Tidak ada data pasien batal periksa pada periode ini', '—', '—', '—', '—', '—', '—']],
+    foot: [['', '', '', '', `TOTAL (${totalCount} Pasien Batal Periksa)`, '', '', fmtIDR(totalServices), fmtIDR(totalPharmacy), fmtIDR(totalGrand), '']],
+    styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 2 },
+    headStyles: { fillColor: [185, 28, 28], textColor: 255, fontStyle: 'bold' },
+    footStyles: { fillColor: [254, 242, 242], textColor: [153, 27, 27], fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 32, fontStyle: 'bold' },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 24 },
+      4: { cellWidth: 42 },
+      5: { cellWidth: 38 },
+      6: { cellWidth: 18 },
+      7: { cellWidth: 24, halign: 'right' },
+      8: { cellWidth: 22, halign: 'right' },
+      9: { cellWidth: 26, halign: 'right', fontStyle: 'bold' },
+      10: { cellWidth: 21, halign: 'center' }
+    }
+  })
+
+  const finalY = doc.lastAutoTable.finalY
+  addSignatureBlock(
+    doc,
+    finalY,
+    'Disiapkan Oleh,',
+    'Disetujui Oleh,',
+    'Petugas Kasir / Pendaftaran',
+    'Kepala Klinik / Penanggung Jawab'
+  )
+  addFooter(doc, appSettings)
+
+  const safePeriod = (periodLabel || 'Semua_Periode').replace(/[\s/\\:*?"<>|]+/g, '_')
+  doc.save(`Laporan_Pasien_Batal_Periksa_${safePeriod}.pdf`)
+}
+
+// ─── Laporan Pengeluaran Obat Pasien Dibatalkan (Batal Periksa) PDF ───
+export function exportCancelledMedicineOutflowPDF({
+  cancelledOutflows = [],
+  periodLabel = 'Semua Periode',
+  branchName = '',
+  appSettings = null
+}) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const pageW = doc.internal.pageSize.getWidth()
+
+  const subtitle = `Audit Pengeluaran Obat Pasien Dibatalkan dari Kasir (Batal Periksa) | Periode: ${periodLabel}`
+  let startY = addHeader(doc, 'LAPORAN PENGELUARAN OBAT PASIEN DIBATALKAN', subtitle, branchName, appSettings)
+
+  // Flatten item rows
+  const flatRows = []
+  let totalQty = 0
+  let totalHpp = 0
+  let totalSelling = 0
+
+  ;(cancelledOutflows || []).forEach(o => {
+    const itemsList = Array.isArray(o.items) && o.items.length > 0 ? o.items : []
+    if (itemsList.length === 0) {
+      flatRows.push({
+        outflowNumber: o.outflowNumber || o.outflow_number || '—',
+        date: o.outflowDate || o.outflow_date || o.createdAt,
+        billingNumber: o.prescriptionNo || o.billingNumber || '—',
+        patientName: o.patientName || '—',
+        patientMRN: o.patientMRN || o.patientMrn || o.patient_mrn || '—',
+        doctorName: o.doctorName || '—',
+        itemName: '(Tidak ada rincian item)',
+        quantity: 0,
+        unit: '-',
+        totalCost: Number(o.totalValue || 0),
+        subtotalSale: Number(o.totalSelling || 0),
+        stockStatus: 'Stok Tetap Utuh'
+      })
+      totalHpp += Number(o.totalValue || 0)
+      totalSelling += Number(o.totalSelling || 0)
+    } else {
+      itemsList.forEach(it => {
+        const qty = Number(it.quantity || 0)
+        const cost = Number(it.totalCost ?? it.total_cost ?? (qty * Number(it.unitCost ?? it.unit_cost ?? 0)))
+        const sale = Number(it.subtotalSale ?? it.subtotal_sale ?? (qty * Number(it.sellingPrice ?? it.selling_price ?? 0)))
+        totalQty += qty
+        totalHpp += cost
+        totalSelling += sale
+        flatRows.push({
+          outflowNumber: o.outflowNumber || o.outflow_number || '—',
+          date: o.outflowDate || o.outflow_date || o.createdAt,
+          billingNumber: o.prescriptionNo || o.billingNumber || '—',
+          patientName: o.patientName || '—',
+          patientMRN: o.patientMRN || o.patientMrn || o.patient_mrn || '—',
+          doctorName: o.doctorName || '—',
+          itemName: it.itemName || it.item_name || 'Obat',
+          quantity: qty,
+          unit: it.unit || 'Unit',
+          totalCost: cost,
+          subtotalSale: sale,
+          stockStatus: 'Stok Tetap Utuh'
+        })
+      })
+    }
+  })
+
+  // Summary Box
+  doc.setFillColor(254, 242, 242)
+  doc.setDrawColor(252, 165, 165)
+  doc.roundedRect(14, startY + 1, pageW - 28, 20, 2, 2, 'FD')
+
+  doc.setFontSize(8.5)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(153, 27, 27)
+  doc.text('RINGKASAN PEMBATALAN OBAT PASIEN & KONFIRMASI PERSEDIAAN', 18, startY + 6.5)
+
+  doc.setFontSize(7.8)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(51, 65, 85)
+  doc.text(`Total Transaksi Dibatalkan : ${(cancelledOutflows || []).length} resep/pasien`, 18, startY + 12)
+  doc.text(`Total Unit Obat Dibatalkan : ${totalQty} unit`, 95, startY + 12)
+  doc.text(`Estimasi Nilai HPP         : ${fmtIDR(totalHpp)}`, 155, startY + 12)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(185, 28, 28)
+  doc.text(`Estimasi Nilai Jual: ${fmtIDR(totalSelling)}`, pageW - 18, startY + 12, { align: 'right' })
+
+  doc.setFontSize(7.2)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(5, 150, 105)
+  doc.text('STATUS PERSEDIAAN: 100% AMAN — Seluruh obat yang dibatalkan dari kasir TIDAK memotong stok fisik dan tetap tersedia di persediaan apotek.', 18, startY + 17.5)
+
+  const tableBody = flatRows.map((r, idx) => [
+    idx + 1,
+    r.outflowNumber,
+    fmtDate(r.date),
+    r.billingNumber,
+    `${r.patientName}${r.patientMRN && r.patientMRN !== '—' ? ` (RM: ${r.patientMRN})` : ''}`,
+    r.itemName,
+    `${r.quantity} ${r.unit}`,
+    fmtIDR(r.totalCost),
+    fmtIDR(r.subtotalSale),
+    r.stockStatus
+  ])
+
+  doc.autoTable({
+    startY: startY + 24,
+    head: [['No', 'No. Outflow', 'Tanggal', 'No. Billing', 'Pasien (No. RM)', 'Nama Obat / BHP', 'Qty', 'Nilai HPP', 'Nilai Jual', 'Status Stok']],
+    body: tableBody.length > 0 ? tableBody : [['—', '—', '—', '—', 'Tidak ada data pengeluaran obat pasien yang dibatalkan pada periode ini', '—', '—', '—', '—', '—']],
+    foot: [['', '', '', '', `TOTAL (${(cancelledOutflows || []).length} Resep Dibatalkan)`, '', `${totalQty} Unit`, fmtIDR(totalHpp), fmtIDR(totalSelling), 'Stok Aman']],
+    styles: { font: 'helvetica', fontSize: 7.2, cellPadding: 1.8 },
+    headStyles: { fillColor: [185, 28, 28], textColor: 255, fontStyle: 'bold' },
+    footStyles: { fillColor: [254, 242, 242], textColor: [153, 27, 27], fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 9, halign: 'center' },
+      1: { cellWidth: 28, fontStyle: 'bold' },
+      2: { cellWidth: 20 },
+      3: { cellWidth: 28 },
+      4: { cellWidth: 44 },
+      5: { cellWidth: 50 },
+      6: { cellWidth: 18, halign: 'right' },
+      7: { cellWidth: 24, halign: 'right' },
+      8: { cellWidth: 24, halign: 'right' },
+      9: { cellWidth: 24, halign: 'center', textColor: [5, 150, 105], fontStyle: 'bold' }
+    }
+  })
+
+  const finalY = doc.lastAutoTable.finalY
+  addSignatureBlock(
+    doc,
+    finalY,
+    'Disiapkan Oleh,',
+    'Disetujui Oleh,',
+    'Petugas Farmasi / Apoteker',
+    'Kepala Klinik / Penanggung Jawab'
+  )
+  addFooter(doc, appSettings)
+
+  const safePeriod = (periodLabel || 'Semua_Periode').replace(/[\s/\\:*?"<>|]+/g, '_')
+  doc.save(`Laporan_Obat_Batal_Periksa_${safePeriod}.pdf`)
 }

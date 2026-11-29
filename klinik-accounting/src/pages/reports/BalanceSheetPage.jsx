@@ -9,7 +9,7 @@ import { exportBalanceSheetPDF } from '../../utils/exportPDF'
 function buildBalancesUpTo(coa, journalEntries, journalItems, asOf, branchFilter) {
   const postedIds = new Set(
     journalEntries
-      .filter(j => j.status === 'POSTED' && j.transactionDate <= asOf && (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter))
+      .filter(j => (j.status === 'POSTED' || j.status === 'REVERSED') && j.transactionDate <= asOf && (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter))
       .map(j => j.id)
   )
   const balances = {}

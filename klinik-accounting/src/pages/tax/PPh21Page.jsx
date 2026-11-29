@@ -111,7 +111,7 @@ export default function PPh21Page() {
         const matchBill = (b.billingNumber || '').toLowerCase().includes(q)
         const matchDoc = (b.doctorName || '').toLowerCase().includes(q)
         const matchPatient = (b.patientName || '').toLowerCase().includes(q)
-        const matchMRN = (b.patientMRN || '').toLowerCase().includes(q)
+        const matchMRN = (b.patientMRN || b.patientMrn || b.patient_mrn || '').toLowerCase().includes(q)
         if (!matchBill && !matchDoc && !matchPatient && !matchMRN) return false
       }
 
@@ -141,7 +141,7 @@ export default function PPh21Page() {
         doctorName: b.doctorName || (doc ? `${doc.title || ''} ${doc.fullName}`.trim() : 'Dokter'),
         doctorNpwp: docNpwp,
         patientName: b.patientName || '—',
-        patientMRN: b.patientMRN || '—',
+        patientMRN: b.patientMRN || b.patientMrn || b.patient_mrn || '—',
         feeRate,
         doctorServices,
         grossAmount,

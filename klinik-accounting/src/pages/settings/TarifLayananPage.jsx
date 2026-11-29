@@ -9,7 +9,8 @@ import { fmtIDR } from '../../utils/format'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
-export { SERVICE_CATEGORIES, SERVICE_CATEGORY_MAP } from '../../utils/billingCategory'
+import { SERVICE_CATEGORIES, SERVICE_CATEGORY_MAP } from '../../utils/billingCategory'
+export { SERVICE_CATEGORIES, SERVICE_CATEGORY_MAP }
 
 function ServiceTariffForm({ initial = {}, onSave, onClose, isEdit = false, nextCode, revenueAccounts }) {
     const [form, setForm] = useState({

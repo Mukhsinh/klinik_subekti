@@ -226,14 +226,17 @@ export function exportJournalExcel(entries, items, coa, period, appSettings = nu
 }
 
 // ─── Formal Stock Report Excel (All Items Recap with Kop, Auto Date & Signature Footer) ───────
-export function exportStockExcel(items, batches, recapData, appSettings = null) {
+export function exportStockExcel(items, batches, recapData, appSettings = null, options = {}) {
   const CLINIC = getClinicName(appSettings)
   const nowFormatted = getFormalTimestamp()
+  const categoryFilter = options?.categoryFilter || 'ALL'
+  const categoryLabel = options?.categoryLabel || 'Semua Jenis Obat & BHP'
 
   const aoaData = [
     [CLINIC],
     ['LAPORAN REKAPITULASI STOCK LEDGER & MUTASI PERSEDIAAN'],
     ['Standard Akuntansi Persediaan Rumah Sakit & Klinik (PSAK 14) | Metode FEFO (First Expiry First Out) & FIFO (First In First Out)'],
+    [`Filter Jenis Obat / Kategori: ${categoryLabel}`],
     [`Tanggal Cetak Otomatis: ${nowFormatted} WIB`],
     [], // Blank separator row
     [
@@ -327,7 +330,8 @@ export function exportStockExcel(items, batches, recapData, appSettings = null) 
   autoWidthAOA(ws, aoaData)
 
   XLSX.utils.book_append_sheet(wb, ws, 'Rekap Stock Ledger')
-  XLSX.writeFile(wb, `LaporanRekapStockLedger_${new Date().toISOString().split('T')[0]}.xlsx`)
+  const catSuffix = categoryFilter && categoryFilter !== 'ALL' ? `_${categoryFilter}` : ''
+  XLSX.writeFile(wb, `LaporanRekapStockLedger${catSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`)
 }
 
 // ─── Formal Stock Ledger Single Item Detail Excel (With Kop, Auto Date & Signatures) ───
@@ -360,26 +364,41 @@ export function exportStockLedgerDetailExcel(item, ledgerLines, itemBatches, app
     ]
   ]
 
+  let sumSaldoAwal = 0
   let sumPenerimaan = 0
   let sumPengeluaran = 0
   let lastBalance = 0
 
   if (Array.isArray(ledgerLines) && ledgerLines.length > 0) {
     ledgerLines.forEach((l, idx) => {
-      const qtyIn = Number(l.penerimaan || l.quantityIn || 0)
-      const qtyOut = Number(l.pengeluaran || l.quantityOut || 0)
-      const sAkhir = Number(l.saldoAkhir !== undefined ? l.saldoAkhir : l.balanceAfter || 0)
-      const unitCost = Number(l.unitCost || 0)
-      const totalVal = Number(l.totalValue || (unitCost * (qtyIn || qtyOut)))
+      const tType = String(l.transactionType || l.transaction_type || '').toUpperCase()
+      const refNo = String(l.referenceNumber || l.reference_number || '').toUpperCase()
+      const isOpening = l.isOpening === true || tType === 'SALDO_AWAL' || refNo === 'SALDO-AWAL' || refNo.startsWith('SALDO-AWAL')
 
-      sumPenerimaan += qtyIn
-      sumPengeluaran += qtyOut
+      // Saldo Awal TIDAK boleh masuk kolom Penerimaan (+) atau menambah Total Penerimaan
+      const qtyIn = isOpening
+        ? 0
+        : Number(l.penerimaan !== undefined ? l.penerimaan : (l.quantityIn ?? l.quantity_in ?? 0))
+      const qtyOut = isOpening
+        ? 0
+        : Number(l.pengeluaran !== undefined ? l.pengeluaran : (l.quantityOut ?? l.quantity_out ?? 0))
+      const sAkhir = Number(l.saldoAkhir !== undefined ? l.saldoAkhir : (l.balanceAfter ?? l.balance_after ?? 0))
+      const unitCost = Number(l.unitCost ?? l.unit_cost ?? 0)
+      const openingQty = isOpening ? Number(l.quantityIn ?? l.quantity_in ?? sAkhir ?? 0) : 0
+      const totalVal = Number(l.totalValue ?? l.total_value ?? (unitCost * (isOpening ? openingQty : (qtyIn || qtyOut))))
+
+      if (isOpening) {
+        sumSaldoAwal += openingQty
+      } else {
+        sumPenerimaan += qtyIn
+        sumPengeluaran += qtyOut
+      }
       lastBalance = sAkhir
 
       aoaData.push([
         idx + 1,
         fmtDateTime(l.loggedAt || l.transactionDate),
-        l.transactionType,
+        isOpening ? 'SALDO_AWAL' : l.transactionType,
         l.referenceNumber || '—',
         Number(l.saldoAwal || 0),
         qtyIn,
@@ -392,28 +411,30 @@ export function exportStockLedgerDetailExcel(item, ledgerLines, itemBatches, app
     })
   } else {
     // Fallback row if 0 mutation entries exist yet for this item
+    sumSaldoAwal = Number(item?.saldoAwal || 0)
+    lastBalance = Number(item?.saldoAkhir || 0)
     aoaData.push([
       1,
       nowFormatted,
-      'INFO_STOK',
-      'SALDO_SAAT_INI',
-      Number(item?.saldoAwal || 0),
+      'SALDO_AWAL',
+      'SALDO-AWAL',
       0,
       0,
-      Number(item?.saldoAkhir || 0),
+      0,
+      lastBalance,
       Number(item?.purchasePrice || item?.hpp || 0),
       Number(item?.totalValue || 0),
       'FEFO / FIFO'
     ])
   }
 
-  // Summary Row
+  // Summary Row (Saldo Awal terpisah dari Total Penerimaan Baru)
   aoaData.push([
     '',
     '',
     'TOTAL MUTASI ITEM',
     '',
-    '',
+    sumSaldoAwal,
     sumPenerimaan,
     sumPengeluaran,
     lastBalance,
@@ -544,3 +565,300 @@ export function exportCashFlowExcel(cashFlowData, period, branchName, appSetting
   XLSX.writeFile(wb, `Laporan_Arus_Kas_${period?.replace(/\s+/g, '_') || 'export'}.xlsx`)
 }
 
+
+// ─── Laporan Pasien Batal Periksa Excel (Profesional dengan Kop & Footer) ───
+export function exportCancelledPatientsExcel({
+  cancelledBillings = [],
+  periodLabel = 'Semua Periode',
+  doctorLabel = 'Semua Dokter',
+  branchName = '',
+  appSettings = null
+}) {
+  const CLINIC = getClinicName(appSettings)
+  const cAddr = appSettings?.address || ''
+  const cPhone = appSettings?.phone ? (appSettings.phone.startsWith('Telp:') ? appSettings.phone : `Telp: ${appSettings.phone}`) : ''
+  const contactLine = [cAddr, cPhone].filter(Boolean).join(' | ')
+  const nowFormatted = getFormalTimestamp()
+
+  const totalCount = (cancelledBillings || []).length
+  const totalServices = (cancelledBillings || []).reduce((s, b) => s + Number(b.subtotalServices ?? b.subtotal_services ?? 0), 0)
+  const totalPharmacy = (cancelledBillings || []).reduce((s, b) => s + Number(b.subtotalPharmacy ?? b.subtotal_pharmacy ?? 0), 0)
+  const totalGrand = (cancelledBillings || []).reduce((s, b) => s + Number(b.grandTotal ?? b.grand_total ?? 0), 0)
+
+  const payMethodMap = {
+    TUNAI: 'Tunai',
+    QRIS: 'QRIS',
+    TRANSFER: 'Transfer',
+    BPJS: 'BPJS',
+    ASURANSI: 'Asuransi',
+    MIXED: 'Mixed'
+  }
+
+  const aoaData = [
+    [CLINIC],
+    ...(contactLine ? [[contactLine]] : []),
+    [],
+    ['LAPORAN PASIEN BATAL PERIKSA'],
+    [`Periode: ${periodLabel}`],
+    ...(branchName ? [[`Cabang: ${branchName}`]] : []),
+    [`Filter Dokter: ${doctorLabel}`],
+    [`Tanggal Cetak Otomatis: ${nowFormatted} WIB`],
+    [],
+    ['RINGKASAN LAPORAN'],
+    ['Total Pasien Batal Periksa', `${totalCount} pasien`],
+    ['Total Nilai Jasa Medis Dibatalkan (Rp)', totalServices],
+    ['Total Nilai Farmasi Dibatalkan (Rp)', totalPharmacy],
+    ['Total Estimasi Tagihan Dibatalkan (Rp)', totalGrand],
+    [],
+    [
+      'No.',
+      'No. Billing',
+      'Tanggal Kunjungan',
+      'No. Rekam Medis (RM)',
+      'Nama Pasien',
+      'Dokter Pemeriksa',
+      'Metode Pembayaran',
+      'Subtotal Jasa (Rp)',
+      'Subtotal Farmasi (Rp)',
+      'Total Tagihan Dibatalkan (Rp)',
+      'Status'
+    ]
+  ]
+
+  if (totalCount > 0) {
+    cancelledBillings.forEach((b, idx) => {
+      const mrn = b.patientMRN || b.patientMrn || b.patient_mrn || '-'
+      const pName = b.patientName || b.patient_name || '-'
+      const docName = b.doctorName || b.doctor_name || '-'
+      const method = b.paymentMethod || b.payment_method || 'TUNAI'
+      const subSvc = Number(b.subtotalServices ?? b.subtotal_services ?? 0)
+      const subPharm = Number(b.subtotalPharmacy ?? b.subtotal_pharmacy ?? 0)
+      const gt = Number(b.grandTotal ?? b.grand_total ?? 0)
+
+      aoaData.push([
+        idx + 1,
+        b.billingNumber || b.billing_number || '-',
+        fmtDate(b.visitDate || b.visit_date),
+        mrn,
+        pName,
+        docName,
+        payMethodMap[method] || method,
+        subSvc,
+        subPharm,
+        gt,
+        'Batal Periksa'
+      ])
+    })
+  } else {
+    aoaData.push(['-', '-', '-', '-', 'Tidak ada data pasien batal periksa pada periode ini', '-', '-', 0, 0, 0, '-'])
+  }
+
+  // Baris Total
+  aoaData.push([
+    '',
+    '',
+    '',
+    '',
+    `TOTAL (${totalCount} Pasien Batal Periksa)`,
+    '',
+    '',
+    totalServices,
+    totalPharmacy,
+    totalGrand,
+    ''
+  ])
+
+  // Footer & Pengesahan Formal
+  aoaData.push(
+    [],
+    ['INFORMASI DOKUMEN & PENGESAHAN FORMAL:'],
+    ['Status Dokumen', 'RESMI / TERINTEGRASI SISTEM AKUNTANSI KLINIK'],
+    ['Catatan Akuntansi', 'Seluruh transaksi berstatus Batal Periksa telah dibalikkan jurnal piutang/pendapatannya (saldo bersih Rp 0).'],
+    ['Waktu Cetak Sistem', `${nowFormatted} WIB`],
+    [],
+    ['Disiapkan Oleh,', '', '', '', '', '', '', 'Disetujui Oleh,'],
+    [],
+    [],
+    ['( Petugas Kasir / Pendaftaran )', '', '', '', '', '', '', '( Kepala Klinik / Penanggung Jawab )'],
+    [],
+    [getFooterText(appSettings)]
+  )
+
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.aoa_to_sheet(aoaData)
+  autoWidthAOA(ws, aoaData)
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Pasien Batal Periksa')
+  const safePeriod = (periodLabel || 'Semua_Periode').replace(/[\s/\\:*?"<>|]+/g, '_')
+  XLSX.writeFile(wb, `Laporan_Pasien_Batal_Periksa_${safePeriod}.xlsx`)
+}
+
+// ─── Laporan Pengeluaran Obat Pasien Dibatalkan (Batal Periksa) Excel ───
+export function exportCancelledMedicineOutflowExcel({
+  cancelledOutflows = [],
+  periodLabel = 'Semua Periode',
+  branchName = '',
+  appSettings = null
+}) {
+  const CLINIC = getClinicName(appSettings)
+  const cAddr = appSettings?.address || ''
+  const cPhone = appSettings?.phone ? (appSettings.phone.startsWith('Telp:') ? appSettings.phone : `Telp: ${appSettings.phone}`) : ''
+  const contactLine = [cAddr, cPhone].filter(Boolean).join(' | ')
+  const nowFormatted = getFormalTimestamp()
+
+  const flatRows = []
+  let totalQty = 0
+  let totalHpp = 0
+  let totalSelling = 0
+
+  ;(cancelledOutflows || []).forEach(o => {
+    const itemsList = Array.isArray(o.items) && o.items.length > 0 ? o.items : []
+    if (itemsList.length === 0) {
+      flatRows.push({
+        outflowNumber: o.outflowNumber || o.outflow_number || '-',
+        date: o.outflowDate || o.outflow_date || o.createdAt,
+        billingNumber: o.prescriptionNo || o.billingNumber || '-',
+        patientName: o.patientName || '-',
+        patientMRN: o.patientMRN || o.patientMrn || o.patient_mrn || '-',
+        doctorName: o.doctorName || '-',
+        itemName: '(Tidak ada rincian item)',
+        quantity: 0,
+        unit: '-',
+        unitCost: 0,
+        totalCost: Number(o.totalValue || 0),
+        sellingPrice: 0,
+        subtotalSale: Number(o.totalSelling || 0),
+        stockStatus: 'Stok Tetap Utuh (Tidak Keluar)'
+      })
+      totalHpp += Number(o.totalValue || 0)
+      totalSelling += Number(o.totalSelling || 0)
+    } else {
+      itemsList.forEach(it => {
+        const qty = Number(it.quantity || 0)
+        const uCost = Number(it.unitCost ?? it.unit_cost ?? 0)
+        const cost = Number(it.totalCost ?? it.total_cost ?? (qty * uCost))
+        const uSale = Number(it.sellingPrice ?? it.selling_price ?? 0)
+        const sale = Number(it.subtotalSale ?? it.subtotal_sale ?? (qty * uSale))
+        totalQty += qty
+        totalHpp += cost
+        totalSelling += sale
+        flatRows.push({
+          outflowNumber: o.outflowNumber || o.outflow_number || '-',
+          date: o.outflowDate || o.outflow_date || o.createdAt,
+          billingNumber: o.prescriptionNo || o.billingNumber || '-',
+          patientName: o.patientName || '-',
+          patientMRN: o.patientMRN || o.patientMrn || o.patient_mrn || '-',
+          doctorName: o.doctorName || '-',
+          itemName: it.itemName || it.item_name || 'Obat',
+          quantity: qty,
+          unit: it.unit || 'Unit',
+          unitCost: uCost,
+          totalCost: cost,
+          sellingPrice: uSale,
+          subtotalSale: sale,
+          stockStatus: 'Stok Tetap Utuh (Tidak Keluar)'
+        })
+      })
+    }
+  })
+
+  const aoaData = [
+    [CLINIC],
+    ...(contactLine ? [[contactLine]] : []),
+    [],
+    ['LAPORAN PENGELUARAN OBAT PASIEN DIBATALKAN (BATAL PERIKSA DARI KASIR)'],
+    [`Periode: ${periodLabel}`],
+    ...(branchName ? [[`Cabang: ${branchName}`]] : []),
+    [`Tanggal Cetak Otomatis: ${nowFormatted} WIB`],
+    [],
+    ['RINGKASAN & STATUS PERSEDIAAN'],
+    ['Total Transaksi Resep Dibatalkan', `${(cancelledOutflows || []).length} resep/pasien`],
+    ['Total Unit Obat Dibatalkan', `${totalQty} unit`],
+    ['Total Estimasi Nilai HPP Dibatalkan (Rp)', totalHpp],
+    ['Total Estimasi Nilai Jual Dibatalkan (Rp)', totalSelling],
+    ['Status Stok Fisik Persediaan', 'AMAN — Obat tidak keluar dan tetap menjadi stok tersedia di apotek'],
+    [],
+    [
+      'No.',
+      'No. Pengeluaran',
+      'Tanggal',
+      'No. Billing',
+      'No. RM',
+      'Nama Pasien',
+      'Dokter Pemeriksa',
+      'Nama Obat / BHP',
+      'Qty',
+      'Satuan',
+      'HPP/Unit (Rp)',
+      'Total HPP (Rp)',
+      'Harga Jual (Rp)',
+      'Subtotal Jual (Rp)',
+      'Status Stok'
+    ]
+  ]
+
+  if (flatRows.length > 0) {
+    flatRows.forEach((r, idx) => {
+      aoaData.push([
+        idx + 1,
+        r.outflowNumber,
+        fmtDate(r.date),
+        r.billingNumber,
+        r.patientMRN,
+        r.patientName,
+        r.doctorName,
+        r.itemName,
+        r.quantity,
+        r.unit,
+        r.unitCost,
+        r.totalCost,
+        r.sellingPrice,
+        r.subtotalSale,
+        r.stockStatus
+      ])
+    })
+  } else {
+    aoaData.push(['-', '-', '-', '-', '-', 'Tidak ada data pengeluaran obat pasien yang dibatalkan pada periode ini', '-', '-', 0, '-', 0, 0, 0, 0, '-'])
+  }
+
+  aoaData.push([
+    '',
+    '',
+    '',
+    '',
+    '',
+    `TOTAL (${(cancelledOutflows || []).length} Resep Dibatalkan)`,
+    '',
+    '',
+    totalQty,
+    '',
+    '',
+    totalHpp,
+    '',
+    totalSelling,
+    'Stok Tetap Utuh'
+  ])
+
+  aoaData.push(
+    [],
+    ['INFORMASI DOKUMEN & PENGESAHAN FORMAL:'],
+    ['Status Dokumen', 'RESMI / AUDIT TRAIL FARMASI & KASIR'],
+    ['Konfirmasi Persediaan', 'Seluruh item obat yang tercantum di atas batal diserahkan ke pasien (Batal Periksa) dan dipastikan tetap utuh pada saldo persediaan apotek (tidak terpotong).'],
+    ['Waktu Cetak Sistem', `${nowFormatted} WIB`],
+    [],
+    ['Disiapkan Oleh,', '', '', '', '', '', '', '', '', 'Disetujui Oleh,'],
+    [],
+    [],
+    ['( Petugas Farmasi / Apoteker )', '', '', '', '', '', '', '', '', '( Kepala Klinik / Penanggung Jawab )'],
+    [],
+    [getFooterText(appSettings)]
+  )
+
+  const wb = XLSX.utils.book_new()
+  const ws = XLSX.utils.aoa_to_sheet(aoaData)
+  autoWidthAOA(ws, aoaData)
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Obat Batal Periksa')
+  const safePeriod = (periodLabel || 'Semua_Periode').replace(/[\s/\\:*?"<>|]+/g, '_')
+  XLSX.writeFile(wb, `Laporan_Obat_Batal_Periksa_${safePeriod}.xlsx`)
+}

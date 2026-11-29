@@ -1,12 +1,20 @@
 import { useState, useMemo, useEffect } from 'react'
-import { AlertTriangle, RotateCcw, Download, Search, Package, CheckCircle, TrendingUp, Layers } from 'lucide-react'
+import { AlertTriangle, RotateCcw, Download, Search, Package, CheckCircle, TrendingUp, Layers, Pencil, Lock, Calendar } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { useAuth } from '../../store/useAuth'
-import { fetchStockLedger, fetchBatches, fetchPharmacyItems, fetchAllBillingItems, fetchBillings } from '../../lib/db'
+import { fetchStockLedger, fetchBatches, fetchPharmacyItems, fetchAllBillingItems, fetchBillings, updateBatchExpiryDate, insertAuditLog } from '../../lib/db'
 import Modal from '../../components/ui/Modal'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import { fmtIDR, fmtDate, fmtDateTime, fmtNum } from '../../utils/format'
 import { exportStockExcel, exportStockLedgerDetailExcel } from '../../utils/exportExcel'
+import {
+  STOCK_CATEGORY_FILTERS,
+  normalizePharmacyCategory,
+  filterStockByCategory,
+  buildKartuStokRows,
+  isOpeningBalanceBatch,
+} from '../../lib/inventoryEngine'
+import { getAccountCode } from '../../utils/accountMapping'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -43,12 +51,19 @@ export default function StockLedgerPage() {
   const { appSettings } = useAuth()
 
   const [selectedItem, setSelectedItem] = useState('ALL_ITEMS')
+  const [categoryFilter, setCategoryFilter] = useState('ALL')
   const [adjustModal, setAdjustModal] = useState(false)
   const [adjBatch, setAdjBatch] = useState(null)
   const [adjReason, setAdjReason] = useState('')
   const [adjType, setAdjType] = useState('REMOVE')
   const [adjQty, setAdjQty] = useState('')
   const [recapSearch, setRecapSearch] = useState('')
+
+  // Modal edit tanggal kadaluarsa khusus batch SALDO-AWAL yang belum memiliki transaksi berjalan
+  const [editExpiryModal, setEditExpiryModal] = useState(false)
+  const [editExpiryBatch, setEditExpiryBatch] = useState(null)
+  const [editExpiryValue, setEditExpiryValue] = useState('')
+  const [savingExpiry, setSavingExpiry] = useState(false)
 
   const effectivePharmacyItems = pharmacyItems || []
   const effectiveBatches = invBatches || []
@@ -304,15 +319,23 @@ export default function StockLedgerPage() {
   }, [effectivePharmacyItems, effectiveStockLedger, effectiveBatches])
 
   const filteredRecap = useMemo(() => {
-    if (!recapSearch.trim()) return recapData
-    const q = recapSearch.toLowerCase()
-    return recapData.filter(
-      r =>
-        (r.itemName || '').toLowerCase().includes(q) ||
-        (r.skuCode || '').toLowerCase().includes(q) ||
-        (r.itemCode || '').toLowerCase().includes(q)
-    )
-  }, [recapData, recapSearch])
+    let list = filterStockByCategory(recapData, categoryFilter)
+    if (recapSearch.trim()) {
+      const q = recapSearch.toLowerCase()
+      list = list.filter(
+        r =>
+          (r.itemName || '').toLowerCase().includes(q) ||
+          (r.skuCode || '').toLowerCase().includes(q) ||
+          (r.itemCode || '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [recapData, categoryFilter, recapSearch])
+
+  const selectedCategoryLabel = useMemo(
+    () => STOCK_CATEGORY_FILTERS.find(f => f.value === categoryFilter)?.label || 'Semua Jenis Obat & BHP',
+    [categoryFilter]
+  )
 
   const selectedItemObj = useMemo(
     () => effectivePharmacyItems.find(i => i.id === selectedItem),
@@ -327,42 +350,13 @@ export default function StockLedgerPage() {
   )
 
   // Chronological mutation lines for selected item with precise Saldo Awal, Penerimaan, Pengeluaran, Saldo Akhir
-  const itemChronologicalLedger = useMemo(() => {
-    if (!selectedItem || selectedItem === 'ALL_ITEMS') return []
-
-    const sortedAsc = [...effectiveStockLedger]
-      .filter(l => l.itemId === selectedItem)
-      .sort((a, b) => {
-        const isAOpen = isOpeningBalanceRecord(a)
-        const isBOpen = isOpeningBalanceRecord(b)
-        if (isAOpen && !isBOpen) return -1
-        if (!isAOpen && isBOpen) return 1
-        const timeA = new Date(a.loggedAt || a.transactionDate || a.createdAt || 0).getTime()
-        const timeB = new Date(b.loggedAt || b.transactionDate || b.createdAt || 0).getTime()
-        return timeA - timeB
-      })
-
-    let currentBalance = 0
-    const processed = sortedAsc.map(l => {
-      const isOpening = isOpeningBalanceRecord(l)
-      const qtyIn = Number(l.quantityIn ?? l.quantity_in) || 0
-      const qtyOut = Number(l.quantityOut ?? l.quantity_out) || 0
-
-      const saldoAwal = currentBalance
-      const saldoAkhir = isOpening ? qtyIn : (saldoAwal + qtyIn - qtyOut)
-      currentBalance = saldoAkhir
-
-      return {
-        ...l,
-        transactionType: isOpening ? 'SALDO_AWAL' : l.transactionType,
-        saldoAwal,
-        penerimaan: isOpening ? 0 : qtyIn,
-        pengeluaran: qtyOut,
-        saldoAkhir,
-      }
-    })
-
-    return processed
+  // Saldo Awal tampil pada kolom Sisa Stok (saldo berjalan awal) dan TIDAK dihitung sebagai Penerimaan baru.
+  const { rows: itemChronologicalLedger, summary: itemLedgerSummary } = useMemo(() => {
+    if (!selectedItem || selectedItem === 'ALL_ITEMS') {
+      return { rows: [], summary: { saldoAwal: 0, totalPenerimaan: 0, totalPengeluaran: 0, sisaStokAkhir: 0 } }
+    }
+    const itemEntries = effectiveStockLedger.filter(l => l.itemId === selectedItem)
+    return buildKartuStokRows(itemEntries)
   }, [effectiveStockLedger, selectedItem])
 
   const totalStockSingle = itemBatches.reduce((s, b) => s + (Number(b.quantityCurrent) || 0), 0)
@@ -381,8 +375,19 @@ export default function StockLedgerPage() {
   const handleExport = () => {
     try {
       if (selectedItem === 'ALL_ITEMS' || !selectedItem) {
-        exportStockExcel(effectivePharmacyItems, effectiveBatches, recapData, appSettings)
-        toast.success('Laporan Rekapitulasi Stock Ledger berhasil diunduh!')
+        const exportRecap = filterStockByCategory(recapData, categoryFilter)
+        if (exportRecap.length === 0) {
+          toast.error(`Tidak ada data obat untuk kategori "${selectedCategoryLabel}".`)
+          return
+        }
+        const exportItemIds = new Set(exportRecap.map(r => r.id))
+        const exportItems = effectivePharmacyItems.filter(i => exportItemIds.has(i.id))
+        const exportBatches = effectiveBatches.filter(b => exportItemIds.has(b.itemId || b.item_id))
+        exportStockExcel(exportItems, exportBatches, exportRecap, appSettings, {
+          categoryFilter,
+          categoryLabel: selectedCategoryLabel,
+        })
+        toast.success(`Laporan Rekapitulasi Stock Ledger (${selectedCategoryLabel}) berhasil diunduh!`)
       } else {
         const itemObj = selectedItemObj || effectivePharmacyItems.find(i => i.id === selectedItem)
         exportStockLedgerDetailExcel(itemObj, itemChronologicalLedger, itemBatches, appSettings)
@@ -391,6 +396,65 @@ export default function StockLedgerPage() {
     } catch (err) {
       console.error('[StockLedgerPage] Export error:', err)
       toast.error('Gagal mengunduh laporan: ' + err.message)
+    }
+  }
+
+  // ── Cek apakah batch SALDO-AWAL boleh diubah tanggal kadaluarsanya ──
+  // Hanya diizinkan jika batch merupakan Saldo Awal DAN belum ada transaksi berjalan sama sekali
+  const hasRunningTransactionsForItem = useMemo(() => {
+    return itemChronologicalLedger.some(l => !l.isOpening)
+  }, [itemChronologicalLedger])
+
+  const canEditOpeningBatchExpiry = (batch) => {
+    if (!batch || !isOpeningBalanceBatch(batch)) return false
+    const qRec = Number(batch.quantityReceived ?? batch.quantity_received ?? 0)
+    const qCur = Number(batch.quantityCurrent ?? batch.quantity_current ?? 0)
+    if (qRec > 0 && qCur < qRec) return false
+    if (hasRunningTransactionsForItem) return false
+    return true
+  }
+
+  const openEditExpiry = (batch) => {
+    if (!canEditOpeningBatchExpiry(batch)) {
+      toast.error('Tanggal kadaluarsa saldo awal terkunci karena item ini sudah memiliki transaksi berjalan pada tahun berjalan.')
+      return
+    }
+    setEditExpiryBatch(batch)
+    setEditExpiryValue((batch.expiryDate || batch.expiry_date || `${new Date().getFullYear()}-12-31`).split('T')[0])
+    setEditExpiryModal(true)
+  }
+
+  const handleSaveExpiryDate = async () => {
+    if (!editExpiryBatch || !editExpiryValue) {
+      toast.error('Tanggal kadaluarsa wajib diisi.')
+      return
+    }
+    if (!canEditOpeningBatchExpiry(editExpiryBatch)) {
+      toast.error('Batch ini terkunci karena sudah memiliki transaksi berjalan.')
+      return
+    }
+    setSavingExpiry(true)
+    try {
+      await updateBatchExpiryDate(editExpiryBatch.id, editExpiryValue)
+      await insertAuditLog({
+        id: uuidv4(),
+        user_id: 'system',
+        user_name: 'Farmasi / Admin',
+        user_role: 'system',
+        action: 'UBAH_ED_SALDO_AWAL',
+        module: 'INVENTORY',
+        detail: `Ubah tanggal kadaluarsa batch ${editExpiryBatch.batchNumber} (${selectedItemObj?.itemName || ''}) dari ${editExpiryBatch.expiryDate || '-'} menjadi ${editExpiryValue}`,
+        created_at: new Date().toISOString()
+      })
+      toast.success(`Tanggal kadaluarsa batch ${editExpiryBatch.batchNumber} berhasil diubah ke ${fmtDate(editExpiryValue)}.`)
+      setEditExpiryModal(false)
+      setEditExpiryBatch(null)
+      await refreshAll()
+    } catch (err) {
+      console.error('[handleSaveExpiryDate] Error:', err)
+      toast.error(`Gagal mengubah tanggal kadaluarsa: ${err.message}`)
+    } finally {
+      setSavingExpiry(false)
     }
   }
 
@@ -439,11 +503,19 @@ export default function StockLedgerPage() {
         totalDebit: lostValue,
         totalCredit: lostValue,
       }
+      const wasteExpenseAcc = getAccountCode('outflow_waste', appSettings, '6-18-001')
+      const normCat = normalizePharmacyCategory(it)
+      const defaultInvAcc = normCat === 'BHP'
+        ? getAccountCode('inv_bhp', appSettings, '1-13-003')
+        : normCat === 'GENERIK'
+          ? getAccountCode('inv_otc', appSettings, '1-13-002')
+          : getAccountCode('inv_ethical', appSettings, '1-13-001')
+
       const jItems = [
         {
           id: uuidv4(),
           journalEntryId: entryId,
-          accountCode: '6-17-001',
+          accountCode: wasteExpenseAcc,
           description: `Kerugian stok ${it?.itemName}`,
           debit: lostValue,
           credit: 0,
@@ -451,7 +523,7 @@ export default function StockLedgerPage() {
         {
           id: uuidv4(),
           journalEntryId: entryId,
-          accountCode: it?.coaInventoryCode || '1-13-001',
+          accountCode: it?.coaInventoryCode || defaultInvAcc,
           description: `Hapus stok ${it?.itemName} batch ${batch.batchNumber}`,
           debit: 0,
           credit: lostValue,
@@ -476,12 +548,26 @@ export default function StockLedgerPage() {
             Riwayat mutasi persediaan per item (Metode FEFO - First Expiry First Out & FIFO - First In First Out)
           </p>
         </div>
-        <button
-          className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs py-2 px-4 rounded-lg shadow-md shadow-red-200/60 flex items-center gap-1.5 font-sans transition-all active:scale-95 border-0 cursor-pointer"
-          onClick={handleExport}
-        >
-          <Download className="w-4 h-4" /> Unduh Laporan
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedItem === 'ALL_ITEMS' && (
+            <select
+              className="form-select text-xs font-semibold py-2 px-3 w-52 bg-white border-slate-300"
+              value={categoryFilter}
+              onChange={e => setCategoryFilter(e.target.value)}
+              title="Filter Jenis Obat untuk tampilan & unduh laporan Kartu Stok"
+            >
+              {STOCK_CATEGORY_FILTERS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          )}
+          <button
+            className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs py-2 px-4 rounded-lg shadow-md shadow-red-200/60 flex items-center gap-1.5 font-sans transition-all active:scale-95 border-0 cursor-pointer"
+            onClick={handleExport}
+          >
+            <Download className="w-4 h-4" /> Unduh Laporan{selectedItem === 'ALL_ITEMS' && categoryFilter !== 'ALL' ? ` (${selectedCategoryLabel})` : ''}
+          </button>
+        </div>
       </div>
 
       {/* Modern Compact Score Cards — Vibrant Solid Colors */}
@@ -619,29 +705,39 @@ export default function StockLedgerPage() {
       {/* All Items Recap Table */}
       {selectedItem === 'ALL_ITEMS' && (
         <div className="space-y-4 font-sans">
-          {/* Search Box */}
+          {/* Search & Category Filter Box */}
           <div className="card card-body">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
               <input
                 type="text"
-                className="form-input flex-1 text-xs font-sans"
+                className="form-input flex-1 min-w-[200px] text-xs font-sans"
                 placeholder="Ketik kata kunci untuk mencari item (nama, kode, SKU)..."
                 value={recapSearch}
                 onChange={e => setRecapSearch(e.target.value)}
               />
-              {recapSearch && (
+              <select
+                className="form-select text-xs font-semibold w-52"
+                value={categoryFilter}
+                onChange={e => setCategoryFilter(e.target.value)}
+              >
+                {STOCK_CATEGORY_FILTERS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              {(recapSearch || categoryFilter !== 'ALL') && (
                 <button
                   className="btn-secondary text-xs py-1.5 px-3"
-                  onClick={() => setRecapSearch('')}
+                  onClick={() => { setRecapSearch(''); setCategoryFilter('ALL') }}
                 >
-                  Clear
+                  Reset Filter
                 </button>
               )}
             </div>
-            {recapSearch && (
+            {(recapSearch || categoryFilter !== 'ALL') && (
               <p className="text-[11px] text-slate-500 mt-2 font-sans">
-                Menampilkan {filteredRecap.length} dari {recapData.length} item
+                Menampilkan <strong>{filteredRecap.length}</strong> dari {recapData.length} item
+                {categoryFilter !== 'ALL' ? ` • Filter Jenis Obat: ${selectedCategoryLabel}` : ''}
               </p>
             )}
           </div>
@@ -735,12 +831,13 @@ export default function StockLedgerPage() {
                     <th className="py-3 px-3 text-right" style={{ width: '110px' }}>Diterima</th>
                     <th className="py-3 px-3 text-right" style={{ width: '120px' }}>Sisa Stok</th>
                     <th className="py-3 px-3 text-center" style={{ width: '110px' }}>Status Batch</th>
+                    <th className="py-3 px-3 text-center" style={{ width: '90px' }}>Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {itemBatches.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-10 text-slate-400 font-sans">
+                      <td colSpan={9} className="text-center py-10 text-slate-400 font-sans">
                         Belum ada batch aktif untuk item ini
                       </td>
                     </tr>
@@ -748,6 +845,8 @@ export default function StockLedgerPage() {
                     const days = Math.ceil((new Date(b.expiryDate) - new Date()) / 86400000)
                     const isExpired = days <= 0
                     const isNearExpiry = days > 0 && days <= 180
+                    const isOpeningB = isOpeningBalanceBatch(b)
+                    const editableED = canEditOpeningBatchExpiry(b)
                     return (
                       <tr
                         key={b.id}
@@ -774,6 +873,29 @@ export default function StockLedgerPage() {
                           <span className={`badge text-[10px] font-bold ${isExpired ? 'badge-red' : isNearExpiry ? 'badge-yellow' : b.quantityCurrent === 0 ? 'badge-gray' : 'badge-green'}`}>
                             {isExpired ? 'Kadaluarsa' : isNearExpiry ? 'Hampir ED' : b.quantityCurrent === 0 ? 'Habis' : 'Aktif'}
                           </span>
+                        </td>
+                        <td className="py-3 px-3 text-center whitespace-nowrap">
+                          {isOpeningB ? (
+                            editableED ? (
+                              <button
+                                type="button"
+                                onClick={() => openEditExpiry(b)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-primary-700 bg-primary-50 hover:bg-primary-100 border border-primary-200 rounded transition-colors"
+                                title="Edit tanggal kadaluarsa Saldo Awal (belum ada transaksi berjalan)"
+                              >
+                                <Pencil className="w-3 h-3" /> Edit ED
+                              </button>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold text-slate-400 bg-slate-100 border border-slate-200 rounded cursor-not-allowed"
+                                title="Tanggal kadaluarsa Saldo Awal terkunci karena item ini sudah memiliki transaksi berjalan pada tahun berjalan"
+                              >
+                                <Lock className="w-3 h-3" /> Terkunci
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">—</span>
+                          )}
                         </td>
                       </tr>
                     )
@@ -815,7 +937,7 @@ export default function StockLedgerPage() {
                       </td>
                     </tr>
                   ) : itemChronologicalLedger.map(l => (
-                    <tr key={l.id} className="hover:bg-slate-50 transition-colors">
+                    <tr key={l.id} className={`transition-colors ${l.isOpening ? 'bg-purple-50/40' : 'hover:bg-slate-50'}`}>
                       <td className="py-3 px-3 font-medium text-slate-700 whitespace-nowrap">{fmtDateTime(l.loggedAt || l.transactionDate)}</td>
                       <td className="py-3 px-3">
                         <span className={`badge text-[10px] font-bold ${TRANS_COLORS[l.transactionType] || 'badge-gray'}`}>
@@ -823,12 +945,12 @@ export default function StockLedgerPage() {
                         </span>
                       </td>
                       <td className="py-3 px-3 font-mono font-extrabold text-primary-700 text-xs">{l.referenceNumber || '—'}</td>
-                      <td className="py-3 px-3 text-right font-sans font-bold text-slate-600">{fmtNum(l.saldoAwal)}</td>
+                      <td className="py-3 px-3 text-right font-sans font-bold text-slate-600">{l.isOpening ? '—' : fmtNum(l.saldoAwal)}</td>
                       <td className="py-3 px-3 text-right font-sans font-extrabold text-emerald-600">
-                        {l.penerimaan > 0 ? `+${fmtNum(l.penerimaan)}` : '—'}
+                        {!l.isOpening && l.penerimaan > 0 ? `+${fmtNum(l.penerimaan)}` : '—'}
                       </td>
                       <td className="py-3 px-3 text-right font-sans font-extrabold text-red-600">
-                        {l.pengeluaran > 0 ? `-${fmtNum(l.pengeluaran)}` : '—'}
+                        {!l.isOpening && l.pengeluaran > 0 ? `-${fmtNum(l.pengeluaran)}` : '—'}
                       </td>
                       <td className="py-3 px-3 text-right font-sans font-extrabold text-blue-700 text-sm">{fmtNum(l.saldoAkhir)}</td>
                       <td className="py-3 px-3 text-right font-sans font-bold text-slate-800">{l.unitCost ? fmtIDR(l.unitCost) : '—'}</td>
@@ -836,6 +958,28 @@ export default function StockLedgerPage() {
                     </tr>
                   ))}
                 </tbody>
+                {itemChronologicalLedger.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-slate-100/90 border-t-2 border-slate-200 font-bold text-xs">
+                      <td colSpan={3} className="py-3 px-3 text-right text-slate-700">
+                        REKAP MUTASI (Saldo Awal tidak dihitung sebagai Penerimaan):
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono text-purple-700" title="Saldo Awal">
+                        {fmtNum(itemLedgerSummary.saldoAwal)}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono text-emerald-700" title="Total Penerimaan Baru">
+                        +{fmtNum(itemLedgerSummary.totalPenerimaan)}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono text-red-700" title="Total Pengeluaran">
+                        -{fmtNum(itemLedgerSummary.totalPengeluaran)}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono text-blue-800 text-sm" title="Sisa Stok Akhir = Saldo Awal + Penerimaan - Pengeluaran">
+                        {fmtNum(itemLedgerSummary.sisaStokAkhir)}
+                      </td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>
@@ -917,6 +1061,58 @@ export default function StockLedgerPage() {
                 Debit 6-17-001 Kerugian Stok Expired/Rusak → Kredit Akun Persediaan
               </div>
             )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Edit Expiry Date Modal (Khusus Batch Saldo Awal tanpa transaksi berjalan) */}
+      <Modal
+        open={editExpiryModal}
+        onClose={() => { setEditExpiryModal(false); setEditExpiryBatch(null) }}
+        title="Ubah Tanggal Kadaluarsa — Saldo Awal"
+        size="md"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn-secondary px-4 font-bold"
+              onClick={() => { setEditExpiryModal(false); setEditExpiryBatch(null) }}
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              className="btn-primary px-5 font-bold flex items-center gap-1.5"
+              onClick={handleSaveExpiryDate}
+              disabled={savingExpiry}
+            >
+              <Calendar className="w-4 h-4" /> {savingExpiry ? 'Menyimpan...' : 'Simpan Tanggal ED'}
+            </button>
+          </>
+        }
+      >
+        {editExpiryBatch && (
+          <div className="space-y-4 text-xs font-sans">
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5">
+              <p className="font-bold text-blue-900">{selectedItemObj?.itemName}</p>
+              <p className="text-blue-700 font-mono mt-0.5">Batch: {editExpiryBatch.batchNumber}</p>
+              <p className="text-blue-700 mt-0.5">
+                Tgl Kadaluarsa Saat Ini: <strong>{fmtDate(editExpiryBatch.expiryDate)}</strong>
+              </p>
+            </div>
+            <div>
+              <label className="form-label font-bold text-slate-700">Tanggal Kadaluarsa Baru (ED) *</label>
+              <input
+                type="date"
+                className="form-input text-sm font-semibold"
+                value={editExpiryValue}
+                onChange={e => setEditExpiryValue(e.target.value)}
+                required
+              />
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                Perubahan tanggal kadaluarsa akan langsung terintegrasi dengan prioritas urutan FEFO/FIFO saat pengeluaran stok dan billing kasir.
+              </p>
+            </div>
           </div>
         )}
       </Modal>

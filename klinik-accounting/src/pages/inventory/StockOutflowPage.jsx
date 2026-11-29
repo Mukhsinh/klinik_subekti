@@ -22,14 +22,20 @@ import {
   deleteBillingItemsByBilling,
   deleteStockOutflowItemByBillingAndItem,
 } from '../../lib/db'
-import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown, Layers, Pill, Stethoscope, UserCheck, AlertCircle, Pencil, Lock } from 'lucide-react'
+import { Plus, Eye, Trash2, CheckCircle, Package, TrendingDown, Layers, Pill, Stethoscope, UserCheck, AlertCircle, Pencil, Lock, FileText, FileSpreadsheet, XCircle, Bell, ShieldCheck } from 'lucide-react'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import { StatusBadge } from '../../components/ui/Badge'
 import { fmtIDR, fmtDate, fmtNum, todayISO } from '../../utils/format'
 import { getAccountCode } from '../../utils/accountMapping'
-import { calculateFifoValuation, depleteFefoPhysicalStock } from '../../lib/inventoryEngine'
+import {
+  calculateFifoValuation,
+  depleteFefoPhysicalStock,
+  getAvailableStockAsOfDate,
+} from '../../lib/inventoryEngine'
+import { exportCancelledMedicineOutflowPDF } from '../../utils/exportPDF'
+import { exportCancelledMedicineOutflowExcel } from '../../utils/exportExcel'
 import toast from 'react-hot-toast'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -67,6 +73,18 @@ export default function StockOutflowPage() {
   const [patientMedDate, setPatientMedDate] = useState(todayISO())
   const [isSavingPatientMed, setIsSavingPatientMed] = useState(false)
   const [editingPatientOutflow, setEditingPatientOutflow] = useState(null)
+
+  // Filter states - Laporan Obat Batal Periksa
+  const [cancelMedFilterType, setCancelMedFilterType] = useState('ALL')
+  const [cancelMedStartDate, setCancelMedStartDate] = useState(todayISO())
+  const [cancelMedEndDate, setCancelMedEndDate] = useState(todayISO())
+  const [cancelMedMonth, setCancelMedMonth] = useState(new Date().getMonth() + 1)
+  const [cancelMedYear, setCancelMedYear] = useState(new Date().getFullYear())
+
+  const activeBranch = useMemo(
+    () => (branches || []).find(b => b.id === activeBranchId) || (branches || [])[0] || null,
+    [branches, activeBranchId]
+  )
 
   const effectiveBranchId = useMemo(() => {
     return activeBranchId || (branches && branches[0]?.id) || 'f265df27-e277-4775-8b1d-5f28e585599a'
@@ -139,6 +157,25 @@ export default function StockOutflowPage() {
     const ledgerBalance = Math.max(0, saldoAwal + penerimaan - (pengeluaran + extraBillingOut))
 
     return batchStock > 0 ? batchStock : ledgerBalance
+  }
+
+  // Hitung stok yang benar-benar tersedia PADA TANGGAL TRANSAKSI tertentu (batchDate <= txDate)
+  const getItemStockAsOfDate = (itemId, txDate = null) => {
+    if (!itemId) return { eligibleStock: 0, totalStock: 0, excludedFutureStock: 0 }
+    const itemBatches = (activeBatches || []).filter(
+      b => (b.itemId === itemId || b.item_id === itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0
+    )
+    if (itemBatches.length === 0) {
+      const fallbackStk = getItemStock(itemId)
+      return { eligibleStock: fallbackStk, totalStock: fallbackStk, excludedFutureStock: 0 }
+    }
+    const totalStock = itemBatches.reduce((s, b) => s + Number(b.quantityCurrent ?? b.quantity_current ?? 0), 0)
+    const eligibleStock = getAvailableStockAsOfDate(itemBatches, txDate)
+    return {
+      eligibleStock,
+      totalStock,
+      excludedFutureStock: Math.max(0, totalStock - eligibleStock)
+    }
   }
 
   const pharmacyOptions = useMemo(() =>
@@ -225,6 +262,8 @@ export default function StockOutflowPage() {
           const biBillingId = bi.billingId || bi.billing_id
           const billing = billingSource.find(b => b.id === biBillingId)
           if (!billing) return
+          // Jangan hitung billing yang dibatalkan (Batal Periksa) sebagai pengeluaran stok aktif
+          if ((billing.status || '').toUpperCase() === 'CANCELLED') return
 
           const itemId = bi.pharmacyItemId || bi.pharmacy_item_id || bi.itemId || bi.item_id
           const bNum = billing.billingNumber || billing.billing_number || '-'
@@ -275,34 +314,61 @@ export default function StockOutflowPage() {
     setItems(prev => prev.filter(i => i.id !== id))
   }
 
+  const evaluateItemForDate = (item, txDate) => {
+    const targetItemId = item.itemId
+    const reqQty = Math.max(1, parseInt(item.quantity) || 1)
+    if (!targetItemId) return item
+
+    const pharmacyItem = activePharmacyItems.find(p => p.id === targetItemId)
+    if (!pharmacyItem) return item
+
+    const defaultCost = Number(pharmacyItem.purchasePrice || pharmacyItem.purchase_price || pharmacyItem.hpp || 0)
+    const itemBatches = activeBatches.filter(
+      b => (b.itemId === targetItemId || b.item_id === targetItemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0
+    )
+
+    const {
+      totalValuation,
+      avgUnitCost,
+      fifoBreakdown,
+      eligibleStock,
+      shortfall,
+      excludedFutureStock
+    } = calculateFifoValuation(itemBatches, reqQty, defaultCost, txDate, { allowFallback: false })
+
+    return {
+      ...item,
+      itemName: pharmacyItem.itemName || pharmacyItem.item_name,
+      unit: pharmacyItem.baseUnit || pharmacyItem.base_unit || 'Unit',
+      quantity: reqQty,
+      unitCost: avgUnitCost,
+      totalCost: totalValuation,
+      selectedBatches: fifoBreakdown,
+      eligibleStock,
+      shortfall,
+      excludedFutureStock
+    }
+  }
+
+  const handleOutflowDateChange = (newDate) => {
+    setOutflowDate(newDate)
+    setItems(prev => prev.map(it => (it.itemId ? evaluateItemForDate(it, newDate) : it)))
+  }
+
   const updateItem = (id, field, value) => {
     setItems(prev => prev.map(item => {
       if (item.id !== id) return item
 
       const updated = { ...item, [field]: value }
-      const targetItemId = field === 'itemId' ? value : updated.itemId
-      const reqQty = field === 'quantity' ? Math.max(1, parseInt(value) || 1) : Math.max(1, parseInt(updated.quantity) || 1)
-
-      if (targetItemId) {
-        const pharmacyItem = activePharmacyItems.find(p => p.id === targetItemId)
-        if (pharmacyItem) {
-          updated.itemName = pharmacyItem.itemName || pharmacyItem.item_name
-          updated.unit = pharmacyItem.baseUnit || pharmacyItem.base_unit || 'Unit'
-          const defaultCost = Number(pharmacyItem.purchasePrice || pharmacyItem.purchase_price || pharmacyItem.hpp || 0)
-
-          const itemBatches = activeBatches.filter(b => (b.itemId === targetItemId || b.item_id === targetItemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
-
-          const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, reqQty, defaultCost)
-          updated.quantity = reqQty
-          updated.unitCost = avgUnitCost
-          updated.totalCost = totalValuation
-        }
-      }
-
       if (field === 'unitCost') {
         const cost = parseFloat(value) || 0
         updated.unitCost = cost
         updated.totalCost = (parseFloat(updated.quantity) || 0) * cost
+        return updated
+      }
+
+      if (field === 'itemId' || field === 'quantity') {
+        return evaluateItemForDate(updated, outflowDate)
       }
 
       return updated
@@ -343,7 +409,7 @@ export default function StockOutflowPage() {
         const docName = doc?.fullName || doc?.full_name || 'Dokter Pemeriksa'
         const pName = b.patientName || b.patient_name || 'Pasien'
         const bNum = b.billingNumber || b.billing_number || 'INV'
-        const mrn = b.patientMRN || b.patient_mrn || '-'
+        const mrn = b.patientMRN || b.patientMrn || b.patient_mrn || '-'
         const date = fmtDate(b.visitDate || b.visit_date || b.createdAt || b.created_at)
         return {
           value: b.id,
@@ -475,7 +541,7 @@ export default function StockOutflowPage() {
           updated.unit = pItem.baseUnit || pItem.base_unit || 'Unit'
           const purchaseCost = Number(pItem.purchasePrice || pItem.purchase_price || pItem.hpp || 0)
           const itemBatches = activeBatches.filter(b => (b.itemId === targetItemId || b.item_id === targetItemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
-          const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, reqQty, purchaseCost)
+          const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, reqQty, purchaseCost, patientMedDate)
 
           // Direct selling price from pharmacy_items (sellingPrice or selling_price) or markup
           const foundSell = Number(pItem.sellingPrice || pItem.selling_price || pItem.salePrice || pItem.sale_price || 0)
@@ -574,8 +640,8 @@ export default function StockOutflowPage() {
         const pItem = activePharmacyItems.find(p => p.id === item.itemId)
         const purchaseCost = Number(pItem?.purchasePrice || pItem?.purchase_price || pItem?.hpp || 0)
 
-        // Hitung estimasi HPP FIFO
-        const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, item.quantity, purchaseCost)
+        // Hitung estimasi HPP FIFO secara kronologis per tanggal keluar obat
+        const { totalValuation, avgUnitCost } = calculateFifoValuation(itemBatches, item.quantity, purchaseCost, visitDateVal)
         totalHpp += totalValuation
 
         // Billing Item row (disinkronkan ke kasir)
@@ -867,26 +933,48 @@ export default function StockOutflowPage() {
       return
     }
 
+    // Validasi stok secara kronologis: hanya batch yang sudah masuk pada atau sebelum outflowDate yang boleh dipakai
     for (const item of validItems) {
-      const available = getItemStock(item.itemId)
-      if (available === 0) {
-        toast.error(`Stok "${item.itemName}" kosong (0 unit). Tidak dapat mengeluarkan barang ini.`)
+      const { eligibleStock, totalStock, excludedFutureStock } = getItemStockAsOfDate(item.itemId, outflowDate)
+      if (eligibleStock <= 0) {
+        if (excludedFutureStock > 0) {
+          toast.error(
+            `Stok "${item.itemName}" pada tanggal ${fmtDate(outflowDate)} adalah 0 unit (${fmtNum(excludedFutureStock)} unit lainnya berasal dari pembelian setelah tanggal transaksi). Tidak dapat mengambil batch masa depan.`
+          )
+        } else {
+          toast.error(`Stok "${item.itemName}" kosong (0 unit). Tidak dapat mengeluarkan barang ini.`)
+        }
         return
       }
-      if (item.quantity > available) {
-        toast.error(`Stok "${item.itemName}" tidak mencukupi. Stok Tersedia: ${available}, Diminta: ${item.quantity}`)
+      if (Number(item.quantity) > eligibleStock) {
+        if (excludedFutureStock > 0) {
+          toast.error(
+            `Stok "${item.itemName}" pada tanggal ${fmtDate(outflowDate)} hanya ${fmtNum(eligibleStock)} unit (Diminta: ${item.quantity}). Terdapat ${fmtNum(excludedFutureStock)} unit dari pembelian setelah ${fmtDate(outflowDate)} yang tidak boleh dipakai untuk transaksi lebih awal.`
+          )
+        } else {
+          toast.error(`Stok "${item.itemName}" pada tanggal ${fmtDate(outflowDate)} tidak mencukupi. Tersedia: ${fmtNum(eligibleStock)}, Diminta: ${item.quantity}`)
+        }
         return
       }
     }
 
-    // Calculate total value using FIFO accounting valuation
+    // Calculate total value using Chronological FEFO/FIFO valuation (strictly batchDate <= outflowDate)
     let totalVal = 0
     const processedItems = validItems.map(item => {
       const pharmacyItem = activePharmacyItems.find(p => p.id === item.itemId)
       const defaultCost = Number(pharmacyItem?.purchasePrice || pharmacyItem?.purchase_price || pharmacyItem?.hpp || item.unitCost || 0)
       const itemBatches = activeBatches.filter(b => (b.itemId === item.itemId || b.item_id === item.itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
 
-      const { totalValuation, avgUnitCost, fifoBreakdown } = calculateFifoValuation(itemBatches, item.quantity, defaultCost)
+      const { totalValuation, avgUnitCost, fifoBreakdown, isInsufficientStock } = calculateFifoValuation(
+        itemBatches,
+        item.quantity,
+        defaultCost,
+        outflowDate,
+        { allowFallback: false }
+      )
+      if (isInsufficientStock) {
+        throw new Error(`Stok kronologis tidak mencukupi untuk "${item.itemName}" per tanggal ${fmtDate(outflowDate)}.`)
+      }
       totalVal += totalValuation
 
       return {
@@ -937,18 +1025,19 @@ export default function StockOutflowPage() {
       for (const item of processedItems) {
         const itemBatches = activeBatches.filter(b => (b.itemId === item.itemId || b.item_id === item.itemId) && Number(b.quantityCurrent ?? b.quantity_current ?? 0) > 0)
 
-        // Physical Depletion via FEFO (earliest expiry date)
-        const physicalUpdates = depleteFefoPhysicalStock(itemBatches, item.quantity)
+        // Physical Depletion via Chronological FEFO (batchDate <= outflowDate, then earliest expiry date)
+        const physicalUpdates = depleteFefoPhysicalStock(itemBatches, item.quantity, outflowDate)
         for (const update of physicalUpdates) {
           if (update.batchId) {
             await updateBatchQty(update.batchId, update.newQtyCurrent)
           }
         }
 
-        // Ledger logging using FIFO valuation breakdown
+        // Ledger logging using chronological batch breakdown
         let currentItemBalance = getItemStock(item.itemId)
         for (const fifoPart of item.fifoBreakdown) {
           currentItemBalance -= fifoPart.qty
+          const expNote = fifoPart.expiryDate ? ` | ED: ${fmtDate(fifoPart.expiryDate)}` : ''
           ledgerEntries.push({
             id: uuidv4(),
             batchId: fifoPart.batchId,
@@ -961,7 +1050,7 @@ export default function StockOutflowPage() {
             balanceAfter: Math.max(0, currentItemBalance),
             unitCost: Number(fifoPart.unitCost || 0),
             totalValue: Number(fifoPart.totalCost || 0),
-            notes: `Pengeluaran ${outflowType} (${outflowNumber}) [FEFO Physical / FIFO Cost]`,
+            notes: `Pengeluaran ${outflowType} (${outflowNumber}) — Batch: ${fifoPart.batchNumber || '-'}${expNote} [Kronologis FEFO]`,
             loggedAt: transactionIso,
           })
         }
@@ -1117,6 +1206,71 @@ export default function StockOutflowPage() {
 
   const patientMedOutflows = consolidatedPatientMedOutflows
 
+  // Daftar pengeluaran obat pasien yang dibatalkan dari kasir (Batal Periksa)
+  const cancelledPatientOutflows = useMemo(() => {
+    return consolidatedPatientMedOutflows
+      .filter(o => {
+        if ((o.status || '').toUpperCase() === 'CANCELLED') return true
+        const linkedB = (billings || []).find(
+          b =>
+            b.id === (o.billingId || o.billing_id) ||
+            (o.prescriptionNo && o.prescriptionNo !== '—' && (b.billingNumber === o.prescriptionNo || b.billing_number === o.prescriptionNo))
+        )
+        return Boolean(linkedB && (linkedB.status || '').toUpperCase() === 'CANCELLED')
+      })
+      .map(o => {
+        const linkedB = (billings || []).find(
+          b =>
+            b.id === (o.billingId || o.billing_id) ||
+            (o.prescriptionNo && o.prescriptionNo !== '—' && (b.billingNumber === o.prescriptionNo || b.billing_number === o.prescriptionNo))
+        )
+        const curItems = (Array.isArray(o.combinedItems) && o.combinedItems.length > 0) ? o.combinedItems : (itemsByOutflow[o.id] || [])
+        return {
+          ...o,
+          status: 'CANCELLED',
+          patientMRN: linkedB?.patientMRN || linkedB?.patientMrn || linkedB?.patient_mrn || '—',
+          billingNumber: linkedB?.billingNumber || linkedB?.billing_number || o.prescriptionNo || '—',
+          doctorName: o.doctorName && o.doctorName !== '-' ? o.doctorName : (linkedB?.doctorName || linkedB?.doctor_name || '—'),
+          items: curItems,
+        }
+      })
+      .sort((a, b) => new Date(b.outflowDate || b.createdAt || 0) - new Date(a.outflowDate || a.createdAt || 0))
+  }, [consolidatedPatientMedOutflows, billings, itemsByOutflow])
+
+  const filteredCancelledMedOutflows = useMemo(() => {
+    let list = cancelledPatientOutflows
+    if (cancelMedFilterType === 'DAILY') {
+      if (cancelMedStartDate && cancelMedEndDate) {
+        list = list.filter(o => {
+          const d = (o.outflowDate || o.createdAt || '').split('T')[0]
+          return d >= cancelMedStartDate && d <= cancelMedEndDate
+        })
+      } else if (cancelMedStartDate) {
+        list = list.filter(o => (o.outflowDate || o.createdAt || '').split('T')[0] >= cancelMedStartDate)
+      } else if (cancelMedEndDate) {
+        list = list.filter(o => (o.outflowDate || o.createdAt || '').split('T')[0] <= cancelMedEndDate)
+      }
+    } else if (cancelMedFilterType === 'MONTHLY') {
+      list = list.filter(o => {
+        const d = new Date(o.outflowDate || o.createdAt)
+        return d.getFullYear() === Number(cancelMedYear) && (d.getMonth() + 1) === Number(cancelMedMonth)
+      })
+    } else if (cancelMedFilterType === 'YEARLY') {
+      list = list.filter(o => new Date(o.outflowDate || o.createdAt).getFullYear() === Number(cancelMedYear))
+    }
+    return list
+  }, [cancelledPatientOutflows, cancelMedFilterType, cancelMedStartDate, cancelMedEndDate, cancelMedMonth, cancelMedYear])
+
+  const cancelMedPeriodLabel = useMemo(() => {
+    const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
+    if (cancelMedFilterType === 'DAILY') {
+      return cancelMedStartDate === cancelMedEndDate ? fmtDate(cancelMedStartDate) : `${fmtDate(cancelMedStartDate)} s/d ${fmtDate(cancelMedEndDate)}`
+    }
+    if (cancelMedFilterType === 'MONTHLY') return `${MONTHS_ID[Number(cancelMedMonth) - 1] || cancelMedMonth} ${cancelMedYear}`
+    if (cancelMedFilterType === 'YEARLY') return `Tahun ${cancelMedYear}`
+    return 'Semua Periode'
+  }, [cancelMedFilterType, cancelMedStartDate, cancelMedEndDate, cancelMedMonth, cancelMedYear])
+
   const internalOutflows = useMemo(() => {
     return (outflows || []).filter(o => o.outflowType !== 'PATIENT_MEDICINE' && !(o.description || '').toLowerCase().includes('obat pasien'))
   }, [outflows])
@@ -1210,7 +1364,21 @@ export default function StockOutflowPage() {
             Pencatatan pengeluaran stok non-billing dan riwayat dari transaksi kasir
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg font-semibold text-sm text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 shadow-sm transition-all font-sans"
+            onClick={() => setModal('cancelled_med_report')}
+            title="Lihat & unduh Laporan Pengeluaran Obat Pasien Dibatalkan (PDF & Excel)"
+          >
+            <XCircle className="w-4 h-4 text-red-600" />
+            <span>Laporan Obat Batal</span>
+            {cancelledPatientOutflows.length > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 text-[11px] font-bold bg-red-600 text-white rounded-full">
+                {cancelledPatientOutflows.length}
+              </span>
+            )}
+          </button>
           <button
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm text-white shadow-sm transition-all font-sans"
             style={{ background: 'linear-gradient(135deg, #10B981, #059669)' }}
@@ -1223,6 +1391,59 @@ export default function StockOutflowPage() {
           </button>
         </div>
       </div>
+
+      {/* Notifikasi Obat Pasien Dibatalkan dari Kasir (Batal Periksa) */}
+      {cancelledPatientOutflows.length > 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50/80 p-4 shadow-sm">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-red-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+                <Bell className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm font-extrabold text-red-900">
+                    Notifikasi: {cancelledPatientOutflows.length} Pengeluaran Obat Pasien Dibatalkan dari Kasir (Batal Periksa)
+                  </h3>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    <ShieldCheck className="w-3 h-3" /> Stok Fisik Tetap Utuh (Tidak Keluar)
+                  </span>
+                </div>
+                <p className="text-xs text-red-800 mt-1">
+                  Data resep berikut dibatalkan pasien di kasir dan tetap diarsipkan untuk audit farmasi. Barang dipastikan <strong>tidak terpotong dari persediaan</strong>:
+                  {' '}
+                  {cancelledPatientOutflows.slice(0, 3).map((co, idx) => (
+                    <span key={co.id} className="font-semibold">
+                      {idx > 0 ? ', ' : ''}{co.patientName} ({co.billingNumber})
+                    </span>
+                  ))}
+                  {cancelledPatientOutflows.length > 3 ? ` dan ${cancelledPatientOutflows.length - 3} lainnya.` : '.'}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                className="px-3 py-1.5 text-xs font-bold text-red-700 bg-white hover:bg-red-100 border border-red-300 rounded-lg transition-colors"
+                onClick={() => {
+                  setActiveViewTab('PATIENT_MEDICINE')
+                  setStatusFilter('CANCELLED')
+                }}
+              >
+                Tampilkan di Tabel
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg flex items-center gap-1.5 shadow-sm transition-colors"
+                onClick={() => setModal('cancelled_med_report')}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Laporan Obat Batal (PDF / Excel)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modern Compact Score Cards — Vibrant Solid Colors */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -1361,15 +1582,49 @@ export default function StockOutflowPage() {
                   className="w-80"
                 />
                 <select
-                  className="form-select w-40"
+                  className="form-select w-48"
                   value={statusFilter}
                   onChange={e => setStatusFilter(e.target.value)}
                 >
                   <option value="ALL">Semua Status</option>
                   <option value="DRAFT">Draft</option>
                   <option value="POSTED">Posted</option>
-                  <option value="CANCELLED">Cancelled</option>
+                  <option value="CANCELLED">Dibatalkan (Batal Periksa)</option>
                 </select>
+                {statusFilter === 'CANCELLED' && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="btn-secondary text-xs py-1.5 px-2.5 flex items-center gap-1 border-red-200 text-red-700 hover:bg-red-50"
+                      onClick={() => {
+                        exportCancelledMedicineOutflowPDF({
+                          cancelledOutflows: cancelledPatientOutflows,
+                          periodLabel: 'Semua Periode',
+                          branchName: activeBranch?.entityName || '',
+                          appSettings
+                        })
+                        toast.success('Laporan PDF Obat Batal Periksa berhasil diunduh.')
+                      }}
+                    >
+                      <FileText className="w-3.5 h-3.5 text-red-600" />Unduh PDF
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-success text-xs py-1.5 px-2.5 flex items-center gap-1"
+                      onClick={() => {
+                        exportCancelledMedicineOutflowExcel({
+                          cancelledOutflows: cancelledPatientOutflows,
+                          periodLabel: 'Semua Periode',
+                          branchName: activeBranch?.entityName || '',
+                          appSettings
+                        })
+                        toast.success('Laporan Excel Obat Batal Periksa berhasil diunduh.')
+                      }}
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5" />Unduh Excel
+                    </button>
+                  </div>
+                )}
                 <span className="ml-auto text-sm text-slate-500 font-sans font-medium">
                   Menampilkan <strong>{fmtNum(filtered.length)}</strong> pengeluaran
                 </span>
@@ -1412,8 +1667,10 @@ export default function StockOutflowPage() {
                       
                       const computedSelling = Number(o.totalSelling || o.total_selling || curItems.reduce((s, it) => s + Number(it.subtotalSale || it.subtotal_sale || (Number(it.quantity) * Number(it.sellingPrice || it.selling_price || 0))), 0) || 0)
 
+                      const isCancelledRow = (o.status || '').toUpperCase() === 'CANCELLED' || (billingRecord && (billingRecord.status || '').toUpperCase() === 'CANCELLED')
+
                       return (
-                        <tr key={o.id} className="hover:bg-slate-50 transition-colors">
+                        <tr key={o.id} className={`transition-colors ${isCancelledRow ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50'}`}>
                           <td className="py-2.5 px-3 font-mono text-[11px] text-primary-700 font-bold whitespace-nowrap">
                             {o.outflowNumber}
                           </td>
@@ -1480,10 +1737,13 @@ export default function StockOutflowPage() {
                           </td>
                           <td className="py-2.5 px-3 text-center whitespace-nowrap">
                             {isMed ? (
-                              o.status === 'CANCELLED' ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-red-100 text-red-700 border border-red-300 shadow-xs">
-                                  ✕ DIBATALKAN
-                                </span>
+                              isCancelledRow ? (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-red-100 text-red-700 border border-red-300 shadow-xs">
+                                    ✕ BATAL PERIKSA
+                                  </span>
+                                  <span className="text-[9px] font-semibold text-emerald-700">Stok Tetap Utuh</span>
+                                </div>
                               ) : isPaid ? (
                                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
                                   ✓ LUNAS
@@ -1636,7 +1896,7 @@ export default function StockOutflowPage() {
                 type="date"
                 className="form-input"
                 value={outflowDate}
-                onChange={e => setOutflowDate(e.target.value)}
+                onChange={e => handleOutflowDateChange(e.target.value)}
               />
             </div>
             <div>
@@ -1696,8 +1956,9 @@ export default function StockOutflowPage() {
                   </thead>
                   <tbody>
                     {items.map(item => {
-                      const avail = getItemStock(item.itemId)
-                      const isOver = item.itemId && item.quantity > avail
+                      const stockInfo = item.itemId ? getItemStockAsOfDate(item.itemId, outflowDate) : { eligibleStock: 0, totalStock: 0, excludedFutureStock: 0 }
+                      const avail = stockInfo.eligibleStock
+                      const isOver = item.itemId && Number(item.quantity) > avail
 
                       return (
                         <tr key={item.id}>
@@ -1712,10 +1973,27 @@ export default function StockOutflowPage() {
                                 searchPlaceholder="Ketik nama item, kode, atau SKU..."
                               />
                               {item.itemId && (
-                                <div className={`flex items-center gap-1.5 mt-1 text-[11px] font-semibold px-2 py-0.5 rounded border ${avail > 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-amber-700 bg-amber-50 border-amber-200'
-                                  }`}>
-                                  <Package className="w-3.5 h-3.5" />
-                                  <span>Stok Tersedia di Kartu Stok: <strong>{fmtNum(avail)} {item.unit || 'unit'}</strong></span>
+                                <div className="space-y-1 mt-1">
+                                  <div className={`flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded border ${avail > 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-red-700 bg-red-50 border-red-200'
+                                    }`}>
+                                    <Package className="w-3.5 h-3.5" />
+                                    <span>Stok Tersedia per {fmtDate(outflowDate)}: <strong>{fmtNum(avail)} {item.unit || 'unit'}</strong></span>
+                                  </div>
+                                  {stockInfo.excludedFutureStock > 0 && (
+                                    <div className="text-[10px] font-medium px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                                      ⓘ {fmtNum(stockInfo.excludedFutureStock)} {item.unit || 'unit'} berasal dari pembelian setelah {fmtDate(outflowDate)} (dikecualikan secara kronologis).
+                                    </div>
+                                  )}
+                                  {Array.isArray(item.selectedBatches) && item.selectedBatches.length > 0 && (
+                                    <div className="text-[10px] font-mono text-slate-600 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                                      Batch terpilih:{' '}
+                                      {item.selectedBatches.map((b, bi) => (
+                                        <span key={bi} className="inline-block mr-2 font-semibold text-primary-700">
+                                          {b.batchNumber || 'Batch'} ({b.expiryDate ? `ED ${fmtDate(b.expiryDate)}` : 'No ED'}) × {fmtNum(b.qty)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1831,7 +2109,11 @@ export default function StockOutflowPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {isPaid ? (
+                    {(selected.status === 'CANCELLED' || (billingRecord && (billingRecord.status || '').toUpperCase() === 'CANCELLED')) ? (
+                      <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-red-600 text-white shadow-xs">
+                        ✕ DIBATALKAN KASIR — STOK TETAP UTUH
+                      </span>
+                    ) : isPaid ? (
                       <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-600 text-white shadow-xs">
                         ✓ LUNAS DI KASIR
                       </span>
@@ -2045,7 +2327,7 @@ export default function StockOutflowPage() {
                     {selectedBilling.patientName || selectedBilling.patient_name || 'Pasien'}
                   </p>
                   <p className="text-xs text-emerald-600 font-sans">
-                    RM: {selectedBilling.patientMRN || selectedBilling.patient_mrn || '-'} &bull; {selectedBilling.billingNumber || selectedBilling.billing_number}
+                    RM: {selectedBilling.patientMRN || selectedBilling.patientMrn || selectedBilling.patient_mrn || '-'} &bull; {selectedBilling.billingNumber || selectedBilling.billing_number}
                   </p>
                 </div>
               </div>
@@ -2202,6 +2484,187 @@ export default function StockOutflowPage() {
               </div>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* ═══ Laporan Pengeluaran Obat Pasien Dibatalkan (Batal Periksa) Modal ═══ */}
+      <Modal
+        open={modal === 'cancelled_med_report'}
+        onClose={() => setModal(null)}
+        title="Laporan Pengeluaran Obat Pasien Dibatalkan (Batal Periksa)"
+        size="xl"
+        footer={
+          <div className="flex flex-wrap items-center justify-between gap-2 w-full">
+            <span className="text-xs text-slate-400">
+              Dokumen resmi dilengkapi Kop Surat Klinik, Konfirmasi Status Stok Utuh, Blok Pengesahan &amp; Footer.
+            </span>
+            <div className="flex items-center gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setModal(null)}>Tutup</button>
+              <button
+                type="button"
+                className="btn-secondary flex items-center gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                onClick={() => {
+                  exportCancelledMedicineOutflowPDF({
+                    cancelledOutflows: filteredCancelledMedOutflows,
+                    periodLabel: cancelMedPeriodLabel,
+                    branchName: activeBranch?.entityName || '',
+                    appSettings
+                  })
+                  toast.success('Laporan PDF Obat Batal Periksa berhasil diunduh.')
+                }}
+              >
+                <FileText className="w-4 h-4 text-red-600" />
+                Unduh PDF
+              </button>
+              <button
+                type="button"
+                className="btn-success flex items-center gap-1.5"
+                onClick={() => {
+                  exportCancelledMedicineOutflowExcel({
+                    cancelledOutflows: filteredCancelledMedOutflows,
+                    periodLabel: cancelMedPeriodLabel,
+                    branchName: activeBranch?.entityName || '',
+                    appSettings
+                  })
+                  toast.success('Laporan Excel Obat Batal Periksa berhasil diunduh.')
+                }}
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Unduh Excel
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {/* Filter Bar */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="form-label text-xs">Filter Periode</label>
+              <select className="form-select text-sm" value={cancelMedFilterType} onChange={e => setCancelMedFilterType(e.target.value)}>
+                <option value="ALL">Semua Periode</option>
+                <option value="DAILY">Harian / Rentang Tanggal</option>
+                <option value="MONTHLY">Bulanan</option>
+                <option value="YEARLY">Tahunan</option>
+              </select>
+            </div>
+            {cancelMedFilterType === 'DAILY' && (
+              <>
+                <div>
+                  <label className="form-label text-xs">Tanggal Awal</label>
+                  <input type="date" className="form-input text-sm" value={cancelMedStartDate} onChange={e => setCancelMedStartDate(e.target.value)} />
+                </div>
+                <div>
+                  <label className="form-label text-xs">Tanggal Akhir</label>
+                  <input type="date" className="form-input text-sm" value={cancelMedEndDate} onChange={e => setCancelMedEndDate(e.target.value)} />
+                </div>
+              </>
+            )}
+            {cancelMedFilterType === 'MONTHLY' && (
+              <>
+                <div>
+                  <label className="form-label text-xs">Bulan</label>
+                  <select className="form-select text-sm" value={cancelMedMonth} onChange={e => setCancelMedMonth(Number(e.target.value))}>
+                    {['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].map((m, idx) => (
+                      <option key={idx} value={idx + 1}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label text-xs">Tahun</label>
+                  <input type="number" className="form-input text-sm" value={cancelMedYear} onChange={e => setCancelMedYear(Number(e.target.value))} />
+                </div>
+              </>
+            )}
+            {cancelMedFilterType === 'YEARLY' && (
+              <div>
+                <label className="form-label text-xs">Tahun</label>
+                <input type="number" className="form-input text-sm" value={cancelMedYear} onChange={e => setCancelMedYear(Number(e.target.value))} />
+              </div>
+            )}
+          </div>
+
+          {/* Summary KPIs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl bg-red-50 border border-red-200 p-3">
+              <p className="text-xs text-red-700 font-medium">Total Resep Dibatalkan</p>
+              <p className="text-xl font-extrabold text-red-800 mt-0.5">{filteredCancelledMedOutflows.length} Resep</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+              <p className="text-xs text-slate-600 font-medium">Total Unit Obat Dibatalkan</p>
+              <p className="text-xl font-extrabold text-slate-800 font-mono mt-0.5">
+                {fmtNum(filteredCancelledMedOutflows.reduce((s, o) => s + (o.items || []).reduce((ss, it) => ss + Number(it.quantity || 0), 0), 0))} Unit
+              </p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
+              <p className="text-xs text-emerald-700 font-medium">Status Persediaan Apotek</p>
+              <p className="text-sm font-bold text-emerald-800 mt-1 flex items-center gap-1">
+                <ShieldCheck className="w-4 h-4" /> 100% Tetap di Stok (Tidak Keluar)
+              </p>
+            </div>
+          </div>
+
+          {/* Preview Table */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+            <table className="table-base text-xs">
+              <thead className="sticky top-0 bg-slate-100 z-10">
+                <tr>
+                  <th className="text-center w-10">No</th>
+                  <th>No. Outflow</th>
+                  <th>Tanggal</th>
+                  <th>Pasien &amp; No. Billing</th>
+                  <th>Daftar Obat Dibatalkan</th>
+                  <th className="text-right">Nilai HPP</th>
+                  <th className="text-right">Nilai Jual</th>
+                  <th className="text-center">Status Stok</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCancelledMedOutflows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="text-center py-10 text-slate-400">
+                      Tidak ada pengeluaran obat pasien yang dibatalkan pada periode ini.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCancelledMedOutflows.map((o, idx) => (
+                    <tr key={o.id} className="hover:bg-red-50/30">
+                      <td className="text-center text-slate-400">{idx + 1}</td>
+                      <td className="font-mono font-bold text-primary-700">{o.outflowNumber}</td>
+                      <td>{fmtDate(o.outflowDate || o.createdAt)}</td>
+                      <td>
+                        <div className="font-bold text-slate-800">{o.patientName}</div>
+                        <div className="text-[10px] font-mono text-slate-500">
+                          {o.billingNumber} {o.patientMRN && o.patientMRN !== '—' ? `• RM: ${o.patientMRN}` : ''}
+                        </div>
+                      </td>
+                      <td>
+                        {(o.items || []).length > 0 ? (
+                          <div className="space-y-0.5">
+                            {o.items.map((it, i) => (
+                              <div key={i} className="flex justify-between gap-2">
+                                <span>• {it.itemName || it.item_name}</span>
+                                <span className="font-mono font-bold">{fmtNum(it.quantity)} {it.unit || 'Unit'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic">—</span>
+                        )}
+                      </td>
+                      <td className="text-right font-mono">{fmtIDR(o.totalValue || 0)}</td>
+                      <td className="text-right font-mono font-bold text-red-700">{fmtIDR(o.totalSelling || 0)}</td>
+                      <td className="text-center">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          ✓ Stok Utuh
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </Modal>
     </div>

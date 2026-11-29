@@ -30,6 +30,10 @@ function norm(row) {
   for (const [k, v] of Object.entries(row)) {
     out[toCamel(k)] = v
   }
+  // Preserve uppercase acronym alias for patient_mrn (toCamel produces patientMrn)
+  if ('patientMrn' in out && !('patientMRN' in out)) {
+    out.patientMRN = out.patientMrn
+  }
   return out
 }
 function normArr(rows) { return (rows || []).map(norm) }
@@ -382,6 +386,17 @@ export async function updateBatchQty(id, qty) {
     .update({ quantity_current: Number(qty) })
     .eq('id', id)
   handleError(error, 'updateBatchQty')
+}
+
+export async function updateBatchExpiryDate(id, expiryDate) {
+  const { data, error } = await supabase
+    .from('inventory_batches')
+    .update({ expiry_date: expiryDate })
+    .eq('id', id)
+    .select()
+    .single()
+  handleError(error, 'updateBatchExpiryDate')
+  return norm(data)
 }
 
 export async function deleteGRNByRef(grnReference, journalEntryId = null) {

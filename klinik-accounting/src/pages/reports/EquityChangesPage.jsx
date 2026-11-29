@@ -9,7 +9,7 @@ import { exportEquityChangesExcel } from '../../utils/exportExcel'
 function buildEquityData(coa, journalEntries, journalItems, dateFrom, dateTo, branchFilter) {
     // Filter posted journals within period
     const postedJournalsInPeriod = journalEntries.filter(j =>
-        j.status === 'POSTED' &&
+        (j.status === 'POSTED' || j.status === 'REVERSED') &&
         j.transactionDate >= dateFrom &&
         j.transactionDate <= dateTo &&
         (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter)
@@ -18,7 +18,7 @@ function buildEquityData(coa, journalEntries, journalItems, dateFrom, dateTo, br
 
     // Filter posted journals PRIOR to period (for Saldo Awal calculation)
     const postedJournalsPrior = journalEntries.filter(j =>
-        j.status === 'POSTED' &&
+        (j.status === 'POSTED' || j.status === 'REVERSED') &&
         j.transactionDate < dateFrom &&
         (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter)
     )

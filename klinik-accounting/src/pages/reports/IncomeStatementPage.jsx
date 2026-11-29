@@ -10,7 +10,7 @@ function buildAccountBalances(coa, journalEntries, journalItems, dateFrom, dateT
   const postedIds = new Set(
     journalEntries
       .filter(j =>
-        j.status === 'POSTED' &&
+        (j.status === 'POSTED' || j.status === 'REVERSED') &&
         (!dateFrom || j.transactionDate >= dateFrom) &&
         (!dateTo || j.transactionDate <= dateTo) &&
         (branchFilter === 'ALL' || !j.branchId || j.branchId === branchFilter)

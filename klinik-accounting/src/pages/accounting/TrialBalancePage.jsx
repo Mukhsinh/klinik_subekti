@@ -30,7 +30,7 @@ export default function TrialBalancePage() {
       (journalEntries || [])
         .filter(j =>
           j &&
-          j.status === 'POSTED' &&
+          (j.status === 'POSTED' || j.status === 'REVERSED') &&
           j.transactionDate >= `${fiscalYear}-01-01` &&
           j.transactionDate < dateFrom &&
           (branchFilter === 'ALL' || j.branchId === branchFilter)
@@ -50,7 +50,7 @@ export default function TrialBalancePage() {
       (journalEntries || [])
         .filter(j =>
           j &&
-          j.status === 'POSTED' &&
+          (j.status === 'POSTED' || j.status === 'REVERSED') &&
           j.transactionDate >= dateFrom &&
           j.transactionDate <= dateTo &&
           (branchFilter === 'ALL' || j.branchId === branchFilter)

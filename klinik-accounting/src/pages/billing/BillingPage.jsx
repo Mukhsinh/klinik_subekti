@@ -1,16 +1,18 @@
 import { useState, useMemo, useRef } from 'react'
-import { Plus, Eye, CheckCircle, Trash2, Stethoscope, Package, Printer, Pencil, UserCheck, CreditCard, Lock, Info, Pill, XCircle, Search } from 'lucide-react'
+import { Plus, Eye, CheckCircle, Trash2, Stethoscope, Package, Printer, Pencil, UserCheck, CreditCard, Lock, Info, Pill, XCircle, Search, FileText, FileSpreadsheet } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import Modal from '../../components/ui/Modal'
 import SearchInput from '../../components/ui/SearchInput'
 import Badge, { StatusBadge } from '../../components/ui/Badge'
 import SearchableSelect from '../../components/ui/SearchableSelect'
-import { exportBillingReceiptPDF } from '../../utils/exportPDF'
+import { exportBillingReceiptPDF, exportCancelledPatientsPDF } from '../../utils/exportPDF'
+import { exportCancelledPatientsExcel } from '../../utils/exportExcel'
 import { resolveBillingItemCategory, getBillingCategoryBadgeClass } from '../../utils/billingCategory'
 import {
   updateBilling, deleteBillingItemsByBilling, insertBillingItems, fetchBillingItems,
   deleteDoctorFeeRecordByBilling, insertDoctorFeeRecord, updateBatchQty,
-  insertStockLedger, fetchStockLedger, insertAuditLog, deleteStockOutflowItemByBillingAndItem
+  insertStockLedger, fetchStockLedger, insertAuditLog, deleteStockOutflowItemByBillingAndItem,
+  deleteJournalItemsByEntry, insertJournalItems
 } from '../../lib/db'
 import {
   fmtIDR, fmtDate, todayISO,
@@ -26,7 +28,7 @@ const BPJS_RATIO = 0.80
 
 export default function BillingPage() {
   const {
-    pharmacyItems, invBatches, billings, billingItems, stockOutflows, stockOutflowItems, doctors, serviceTariffs,
+    pharmacyItems, invBatches, billings, billingItems, stockOutflows, stockOutflowItems, doctors, serviceTariffs, branches,
     generateBillingNumber, saveBilling,
     activeBranchId, saveJournalDraft, postJournalEntry, reverseJournal, generateEntryNumber,
     getItemStock, depleteInventoryFIFO, refreshAll, appSettings,
@@ -69,6 +71,73 @@ export default function BillingPage() {
   const [loadingItems, setLoadingItems] = useState(false)
   const [patientSuggestField, setPatientSuggestField] = useState(null) // 'name' | 'mrn' | null
 
+  // State filter untuk Laporan Pasien Batal Periksa
+  const [cancelFilterType, setCancelFilterType] = useState('ALL')
+  const [cancelStartDate, setCancelStartDate] = useState(todayISO())
+  const [cancelEndDate, setCancelEndDate] = useState(todayISO())
+  const [cancelMonth, setCancelMonth] = useState(new Date().getMonth() + 1)
+  const [cancelYear, setCancelYear] = useState(new Date().getFullYear())
+  const [cancelDoctor, setCancelDoctor] = useState('ALL')
+
+  const activeBranch = useMemo(
+    () => (branches || []).find(b => b.id === activeBranchId) || (branches || [])[0] || null,
+    [branches, activeBranchId]
+  )
+
+  const cancelledBillingsAll = useMemo(() =>
+    (billings || [])
+      .filter(b => (b.status || '').toUpperCase() === 'CANCELLED')
+      .sort((a, b) => new Date(b.visitDate || b.visit_date || b.createdAt || 0) - new Date(a.visitDate || a.visit_date || a.createdAt || 0)),
+    [billings]
+  )
+
+  const filteredCancelledBillings = useMemo(() => {
+    let list = cancelledBillingsAll
+    if (cancelDoctor !== 'ALL') {
+      list = list.filter(b =>
+        (b.doctorId || b.doctor_id) === cancelDoctor ||
+        (b.doctorName || b.doctor_name) === cancelDoctor
+      )
+    }
+    if (cancelFilterType === 'DAILY') {
+      if (cancelStartDate && cancelEndDate) {
+        list = list.filter(b => {
+          const d = b.visitDate || b.visit_date || ''
+          return d >= cancelStartDate && d <= cancelEndDate
+        })
+      } else if (cancelStartDate) {
+        list = list.filter(b => (b.visitDate || b.visit_date || '') >= cancelStartDate)
+      } else if (cancelEndDate) {
+        list = list.filter(b => (b.visitDate || b.visit_date || '') <= cancelEndDate)
+      }
+    } else if (cancelFilterType === 'MONTHLY') {
+      list = list.filter(b => {
+        const d = new Date(b.visitDate || b.visit_date)
+        return d.getFullYear() === Number(cancelYear) && (d.getMonth() + 1) === Number(cancelMonth)
+      })
+    } else if (cancelFilterType === 'YEARLY') {
+      list = list.filter(b => new Date(b.visitDate || b.visit_date).getFullYear() === Number(cancelYear))
+    }
+    return list
+  }, [cancelledBillingsAll, cancelDoctor, cancelFilterType, cancelStartDate, cancelEndDate, cancelMonth, cancelYear])
+
+  const cancelPeriodLabel = useMemo(() => {
+    const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
+    if (cancelFilterType === 'DAILY') {
+      return cancelStartDate === cancelEndDate ? fmtDate(cancelStartDate) : `${fmtDate(cancelStartDate)} s/d ${fmtDate(cancelEndDate)}`
+    }
+    if (cancelFilterType === 'MONTHLY') return `${MONTHS_ID[Number(cancelMonth) - 1] || cancelMonth} ${cancelYear}`
+    if (cancelFilterType === 'YEARLY') return `Tahun ${cancelYear}`
+    return 'Semua Periode'
+  }, [cancelFilterType, cancelStartDate, cancelEndDate, cancelMonth, cancelYear])
+
+  const cancelDoctorLabel = useMemo(() => {
+    if (cancelDoctor === 'ALL') return 'Semua Dokter'
+    const doc = (doctors || []).find(d => d.id === cancelDoctor)
+    if (doc) return `${doc.title ? doc.title + ' ' : ''}${doc.fullName || doc.full_name || doc.name || ''}`.trim()
+    return cancelDoctor
+  }, [cancelDoctor, doctors])
+
   // Database pasien otomatis dari seluruh riwayat pendaftaran/billing
   const patientDatabase = useMemo(() => {
     const map = new Map()
@@ -77,7 +146,7 @@ export default function BillingPage() {
     )
     sorted.forEach(b => {
       const name = String(b.patientName || b.patient_name || '').trim()
-      const mrn = String(b.patientMRN || b.patient_mrn || '').trim()
+      const mrn = String(b.patientMRN || b.patientMrn || b.patient_mrn || '').trim()
       if (!name && !mrn) return
       const key = mrn ? `mrn:${mrn.toLowerCase()}` : `name:${name.toLowerCase()}`
       const existing = map.get(key)
@@ -315,14 +384,15 @@ export default function BillingPage() {
   const subService = serviceLines.reduce((s, l) => s + (parseFloat(l.qty) || 1) * (parseFloat(l.price) || 0), 0)
   const subLab = labLines.reduce((s, l) => s + (parseFloat(l.qty) || 1) * (parseFloat(l.price) || 0), 0)
   const subPharmacy = pharmacyLines.reduce((s, l) => s + (parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0), 0)
-  const discountAmt = parseFloat(discount) || 0
 
   // Selling price is PPN Exclusive (11% PPN is added on top of pharmacy selling price)
   const ppnAmount = Math.round(subPharmacy * PPN_RATE)
-  const grandTotal = Math.max(0, subService + subLab + subPharmacy + ppnAmount - discountAmt)
+  const maxBeforeDiscount = subService + subLab + subPharmacy + ppnAmount
+  const discountAmt = Math.min(Math.max(0, parseFloat(discount) || 0), maxBeforeDiscount)
+  const grandTotal = Math.max(0, maxBeforeDiscount - discountAmt)
 
-  const patientPortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? grandTotal * (1 - BPJS_RATIO) : grandTotal
-  const insurancePortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? grandTotal * BPJS_RATIO : 0
+  const insurancePortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? Math.round(grandTotal * BPJS_RATIO) : 0
+  const patientPortion = grandTotal - insurancePortion
 
   // Doctor fee/commission applies ONLY to examination & procedures performed by doctor (serviceLines), excluding lab and pharmacy
   const feeRate = selectedDoctor ? (Number(selectedDoctor.feePercentage ?? selectedDoctor.fee_percentage) || 70) : 70
@@ -952,8 +1022,10 @@ export default function BillingPage() {
       const tdPay = payJournalItems.reduce((s, i) => s + (i.debit || 0), 0)
       const tcPay = payJournalItems.reduce((s, i) => s + (i.credit || 0), 0)
 
-      await saveJournalDraft({ id: payJournalId, branchId: effectiveBranchId, entryNumber: payEntryNum, transactionDate: visitDate, description: `Pembayaran Kasir ${patientName} — ${freshBillingNumber}`, entryType: 'BILLING', totalDebit: tdPay, totalCredit: tcPay }, payJournalItems)
-      await postJournalEntry(payJournalId, 'System-Billing')
+      if (payJournalItems.length > 0 && tdPay > 0) {
+        await saveJournalDraft({ id: payJournalId, branchId: effectiveBranchId, entryNumber: payEntryNum, transactionDate: visitDate, description: `Pembayaran Kasir ${patientName} — ${freshBillingNumber}`, entryType: 'BILLING', totalDebit: tdPay, totalCredit: tcPay }, payJournalItems)
+        await postJournalEntry(payJournalId, 'System-Billing')
+      }
 
       // Record doctor fee and PPh21 to doctor_fee_records
       if (selectedDoctor && grossDoctorFee > 0) {
@@ -1046,23 +1118,88 @@ export default function BillingPage() {
     try {
       const nowIso = new Date().toISOString()
 
-      // 1. Hapus pengeluaran obat pasien (unpaid) yang terhubung ke pendaftaran ini agar tidak menggantung di /stock-outflow
+      // 1. Tandai pengeluaran obat pasien (unpaid) yang terhubung ke pendaftaran ini sebagai CANCELLED (JANGAN DIHAPUS!)
+      //    agar tetap tercatat sebagai riwayat/notifikasi di /stock-outflow & dapat diunduh laporannya.
+      //    Sekaligus pastikan 100% tidak ada stok fisik yang terpotong/hilang (restok defensif bila ada mutasi legacy).
       const { data: linkedOutflows } = await supabase
         .from('stock_outflow_entries')
-        .select('id')
+        .select('id, outflow_number, description')
         .eq('billing_id', b.id)
 
       const outIds = (linkedOutflows || []).map(o => o.id)
+      const outNumbers = (linkedOutflows || []).map(o => o.outflow_number).filter(Boolean)
+
+      // 1a. Cek defensif stock_ledger_cards: pastikan tidak ada pemotongan stok fisik yang tersisa untuk billing belum lunas ini
+      const ledgerChecks = []
       if (outIds.length > 0) {
-        await supabase.from('stock_outflow_items').delete().in('outflow_id', outIds)
-        await supabase.from('stock_outflow_entries').delete().in('id', outIds)
+        ledgerChecks.push(
+          supabase.from('stock_ledger_cards').select('id, batch_id, quantity_out').in('reference_id', outIds).gt('quantity_out', 0)
+        )
+      }
+      if (outNumbers.length > 0) {
+        ledgerChecks.push(
+          supabase.from('stock_ledger_cards').select('id, batch_id, quantity_out').in('reference_number', outNumbers).gt('quantity_out', 0)
+        )
+      }
+      if (b.billingNumber) {
+        ledgerChecks.push(
+          supabase.from('stock_ledger_cards').select('id, batch_id, quantity_out').eq('reference_number', b.billingNumber).gt('quantity_out', 0)
+        )
+      }
+      if (ledgerChecks.length > 0) {
+        const ledgerResults = await Promise.all(ledgerChecks)
+        const ledgerToRollback = new Map()
+        for (const res of ledgerResults) {
+          for (const row of (res.data || [])) {
+            ledgerToRollback.set(row.id, row)
+          }
+        }
+        if (ledgerToRollback.size > 0) {
+          const restoreByBatch = {}
+          const ledgerIds = []
+          for (const row of ledgerToRollback.values()) {
+            ledgerIds.push(row.id)
+            if (row.batch_id) {
+              restoreByBatch[row.batch_id] = (restoreByBatch[row.batch_id] || 0) + Number(row.quantity_out || 0)
+            }
+          }
+          for (const [batchId, restoreQty] of Object.entries(restoreByBatch)) {
+            if (restoreQty <= 0) continue
+            const { data: batchRow } = await supabase
+              .from('inventory_batches')
+              .select('quantity_current')
+              .eq('id', batchId)
+              .single()
+            if (batchRow) {
+              await updateBatchQty(batchId, Number(batchRow.quantity_current || 0) + restoreQty)
+            }
+          }
+          await supabase.from('stock_ledger_cards').delete().in('id', ledgerIds)
+        }
+      }
+
+      // 1b. Update status stock_outflow_entries menjadi CANCELLED (item tetap disimpan untuk audit & laporan farmasi)
+      if (linkedOutflows && linkedOutflows.length > 0) {
+        for (const lo of linkedOutflows) {
+          const baseDesc = (lo.description || `Pengeluaran Obat Pasien: ${b.patientName} (No. Billing: ${b.billingNumber})`)
+            .replace(/\s*\[DIBATALKAN KASIR[^\]]*\]/gi, '')
+            .trim()
+          await supabase
+            .from('stock_outflow_entries')
+            .update({
+              status: 'CANCELLED',
+              description: `${baseDesc} [DIBATALKAN KASIR — BATAL PERIKSA]`,
+              updated_at: nowIso
+            })
+            .eq('id', lo.id)
+        }
       }
 
       // 2. Balikkan jurnal piutang pendaftaran (jika ada jurnal POSTED dari pendaftaran)
       const jId = b.journalEntryId || b.journal_entry_id
       if (jId && typeof reverseJournal === 'function') {
         try {
-          await reverseJournal(jId, 'Kasir', `Batal Periksa — ${b.billingNumber} (${b.patientName})`)
+          await reverseJournal(jId, 'Kasir', `Batal Periksa — ${b.billingNumber} (${b.patientName})`, b.visitDate || b.visit_date || null)
         } catch (revErr) {
           console.warn('[handleCancelExam] Reverse journal notice:', revErr?.message)
         }
@@ -1162,7 +1299,7 @@ export default function BillingPage() {
     }
 
     setPatientName(b.patientName || b.patient_name || '')
-    setPatientMRN(b.patientMRN || b.patient_mrn || '')
+    setPatientMRN(b.patientMRN || b.patientMrn || b.patient_mrn || '')
     setVisitDate(b.visitDate || b.visit_date || todayISO())
     setPayMethod(b.paymentMethod || b.payment_method || 'TUNAI')
     setBpjsClaimNo(b.bpjsClaimNumber || b.bpjs_claim_number || '')
@@ -1277,19 +1414,13 @@ export default function BillingPage() {
       const subService = serviceLines.reduce((sum, l) => sum + (Number(l.qty || 1) * Number(l.price || 0)), 0)
       const subLab = labLines.reduce((sum, l) => sum + (Number(l.qty || 1) * Number(l.price || 0)), 0)
       const subPharmacy = pharmacyLines.reduce((sum, l) => sum + ((parseFloat(l.qty) || 0) * (parseFloat(l.price) || 0)), 0)
-      const discountAmt = Math.min(Number(discount) || 0, subService + subLab + subPharmacy)
       const ppnAmount = Math.round(subPharmacy * PPN_RATE)
-      const grandTotal = Math.max(0, subService + subLab + subPharmacy + ppnAmount - discountAmt)
+      const maxBeforeDisc = subService + subLab + subPharmacy + ppnAmount
+      const discountAmt = Math.min(Math.max(0, Number(discount) || 0), maxBeforeDisc)
+      const grandTotal = Math.max(0, maxBeforeDisc - discountAmt)
 
-      let patientPortion = grandTotal
-      let insurancePortion = 0
-      if (payMethod === 'BPJS') {
-        insurancePortion = Math.round(grandTotal * BPJS_RATIO)
-        patientPortion = grandTotal - insurancePortion
-      } else if (payMethod === 'ASURANSI') {
-        insurancePortion = grandTotal
-        patientPortion = 0
-      }
+      const insurancePortion = ['BPJS', 'ASURANSI'].includes(payMethod) ? Math.round(grandTotal * BPJS_RATIO) : 0
+      const patientPortion = grandTotal - insurancePortion
 
       const docFeePct = selectedDoctor ? (Number(selectedDoctor.feePercentage ?? selectedDoctor.fee_percentage) || 70) : 70
       const docName = selectedDoctor ? `${selectedDoctor.title || ''} ${selectedDoctor.fullName || selectedDoctor.name}`.trim() : ''
@@ -1408,7 +1539,7 @@ export default function BillingPage() {
         // Balikkan jurnal piutang lama jika sudah ada (safely)
         if (editingBilling.journalEntryId) {
           try {
-            await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Piutang Billing ${editingBilling.billingNumber}`)
+            await reverseJournal(editingBilling.journalEntryId, 'Kasir', `Revisi Piutang Billing ${editingBilling.billingNumber}`, editingBilling.visitDate || editingBilling.visit_date || visitDate)
           } catch (rErr) {
             console.warn('[handleSaveEditBilling] reverseJournal notice:', rErr)
           }
@@ -1662,21 +1793,16 @@ export default function BillingPage() {
         const tcBill = billingJournalItems.reduce((s, i) => s + (i.credit || 0), 0)
 
         if (billingJournalId) {
-          await supabase.from('journal_entry_items').delete().eq('journal_entry_id', billingJournalId)
-          await supabase.from('journal_entry_items').insert(billingJournalItems.map(it => ({
-            id: it.id,
-            journal_entry_id: it.journalEntryId,
-            account_code: it.accountCode,
-            description: it.description,
-            debit: it.debit,
-            credit: it.credit
-          })))
-          await supabase.from('journal_entries').update({
+          await deleteJournalItemsByEntry(billingJournalId)
+          await insertJournalItems(billingJournalItems)
+          const { error: updJErr } = await supabase.from('journal_entries').update({
             total_debit: tdBill,
             total_credit: tcBill,
             transaction_date: visitDate,
+            description: `Piutang Billing Pasien ${patientName} — ${editingBilling.billingNumber}`,
             updated_at: new Date().toISOString()
           }).eq('id', billingJournalId)
+          if (updJErr) throw updJErr
         } else {
           billingJournalId = effectiveBJournalId
           const eNum = generateEntryNumber('BILLING')
@@ -1749,7 +1875,7 @@ export default function BillingPage() {
       const paymentJournalItems = []
 
       const cashAcc = getAccountCode('billing_cash', appSettings, '1-11-002')
-      const transferAcc = getAccountCode('billing_transfer', appSettings, '1-11-003')
+      const transferAcc = getAccountCode('billing_transfer', appSettings, '1-11-005')
       const qrisAcc = getAccountCode('billing_qris', appSettings, '1-11-004')
       const piutangPasienAcc = getAccountCode('billing_piutang_pasien', appSettings, '1-12-003')
       const bpjsAcc = getAccountCode('billing_piutang_bpjs', appSettings, '1-12-001')
@@ -1824,17 +1950,19 @@ export default function BillingPage() {
       const tdPay = paymentJournalItems.reduce((s, i) => s + (i.debit || 0), 0)
       const tcPay = paymentJournalItems.reduce((s, i) => s + (i.credit || 0), 0)
 
-      await saveJournalDraft({
-        id: paymentJournalId,
-        branchId: effectiveBranchId,
-        entryNumber: paymentEntryNum,
-        transactionDate: visitDate,
-        description: `Pembayaran Billing Pasien ${patientName} — ${editingBilling.billingNumber}`,
-        entryType: 'BILLING',
-        totalDebit: tdPay,
-        totalCredit: tcPay
-      }, paymentJournalItems)
-      await postJournalEntry(paymentJournalId, 'System-Billing')
+      if (paymentJournalItems.length > 0 && tdPay > 0) {
+        await saveJournalDraft({
+          id: paymentJournalId,
+          branchId: effectiveBranchId,
+          entryNumber: paymentEntryNum,
+          transactionDate: visitDate,
+          description: `Pembayaran Billing Pasien ${patientName} — ${editingBilling.billingNumber}`,
+          entryType: 'BILLING',
+          totalDebit: tdPay,
+          totalCredit: tcPay
+        }, paymentJournalItems)
+        await postJournalEntry(paymentJournalId, 'System-Billing')
+      }
 
       // Record doctor fee and PPh21 to doctor_fee_records
       if (selectedDoctor && grossDoctorFee > 0) {
@@ -1916,7 +2044,7 @@ export default function BillingPage() {
         return (
           (b.patientName || b.patient_name || '').toLowerCase().includes(s) ||
           (b.billingNumber || b.billing_number || '').toLowerCase().includes(s) ||
-          (b.patientMRN || b.patient_mrn || '').toLowerCase().includes(s) ||
+          (b.patientMRN || b.patientMrn || b.patient_mrn || '').toLowerCase().includes(s) ||
           (b.doctorName || b.doctor_name || '').toLowerCase().includes(s)
         )
       })
@@ -1926,20 +2054,36 @@ export default function BillingPage() {
   return (
     <div className="space-y-5">
       {/* ── Header ──────────────────────────────────────────── */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="page-title">Kasir &amp; Billing Pasien</h1>
           <p className="text-sm text-slate-400 mt-0.5">Pendaftaran pasien &amp; transaksi bertahap — kasir checkout — PPh 21 dokter otomatis</p>
         </div>
-        <button className="btn-danger-red" onClick={() => { resetForm(); setModal('new') }}>
-          <Plus className="w-4 h-4" />Billing Baru
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="px-3.5 py-2 text-sm font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+            onClick={() => setModal('cancelled-report')}
+            title="Lihat & unduh Laporan Pasien Batal Periksa (PDF & Excel)"
+          >
+            <XCircle className="w-4 h-4 text-red-600" />
+            Laporan Batal Periksa
+            {cancelledBillingsAll.length > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 text-[11px] font-bold bg-red-600 text-white rounded-full">
+                {cancelledBillingsAll.length}
+              </span>
+            )}
+          </button>
+          <button className="btn-danger-red" onClick={() => { resetForm(); setModal('new') }}>
+            <Plus className="w-4 h-4" />Billing Baru
+          </button>
+        </div>
       </div>
 
       {/* ── Filter bar ──────────────────────────────────────── */}
       <div className="card card-body">
         <div className="flex flex-wrap gap-3 items-center">
-          <SearchInput value={search} onChange={setSearch} placeholder="Cari nama pasien atau no. billing…" className="w-64" />
+          <SearchInput value={search} onChange={setSearch} placeholder="Cari nama pasien, No. RM, atau no. billing…" className="w-64" />
           <select className="form-select w-44" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="ALL">Semua Status</option>
             <option value="UNPAID">Belum Lunas (Tertunda)</option>
@@ -1947,6 +2091,42 @@ export default function BillingPage() {
             <option value="DRAFT">Draft</option>
             <option value="CANCELLED">Batal Periksa</option>
           </select>
+          {statusFilter === 'CANCELLED' && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                className="btn-secondary text-xs py-1.5 px-2.5 flex items-center gap-1"
+                onClick={() => {
+                  exportCancelledPatientsPDF({
+                    cancelledBillings: filtered,
+                    periodLabel: 'Sesuai Filter Tabel',
+                    doctorLabel: 'Semua Dokter',
+                    branchName: activeBranch?.entityName || '',
+                    appSettings
+                  })
+                  toast.success('Laporan PDF Pasien Batal Periksa berhasil diunduh.')
+                }}
+              >
+                <FileText className="w-3.5 h-3.5 text-red-600" />Unduh PDF
+              </button>
+              <button
+                type="button"
+                className="btn-success text-xs py-1.5 px-2.5 flex items-center gap-1"
+                onClick={() => {
+                  exportCancelledPatientsExcel({
+                    cancelledBillings: filtered,
+                    periodLabel: 'Sesuai Filter Tabel',
+                    doctorLabel: 'Semua Dokter',
+                    branchName: activeBranch?.entityName || '',
+                    appSettings
+                  })
+                  toast.success('Laporan Excel Pasien Batal Periksa berhasil diunduh.')
+                }}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />Unduh Excel
+              </button>
+            </div>
+          )}
           <span className="ml-auto text-sm text-slate-400">{filtered.length} transaksi</span>
         </div>
       </div>
@@ -1975,7 +2155,11 @@ export default function BillingPage() {
                   <td className="text-sm">{fmtDate(b.visitDate)}</td>
                   <td className="font-bold text-sm text-slate-800">
                     <div>{b.patientName}</div>
-                    {b.patientMRN && <div className="text-[10px] font-mono font-normal text-slate-400">RM: {b.patientMRN}</div>}
+                    {(b.patientMRN || b.patientMrn || b.patient_mrn) && (
+                      <div className="text-[10px] font-mono font-normal text-slate-500">
+                        RM: {b.patientMRN || b.patientMrn || b.patient_mrn}
+                      </div>
+                    )}
                   </td>
                   <td className="text-sm text-slate-500">{b.doctorName || '—'}</td>
                   <td><span className="badge badge-blue">{paymentMethodLabel(b.paymentMethod)}</span></td>
@@ -2561,7 +2745,7 @@ export default function BillingPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">No. Rekam Medis (MRN)</span>
-                  <span className="font-mono text-slate-700">{selected.patientMRN || '—'}</span>
+                  <span className="font-mono font-semibold text-primary-700">{selected.patientMRN || selected.patientMrn || selected.patient_mrn || '—'}</span>
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -2707,6 +2891,176 @@ export default function BillingPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* ── Laporan Pasien Batal Periksa Modal (Export PDF & Excel Profesional) ── */}
+      <Modal
+        open={modal === 'cancelled-report'}
+        onClose={() => setModal(null)}
+        title="Laporan Pasien Batal Periksa"
+        size="xl"
+        footer={
+          <div className="flex flex-wrap items-center justify-between gap-2 w-full">
+            <span className="text-xs text-slate-400">
+              Format dokumen resmi dilengkapi Kop Surat Klinik, Ringkasan, Blok Pengesahan &amp; Footer.
+            </span>
+            <div className="flex items-center gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setModal(null)}>Tutup</button>
+              <button
+                type="button"
+                className="btn-secondary flex items-center gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                onClick={() => {
+                  exportCancelledPatientsPDF({
+                    cancelledBillings: filteredCancelledBillings,
+                    periodLabel: cancelPeriodLabel,
+                    doctorLabel: cancelDoctorLabel,
+                    branchName: activeBranch?.entityName || '',
+                    appSettings
+                  })
+                  toast.success('Laporan PDF Pasien Batal Periksa berhasil diunduh.')
+                }}
+              >
+                <FileText className="w-4 h-4 text-red-600" />
+                Unduh PDF
+              </button>
+              <button
+                type="button"
+                className="btn-success flex items-center gap-1.5"
+                onClick={() => {
+                  exportCancelledPatientsExcel({
+                    cancelledBillings: filteredCancelledBillings,
+                    periodLabel: cancelPeriodLabel,
+                    doctorLabel: cancelDoctorLabel,
+                    branchName: activeBranch?.entityName || '',
+                    appSettings
+                  })
+                  toast.success('Laporan Excel Pasien Batal Periksa berhasil diunduh.')
+                }}
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Unduh Excel
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {/* Filter Bar */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div>
+              <label className="form-label text-xs">Filter Periode</label>
+              <select className="form-select text-sm" value={cancelFilterType} onChange={e => setCancelFilterType(e.target.value)}>
+                <option value="ALL">Semua Periode</option>
+                <option value="DAILY">Harian / Rentang Tanggal</option>
+                <option value="MONTHLY">Bulanan</option>
+                <option value="YEARLY">Tahunan</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label text-xs">Dokter Pemeriksa</label>
+              <select className="form-select text-sm" value={cancelDoctor} onChange={e => setCancelDoctor(e.target.value)}>
+                <option value="ALL">Semua Dokter</option>
+                {doctorOptions.map(d => (
+                  <option key={d.value} value={d.value}>{d.label}</option>
+                ))}
+              </select>
+            </div>
+            {cancelFilterType === 'DAILY' && (
+              <>
+                <div>
+                  <label className="form-label text-xs">Tanggal Awal</label>
+                  <input type="date" className="form-input text-sm" value={cancelStartDate} onChange={e => setCancelStartDate(e.target.value)} />
+                </div>
+                <div>
+                  <label className="form-label text-xs">Tanggal Akhir</label>
+                  <input type="date" className="form-input text-sm" value={cancelEndDate} onChange={e => setCancelEndDate(e.target.value)} />
+                </div>
+              </>
+            )}
+            {cancelFilterType === 'MONTHLY' && (
+              <>
+                <div>
+                  <label className="form-label text-xs">Bulan</label>
+                  <select className="form-select text-sm" value={cancelMonth} onChange={e => setCancelMonth(Number(e.target.value))}>
+                    {['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].map((m, idx) => (
+                      <option key={idx} value={idx + 1}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label text-xs">Tahun</label>
+                  <input type="number" className="form-input text-sm" value={cancelYear} onChange={e => setCancelYear(Number(e.target.value))} />
+                </div>
+              </>
+            )}
+            {cancelFilterType === 'YEARLY' && (
+              <div>
+                <label className="form-label text-xs">Tahun</label>
+                <input type="number" className="form-input text-sm" value={cancelYear} onChange={e => setCancelYear(Number(e.target.value))} />
+              </div>
+            )}
+          </div>
+
+          {/* Summary KPIs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl bg-red-50 border border-red-200 p-3">
+              <p className="text-xs text-red-700 font-medium">Total Pasien Batal Periksa</p>
+              <p className="text-xl font-extrabold text-red-800 mt-0.5">{filteredCancelledBillings.length} Pasien</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+              <p className="text-xs text-slate-600 font-medium">Estimasi Jasa &amp; Farmasi Dibatalkan</p>
+              <p className="text-xl font-extrabold text-slate-800 font-mono mt-0.5">
+                {fmtIDR(filteredCancelledBillings.reduce((s, b) => s + Number(b.grandTotal ?? b.grand_total ?? 0), 0))}
+              </p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
+              <p className="text-xs text-emerald-700 font-medium">Dampak Jurnal Akuntansi</p>
+              <p className="text-sm font-bold text-emerald-800 mt-1">Saldo Bersih Rp 0 (Jurnal Dibalik)</p>
+            </div>
+          </div>
+
+          {/* Preview Table */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+            <table className="table-base text-xs">
+              <thead className="sticky top-0 bg-slate-100 z-10">
+                <tr>
+                  <th className="text-center w-10">No</th>
+                  <th>No. Billing</th>
+                  <th>Tgl Visit</th>
+                  <th>No. RM</th>
+                  <th>Nama Pasien</th>
+                  <th>Dokter</th>
+                  <th>Metode</th>
+                  <th className="text-right">Total Dibatalkan</th>
+                  <th className="text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCancelledBillings.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="text-center py-10 text-slate-400">
+                      Tidak ada data pasien batal periksa pada periode yang dipilih.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCancelledBillings.map((b, idx) => (
+                    <tr key={b.id} className="hover:bg-red-50/30">
+                      <td className="text-center text-slate-400">{idx + 1}</td>
+                      <td className="font-mono font-bold text-primary-700">{b.billingNumber || b.billing_number}</td>
+                      <td>{fmtDate(b.visitDate || b.visit_date)}</td>
+                      <td className="font-mono text-slate-700">{b.patientMRN || b.patientMrn || b.patient_mrn || '—'}</td>
+                      <td className="font-semibold text-slate-800">{b.patientName || b.patient_name}</td>
+                      <td className="text-slate-600">{b.doctorName || b.doctor_name || '—'}</td>
+                      <td>{paymentMethodLabel(b.paymentMethod || b.payment_method)}</td>
+                      <td className="text-right font-mono font-bold text-red-700">{fmtIDR(b.grandTotal ?? b.grand_total ?? 0)}</td>
+                      <td className="text-center"><Badge label="Batal Periksa" variant="red" /></td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </Modal>
     </div>
   )
